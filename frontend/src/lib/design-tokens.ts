@@ -5,7 +5,7 @@ export const tokens = {
   color: {
     ink: { 900: "#0B0C0E", 800: "#131519", 700: "#1C1F24", 600: "#262A31" },
     paper: { 50: "#F7F6F2", 300: "#C9C7BF", 500: "#8A897F" },
-    accent: { green: "#1FA35A", gold: "#D4A24E" },
+    accent: { green: "#1FA35A", gold: "#D4A24E", red: "#C2483B" },
     signal: { red: "#C2483B" },
   },
   font: {

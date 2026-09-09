@@ -94,4 +94,28 @@ export const api = {
   pipelineStats: () => request<PipelineStats>("/pipeline/stats"),
 };
 
+export const postsApi = {
+  list: (params?: { status?: string; event_id?: string; theme?: string }) =>
+    request<Page<import('./types').SocialPost>>("/posts" + qs(params || {})),
+  get: (id: string) => request<import('./types').SocialPost>(`/posts/${id}`),
+  compose: (body: { event_id: string; format: string; theme?: string }) =>
+    request<import('./types').ComposeTaskResponse>("/posts/compose", { method: "POST", body: JSON.stringify(body) }),
+  triggerRender: (id: string) =>
+    request<import('./types').ComposeTaskResponse>(`/posts/${id}/render`, { method: "POST" }),
+  triggerPublish: (id: string) =>
+    request<import('./types').ComposeTaskResponse>(`/posts/${id}/publish`, { method: "POST" }),
+  schedule: (id: string, scheduled_at: string) =>
+    request<import('./types').SocialPost>(`/posts/${id}/schedule`, { method: "POST", body: JSON.stringify({ scheduled_at }) }),
+  patch: (id: string, body: { headline?: string; caption?: string; hashtags?: string[] }) =>
+    request<import('./types').SocialPost>(`/posts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  delete: (id: string) => request<void>(`/posts/${id}`, { method: "DELETE" }),
+  checkEligibility: (id: string) => request<import('./types').EligibilityCheck>(`/posts/${id}/eligibility`),
+  generateAsset: (event_id: string) =>
+    request<import('./types').ComposeTaskResponse>(`/posts/assets/generate${qs({ event_id })}`, { method: "POST" }),
+  listAssets: (event_id: string) =>
+    request<import('./types').VisualAsset[]>(`/posts/assets${qs({ event_id })}`),
+  selectAsset: (asset_id: string) =>
+    request<import('./types').VisualAsset>(`/posts/assets/${asset_id}/select`, { method: "POST" }),
+};
+
 export { API_BASE };

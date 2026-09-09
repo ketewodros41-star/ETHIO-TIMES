@@ -2,6 +2,8 @@ import { tokens } from "@/lib/design-tokens";
 import type { VisualStyle } from "@/lib/design-tokens";
 import { FORMATS, type InstagramFormat } from "./formats";
 
+import type { ThemeId } from "./themes";
+
 export type PostTemplateData = {
   category: string;
   headline: string;
@@ -9,8 +11,9 @@ export type PostTemplateData = {
   source: string;
   dateLabel?: string;
   imageUrl?: string;
-  accent?: "green" | "gold";
+  accent?: "green" | "gold" | "red";
   style?: VisualStyle;
+  theme?: ThemeId;
 };
 
 /**
@@ -24,6 +27,15 @@ export type PostTemplateData = {
  * accent rule → source footer + ETHIOTIMES wordmark. Optional cinematic image
  * zone sits behind an ink gradient scrim for legibility.
  */
+import { VerifiedBriefPost } from "./VerifiedBriefPost";
+import { BreakingPost } from "./BreakingPost";
+import { PoliticsSensitivePost } from "./PoliticsSensitivePost";
+import { EconomyPost } from "./EconomyPost";
+import { DataChartPost } from "./DataChartPost";
+import { OfficialStatementPost } from "./OfficialStatementPost";
+import { QuotePost } from "./QuotePost";
+import { CulturePhotoPost } from "./CulturePhotoPost";
+
 export function PostTemplate({
   format,
   data,
@@ -31,9 +43,22 @@ export function PostTemplate({
   format: InstagramFormat;
   data: PostTemplateData;
 }) {
+  if (data.theme) {
+    switch (data.theme) {
+      case "verified_brief": return <VerifiedBriefPost format={format} data={data} />;
+      case "breaking": return <BreakingPost format={format} data={data} flashText={data.dek} />;
+      case "politics_sensitive": return <PoliticsSensitivePost format={format} data={data} />;
+      case "economy": return <EconomyPost format={format} data={data} />;
+      case "data_chart": return <DataChartPost format={format} data={data} />;
+      case "official_statement": return <OfficialStatementPost format={format} data={data} />;
+      case "quote": return <QuotePost format={format} data={data} />;
+      case "culture_photo": return <CulturePhotoPost format={format} data={data} />;
+    }
+  }
+
   const { width, height, safeMargin } = FORMATS[format];
   const accent =
-    data.accent === "gold" ? tokens.color.accent.gold : tokens.color.accent.green;
+    data.accent === "gold" ? tokens.color.accent.gold : data.accent === "red" ? tokens.color.accent.red : tokens.color.accent.green;
 
   const headlineSize = format === "story" ? 96 : format === "square" ? 84 : 104;
 

@@ -317,3 +317,63 @@ export interface IngestTriggerResponse {
   source_ids: string[];
   message: string;
 }
+
+export interface VisualAsset {
+  id: string;
+  event_id: string;
+  prompt: string;
+  visual_strategy: Record<string, unknown>;
+  provider: string;
+  model: string | null;
+  style: string | null;
+  storage_url: string | null;
+  quality_score: number | null;
+  quality_report: Record<string, unknown>;
+  status: "generating" | "generated" | "approved" | "rejected" | "published";
+  is_selected: boolean;
+  created_at: string;
+}
+
+export interface SocialPost {
+  id: string;
+  event_id: string;
+  platform: "instagram";
+  format: "portrait" | "square" | "story";
+  theme: string;
+  headline: string;
+  caption: string;
+  hashtags: string[];
+  source_attribution: string | null;
+  key_facts: string[];
+  media_url: string | null;
+  status: "draft" | "rendered" | "scheduled" | "published" | "failed";
+  scheduled_at: string | null;
+  published_at: string | null;
+  ig_post_id: string | null;
+  error: string | null;
+  eligibility_snapshot: {
+    auto_publish_eligible: boolean;
+    review_required: boolean;
+    verification_score: number;
+    trend_score: number;
+    event_verification_status: string;
+  };
+  visual_asset: VisualAsset | null;
+  created_at: string;
+  updated_at: string;
+  event?: NewsEvent;
+}
+
+export interface EligibilityCheck {
+  eligible: boolean;
+  blocked_reasons: string[];
+  verification_score: number;
+  review_required: boolean;
+  auto_publish_eligible: boolean;
+}
+
+export interface ComposeTaskResponse {
+  task_id: string;
+  post_id: string | null;
+  message: string;
+}
