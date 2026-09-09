@@ -87,7 +87,10 @@ class IntelligencePipeline:
                     return result
                 self._step_embedding(article, result)
 
-            if article.embedding is not None:
+            if (
+                article.embedding is not None
+                and article.processing_status != ProcessingStatus.clustered
+            ):
                 self._step_cluster(article, result)
 
             article.processing_error = None
