@@ -50,6 +50,8 @@ class FakeAIProvider(AIProvider):
         relevance: dict | None = None,
         analysis: dict | None = None,
         cluster: dict | None = None,
+        claims: dict | None = None,
+        contradictions: dict | None = None,
         raise_on_json: Exception | None = None,
         bad_json: bool = False,
     ) -> None:
@@ -57,6 +59,8 @@ class FakeAIProvider(AIProvider):
         self.relevance = relevance
         self.analysis = analysis
         self.cluster = cluster
+        self.claims = claims
+        self.contradictions = contradictions
         self.raise_on_json = raise_on_json
         self.bad_json = bad_json
         self.calls: list[str] = []
@@ -68,6 +72,29 @@ class FakeAIProvider(AIProvider):
         if self.raise_on_json is not None:
             raise self.raise_on_json
         prompt = request.prompt.lower()
+        if "identify pairs of claims that contradict" in prompt:
+            self.calls.append("contradictions")
+            if self.bad_json:
+                return {"contradictions": "nope"}
+            return self.contradictions or {"contradictions": []}
+        if "extract structured claims" in prompt:
+            self.calls.append("claims")
+            if self.bad_json:
+                raise ProviderResponseError("bad json")
+            return self.claims or {
+                "claims": [
+                    {
+                        "claim_text": "The National Bank of Ethiopia raised the policy rate.",
+                        "claim_type": "financial",
+                        "normalized_value": "15%",
+                        "entities": ["National Bank of Ethiopia"],
+                        "excerpt": "NBE raised the policy rate to 15 percent",
+                        "is_major": True,
+                        "confidence": 0.9,
+                    }
+                ],
+                "cited_institutions": ["National Bank of Ethiopia"],
+            }
         if "same real-world event" in prompt:
             self.calls.append("cluster")
             if self.bad_json:

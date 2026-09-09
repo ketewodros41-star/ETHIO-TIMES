@@ -5,8 +5,11 @@ from __future__ import annotations
 import pytest
 from app.schemas.intelligence import (
     AnalysisResult,
+    ClaimExtractionResult,
     ClusterRelation,
+    ContradictionDetectionResult,
     Entities,
+    ExtractedClaim,
     RelevanceResult,
 )
 from pydantic import ValidationError
@@ -54,3 +57,41 @@ def test_cluster_relation_normalizes_invalid():
     assert c.relation == "unrelated"
     c2 = ClusterRelation(relation="Same_Event", confidence=0.9)
     assert c2.relation == "same_event"
+
+
+def test_extracted_claim_normalizes_type_and_confidence():
+    c = ExtractedClaim(
+        claim_text="NBE hiked rates",
+        claim_type="FINANCIAL",
+        confidence="1.4",
+        entities="NBE",
+        excerpt="NBE hiked rates to 15%",
+    )
+    assert c.claim_type == "financial"
+    assert c.confidence == 1.0
+    assert c.entities == ["NBE"]
+
+
+def test_extracted_claim_unknown_type_becomes_announcement():
+    c = ExtractedClaim(claim_text="x", claim_type="rumour")
+    assert c.claim_type == "announcement"
+
+
+def test_claim_extraction_result_coerces_institutions():
+    r = ClaimExtractionResult(cited_institutions="NBE")
+    assert r.cited_institutions == ["NBE"]
+    assert r.claims == []
+
+
+def test_contradiction_result_normalizes_severity():
+    r = ContradictionDetectionResult(
+        contradictions=[
+            {
+                "claim_a_index": 0,
+                "claim_b_index": 1,
+                "description": "toll differs",
+                "severity": "CRITICAL",
+            }
+        ]
+    )
+    assert r.contradictions[0].severity == "critical"

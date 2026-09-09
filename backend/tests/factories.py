@@ -13,16 +13,24 @@ _counter = {"n": 0}
 
 
 def make_source(
-    session: Session, *, slug: str | None = None, name: str = "Test Source"
+    session: Session,
+    *,
+    slug: str | None = None,
+    name: str = "Test Source",
+    source_type: SourceType = SourceType.independent_media,
+    is_primary_source: bool = False,
+    trust_profile: dict | None = None,
 ) -> NewsSource:
     _counter["n"] += 1
     slug = slug or f"test-source-{_counter['n']}"
     source = NewsSource(
         name=name,
         slug=slug,
-        source_type=SourceType.independent_media,
+        source_type=source_type,
         country="ET",
         language="en",
+        is_primary_source=is_primary_source,
+        trust_profile=trust_profile or {"tier": 2, "editorial_standards": "high"},
     )
     session.add(source)
     session.flush()
