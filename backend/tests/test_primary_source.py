@@ -64,3 +64,28 @@ def test_member_primary_source_counts(db_session):
     )
     assert discovery.available is True
     assert discovery.via_member_article is True
+
+
+def test_business_copy_does_not_false_match_ess(db_session):
+    make_source(
+        db_session,
+        slug="ess-ethiopia",
+        name="Ethiopian Statistics Service (ESS)",
+        source_type=SourceType.research_institution,
+        is_primary_source=True,
+    )
+    outlet = make_source(db_session, slug="capital", name="Capital")
+    article = make_article(
+        db_session,
+        outlet,
+        title="Business Ethiopia expansion",
+        summary="A business Ethiopia briefing on coffee exports.",
+        content="The business Ethiopia community welcomed the deal.",
+    )
+    event = NewsEvent(title="Coffee exports")
+    db_session.add(event)
+    db_session.flush()
+    discovery = PrimarySourceService(db_session).discover(
+        event_id=event.id, articles=[article], cited_institutions=[]
+    )
+    assert discovery.available is False

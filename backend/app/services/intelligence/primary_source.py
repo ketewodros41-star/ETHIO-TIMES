@@ -8,6 +8,7 @@ member article whose source is already flagged primary as sufficient.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -170,10 +171,16 @@ def _entity_blob(article: Article) -> str:
 
 
 def _matches(source: NewsSource, haystack: str) -> bool:
-    needles = [
-        source.name.lower(),
-        source.slug.lower().replace("-", " "),
-        source.slug.lower(),
-    ]
+    needles = [source.name.lower()]
     needles.extend(INSTITUTION_ALIASES.get(source.slug, ()))
-    return any(n and n in haystack for n in needles)
+    slug_head = source.slug.split("-")[0].lower()
+    if slug_head and slug_head not in {"ethiopia"}:
+        needles.append(slug_head)
+    for needle in needles:
+        if not needle:
+            continue
+        # Word-ish boundaries so "ess" does not match inside "business".
+        pattern = rf"(?<![a-z0-9]){re.escape(needle)}(?![a-z0-9])"
+        if re.search(pattern, haystack):
+            return True
+    return False
