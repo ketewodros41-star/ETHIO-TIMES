@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.models.article import Article
-from app.models.enums import ProcessingStatus
+from app.models.enums import EventVerificationStatus, EventVerifyStatus, ProcessingStatus
 from app.models.news_event import NewsEvent
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
@@ -43,10 +43,42 @@ def pipeline_stats(session: Session = Depends(get_db)) -> dict:
     )
     total_events = session.scalar(select(func.count()).select_from(NewsEvent)) or 0
 
+    verify_counts = {s.value: 0 for s in EventVerifyStatus}
+    v_rows = session.execute(
+        select(NewsEvent.verification_processing_status, func.count()).group_by(
+            NewsEvent.verification_processing_status
+        )
+    ).all()
+    for status_value, count in v_rows:
+        key = status_value.value if hasattr(status_value, "value") else str(status_value)
+        verify_counts[key] = count
+
+    public_counts = {s.value: 0 for s in EventVerificationStatus}
+    p_rows = session.execute(
+        select(NewsEvent.event_verification_status, func.count()).group_by(
+            NewsEvent.event_verification_status
+        )
+    ).all()
+    for status_value, count in p_rows:
+        key = status_value.value if hasattr(status_value, "value") else str(status_value)
+        public_counts[key] = count
+
+    review_required = (
+        session.scalar(
+            select(func.count())
+            .select_from(NewsEvent)
+            .where(NewsEvent.review_required.is_(True))
+        )
+        or 0
+    )
+
     return {
         "total_articles": total_articles,
         "embedded": embedded,
         "ethiopia_related": relevant,
         "total_events": total_events,
         "by_processing_status": status_counts,
+        "by_event_verify_status": verify_counts,
+        "by_event_verification_status": public_counts,
+        "review_required_events": review_required,
     }

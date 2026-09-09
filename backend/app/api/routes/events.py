@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.models.enums import EventStatus
+from app.models.enums import EventStatus, EventVerificationStatus
 from app.repositories.event_repository import EventRepository
 from app.schemas.common import Page, PageMeta
 from app.schemas.event import EventDetail, EventRead, to_event_detail
@@ -24,6 +24,8 @@ def list_events(
     status_filter: EventStatus | None = Query(None, alias="status"),
     category: str | None = Query(None),
     search: str | None = Query(None),
+    verification_status: EventVerificationStatus | None = Query(None),
+    review_required: bool | None = Query(None),
 ) -> Page[EventRead]:
     repo = EventRepository(session)
     items, total = repo.list(
@@ -32,6 +34,8 @@ def list_events(
         status=status_filter,
         category=category,
         search=search,
+        event_verification_status=verification_status,
+        review_required=review_required,
     )
     return Page[EventRead](
         items=[EventRead.model_validate(e) for e in items],
