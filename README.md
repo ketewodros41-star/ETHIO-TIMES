@@ -8,13 +8,14 @@ content, and (in later phases) clusters, verifies, analyzes, and publishes
 premium editorial posts to Instagram — and later Telegram, X, Facebook, TikTok,
 and a website.
 
-This repository contains the **Phase 1–3** stack: schema and migrations, a
+This repository contains the **Phase 1–4** stack: schema and migrations, a
 seeded Ethiopian source registry, RSS ingestion on Celery, the Gemini
 intelligence pipeline (relevance → analysis → embedding → clustering),
 **verification** (claims, evidence, contradictions, scoring, sensitive-news
-gates), the FastAPI backend, and a dark newsroom Next.js dashboard.
+gates), **trend intelligence** (weighted trend scores, velocity, breaking
+candidates), the FastAPI backend, and a dark newsroom Next.js dashboard.
 
-> Phase 4 (Instagram composition + publishing) and later distribution channels
+> Phase 5 (Instagram composition + publishing) and later distribution channels
 > are **out of scope** on this branch. See [`docs/architecture.md`](docs/architecture.md).
 
 ---
@@ -226,6 +227,38 @@ See [docs/architecture.md](docs/architecture.md#verification-phase-3).
 
 ---
 
+## Phase 4 — Trend intelligence
+
+Clustered events are rescored for **what is moving right now**:
+
+```
+velocity windows → editorial importance → Gemini trend signals (fallback on failure)
+                                          → weighted trend_score + status
+```
+
+Weights (configurable): recency 20%, velocity 20%, diversity 15%, public impact 20%,
+social momentum 10%, search interest 10%, editorial importance 5%. The component
+breakdown is stored as JSON on `news_events.trend_breakdown`. Statuses:
+`low | emerging | trending | high_priority | breaking`.
+
+`event_velocity_metrics` snapshots 1h / 6h / 24h / 72h windows (`article_count`,
+`unique_source_count`, `growth_rate`). Rapid growth sets `breaking_candidate`.
+
+Gemini is used for public impact / social momentum / search interest / breaking
+likelihood when `GEMINI_API_KEY` is set; **fallbacks run only if the call fails**
+or no key is configured. Scoring math itself does not require the model.
+
+Beat enqueues `poll_stale_trends` every 5 minutes; `process_article` and
+`verify_event` also enqueue `score_event_trend` immediately.
+
+The **Events** feed filters by `trend_status` and `breaking`, and sorts by
+`trend_score`. Overview shows breaking + trending rails. Event detail shows the
+score breakdown and velocity table.
+
+See [docs/architecture.md](docs/architecture.md#trend-intelligence-phase-4).
+
+---
+
 ---
 
 ## Seeded sources
@@ -258,8 +291,8 @@ seeded with `rss_url = NULL` for the website/API adapters in later phases.
 | GET/PATCH/DELETE | `/api/v1/sources/{id}` | Read / update / delete |
 | GET | `/api/v1/articles` | List articles (filter, paginate) |
 | GET | `/api/v1/articles/{id}` | Article detail (incl. analysis + processing state) |
-| GET | `/api/v1/events` | List clustered events (`status`, `verification_status`, `review_required`, paginate) |
-| GET | `/api/v1/events/{id}` | Event detail (articles, timeline, claims, evidence, contradictions, verification) |
+| GET | `/api/v1/events` | List clustered events (`status`, `verification_status`, `review_required`, `trend_status`, `breaking`, `sort=last_seen|trend_score`, paginate) |
+| GET | `/api/v1/events/{id}` | Event detail (articles, timeline, claims, evidence, contradictions, verification, trend breakdown, velocity) |
 | GET | `/api/v1/pipeline/stats` | Pipeline processing stats |
 | POST | `/api/v1/ingest/trigger` | **Enqueue** ingestion |
 
@@ -277,7 +310,7 @@ Integration tests mock Gemini — **no production AI calls run in CI**.
 cd backend
 createdb ethiotimes_test    # one-time (or let CI provision it)
 export TEST_DATABASE_URL=postgresql+psycopg://ethiotimes:ethiotimes@localhost:5432/ethiotimes_test
-pytest                       # unit + integration (relevance, clustering, verification, ...)
+pytest                       # unit + integration (relevance, clustering, verification, trending, ...)
 ruff check app migrations tests   # lint
 
 cd ../frontend

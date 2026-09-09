@@ -307,6 +307,86 @@ Event detail includes score/status, claims + evidence, contradictions,
 `primary_source_available`, and review reasons. The dashboard event feed and
 detail pages render these from the real schema (not placeholders).
 
+## Trend intelligence (Phase 4)
+
+Phase 4 sits **after clustering** (and runs again after verification) so the
+newsroom can see which events are *moving*, not only which are verified.
+
+```
+clustered/verified event
+    ├─ event_velocity_metrics (1h / 6h / 24h / 72h)
+    ├─ editorial importance (analysis + category + entities + verification)
+    ├─ Gemini trend signals (public impact, social, search, breaking_likely)
+    │     └─ heuristic fallback on call failure / missing key
+    └─ weighted trend_score 0–100 + component JSON + status
+```
+
+`EventStatus` remains the clustering lifecycle. Verification statuses are
+unchanged. Trend uses a distinct PostgreSQL enum `trend_status`:
+
+`low | emerging | trending | high_priority | breaking`
+
+### Score
+
+Configurable weights (defaults; see `.env.example`):
+
+| Component | Weight |
+|-----------|--------|
+| Recency (`last_seen_at`) | 20% |
+| Source velocity (1h/6h burst + growth) | 20% |
+| Source / language / domain diversity | 15% |
+| Public impact | 20% |
+| Social momentum | 10% |
+| Search interest | 10% |
+| Editorial importance | 5% |
+
+Each component is 0–100 before weighting. The breakdown is stored on
+`news_events.trend_breakdown` JSON. `trend_score` is also copied onto
+`significance_score` so older sort surfaces stay trend-aware.
+
+**Public impact, social momentum, search interest, and `breaking_likely`**
+are asked of Gemini (`gemini-2.5-flash`, structured JSON) once per rescore.
+If the provider is unavailable or the call fails, documented heuristics run
+instead (sensitive-category impact, telegram/social source mix, entity
+prominence). There is **no live social firehose or Google Trends** in this
+phase — those proxies should be replaced later.
+
+### Velocity & breaking
+
+`event_velocity_metrics` upserts one row per window with `article_count`,
+`unique_source_count`, `articles_per_hour`, and `growth_rate` (current window
+÷ previous equal-length window). Breaking-candidate heuristics:
+
+- ≥ `TREND_BREAKING_MIN_ARTICLES_1H` articles from ≥ `TREND_BREAKING_MIN_SOURCES_1H`
+  sources in 1h
+- 1h growth rate ≥ `TREND_BREAKING_MIN_GROWTH` with a populated 6h window
+- sustained 6h burst (≥ 8 articles / 3 sources)
+- Gemini `breaking_likely` **and** velocity component ≥ 50
+
+`breaking` status requires a candidate **and** (`trend_score` ≥
+`TREND_BREAKING_MIN_SCORE` or public impact ≥ 70). Otherwise a burst still
+flags `breaking_candidate` and maps to `trending` / `emerging`.
+
+### Workers
+
+- `process_article` enqueues `score_event_trend` after a successful cluster
+  (alongside `verify_event`).
+- `verify_event` enqueues `score_event_trend` after a successful/skipped run
+  so verification signals feed editorial importance.
+- Beat `poll_stale_trends` (every 5 min) picks up never-scored events, events
+  with `last_seen_at` after `trend_scored_at`, or scores older than
+  `TREND_STALE_MINUTES`.
+- `score_event_trend` takes `SELECT … FOR UPDATE SKIP LOCKED`, is idempotent
+  (skips if scored within `TREND_SKIP_FRESH_SECONDS` and no new coverage),
+  and writes `pipeline_jobs`.
+
+### API / UI
+
+`GET /api/v1/events` filters: `trend_status`, `breaking`; `sort=last_seen|trend_score`.
+Event detail includes `trend_breakdown` and `velocity_metrics`. Overview shows
+breaking and trending rails. Pipeline stats expose `by_trend_status` and
+`breaking_candidates`.
+
 ## Roadmap (phases)
 
 | Phase | Scope |
@@ -315,10 +395,11 @@ detail pages render these from the real schema (not placeholders).
 | 1.5 | Verified Telegram channel ingestion. |
 | **2 (done)** | Gemini provider; Ethiopia relevance detection; article analysis (multilingual entities/facts); embeddings + pgvector cosine search; duplicate detection & event clustering; event lifecycle + timeline; event feed/detail UI. |
 | **3 (done)** | Claim extraction; claim–evidence mapping; contradiction detection; verification scoring; primary-source discovery MVP; sensitive-news review gates; verification workers + event feed/detail UI. |
-| **4 (next)** | Instagram post composition (Playwright render) + publishing. |
-| 5–8 | Carousels; Telegram/X/Facebook/TikTok/website distribution; full editorial AI; analytics. |
+| **4 (done)** | Trend scoring; event velocity; editorial importance; breaking-candidate detection; trend workers + UI. |
+| **5 (next)** | Instagram post composition (Playwright render) + publishing. |
+| 6–8 | Carousels; Telegram/X/Facebook/TikTok/website distribution; full editorial AI; analytics. |
 
-### What remains for Phase 4
+### What remains for Phase 5
 
 - **Instagram composition:** Playwright render of branded post templates from
   verified/evidenced event briefs (not raw unverified claims).
@@ -326,8 +407,10 @@ detail pages render these from the real schema (not placeholders).
   handling. Auto-publish must honour `auto_publish_eligible` and
   `review_required` (sensitive/contradicted events stay in the newsroom).
 
-### Deferred (not Phase 4)
+### Deferred (not Phase 5)
 
+- **Live social / search APIs:** replace Phase 4 momentum and search-interest
+  proxies with a real social firehose and Google Trends.
 - **Editorial synthesis:** generate a neutral event brief/summary and headline
   candidates from clustered, *evidenced* coverage.
 - **More adapters into the pipeline:** Website crawler, API, and (Phase 1.5)

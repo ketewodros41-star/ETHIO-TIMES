@@ -52,6 +52,7 @@ class FakeAIProvider(AIProvider):
         cluster: dict | None = None,
         claims: dict | None = None,
         contradictions: dict | None = None,
+        trend_signals: dict | None = None,
         raise_on_json: Exception | None = None,
         bad_json: bool = False,
     ) -> None:
@@ -61,6 +62,7 @@ class FakeAIProvider(AIProvider):
         self.cluster = cluster
         self.claims = claims
         self.contradictions = contradictions
+        self.trend_signals = trend_signals
         self.raise_on_json = raise_on_json
         self.bad_json = bad_json
         self.calls: list[str] = []
@@ -72,6 +74,18 @@ class FakeAIProvider(AIProvider):
         if self.raise_on_json is not None:
             raise self.raise_on_json
         prompt = request.prompt.lower()
+        if "assess trend signals for this clustered ethiopian news event" in prompt:
+            self.calls.append("trend_signals")
+            if self.bad_json:
+                raise ProviderResponseError("bad json")
+            return self.trend_signals or {
+                "public_impact": 70,
+                "social_momentum": 55,
+                "search_interest": 60,
+                "breaking_likely": False,
+                "reason": "fake trend signals",
+                "affected_scope": "national",
+            }
         if "identify pairs of claims that contradict" in prompt:
             self.calls.append("contradictions")
             if self.bad_json:
