@@ -147,3 +147,94 @@ class ClusterRelation(BaseModel):
         s = str(v or "").strip().lower()
         allowed = {"duplicate", "same_event", "related", "unrelated"}
         return s if s in allowed else "unrelated"
+
+
+# --------------------------------------------------------------------------- #
+# Verification (Phase 3)
+# --------------------------------------------------------------------------- #
+CLAIM_TYPES = (
+    "financial",
+    "statistical",
+    "political",
+    "policy",
+    "casualty",
+    "geographic",
+    "timeline",
+    "announcement",
+)
+
+CONTRADICTION_SEVERITIES = ("low", "medium", "high", "critical")
+
+
+class ExtractedClaim(BaseModel):
+    """One structured claim extracted from an article covering an event."""
+
+    claim_text: str
+    claim_type: str = Field(default="announcement")
+    normalized_value: str | None = None
+    entities: list[str] = Field(default_factory=list)
+    excerpt: str = Field(default="")
+    is_major: bool = True
+    confidence: float = Field(default=0.6, ge=0.0, le=1.0)
+
+    @field_validator("claim_type", mode="before")
+    @classmethod
+    def _norm_claim_type(cls, v: object) -> str:
+        s = str(v or "").strip().lower()
+        return s if s in CLAIM_TYPES else "announcement"
+
+    @field_validator("entities", mode="before")
+    @classmethod
+    def _coerce_entities(cls, v: object) -> list[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [v] if v.strip() else []
+        return [str(x).strip() for x in v if str(x).strip()]  # type: ignore[union-attr]
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _clamp_confidence(cls, v: object) -> float:
+        try:
+            n = float(v)
+        except (TypeError, ValueError):
+            return 0.6
+        return max(0.0, min(1.0, n))
+
+    @field_validator("excerpt", mode="before")
+    @classmethod
+    def _coerce_excerpt(cls, v: object) -> str:
+        return str(v or "")
+
+
+class ClaimExtractionResult(BaseModel):
+    claims: list[ExtractedClaim] = Field(default_factory=list)
+    cited_institutions: list[str] = Field(default_factory=list)
+
+    @field_validator("cited_institutions", mode="before")
+    @classmethod
+    def _coerce_institutions(cls, v: object) -> list[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [v] if v.strip() else []
+        return [str(x).strip() for x in v if str(x).strip()]  # type: ignore[union-attr]
+
+
+class ContradictionPair(BaseModel):
+    """Gemini (or heuristic) verdict that two claims conflict."""
+
+    claim_a_index: int = Field(..., ge=0)
+    claim_b_index: int = Field(..., ge=0)
+    description: str = Field(default="")
+    severity: str = Field(default="medium")
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def _norm_severity(cls, v: object) -> str:
+        s = str(v or "").strip().lower()
+        return s if s in CONTRADICTION_SEVERITIES else "medium"
+
+
+class ContradictionDetectionResult(BaseModel):
+    contradictions: list[ContradictionPair] = Field(default_factory=list)

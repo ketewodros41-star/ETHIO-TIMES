@@ -158,6 +158,128 @@ def cluster_prompt(a: dict, b: dict) -> str:
     )
 
 
+# --------------------------------------------------------------------------- #
+# Claim extraction (Phase 3)
+# --------------------------------------------------------------------------- #
+CLAIM_SYSTEM = (
+    "You are a verification editor for ETHIOTIMES. Extract discrete, checkable "
+    "claims from Ethiopian news coverage. Be precise and neutral. Do not invent "
+    "facts that are not in the text. Respond ONLY with JSON."
+)
+
+CLAIM_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "claims": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "claim_text": {"type": "string"},
+                    "claim_type": {
+                        "type": "string",
+                        "enum": [
+                            "financial",
+                            "statistical",
+                            "political",
+                            "policy",
+                            "casualty",
+                            "geographic",
+                            "timeline",
+                            "announcement",
+                        ],
+                    },
+                    "normalized_value": {"type": "string", "nullable": True},
+                    "entities": {"type": "array", "items": {"type": "string"}},
+                    "excerpt": {"type": "string"},
+                    "is_major": {"type": "boolean"},
+                    "confidence": {"type": "number"},
+                },
+                "required": ["claim_text", "claim_type", "excerpt"],
+            },
+        },
+        "cited_institutions": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["claims", "cited_institutions"],
+}
+
+
+def claim_extraction_prompt(
+    title: str | None, summary: str | None, content: str | None
+) -> str:
+    body = _join_fields(title, summary, content)
+    return (
+        "Extract structured claims from the following news article.\n"
+        "Return JSON with:\n"
+        "- claims: list of {claim_text, claim_type (financial|statistical|"
+        "political|policy|casualty|geographic|timeline|announcement), "
+        "normalized_value (the key number/date/place if any), entities, "
+        "excerpt (verbatim supporting snippet from the article), is_major "
+        "(true for material facts), confidence (0-1)}\n"
+        "- cited_institutions: official bodies cited as the origin of a fact "
+        "(e.g. National Bank of Ethiopia, Ministry of Finance, PMO).\n"
+        "Only include claims that are actually stated. Prefer major factual "
+        "claims over colour/opinion.\n\n"
+        f"{body}"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Contradiction detection (Phase 3)
+# --------------------------------------------------------------------------- #
+CONTRADICTION_SYSTEM = (
+    "You compare claims from different sources covering the SAME event and "
+    "identify genuine contradictions (not mere differences in wording or "
+    "emphasis). Casualty counts, financial figures, dates, locations, and "
+    "who-did-what that cannot all be true are contradictions. Respond ONLY "
+    "with JSON."
+)
+
+CONTRADICTION_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "contradictions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "claim_a_index": {"type": "integer"},
+                    "claim_b_index": {"type": "integer"},
+                    "description": {"type": "string"},
+                    "severity": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high", "critical"],
+                    },
+                },
+                "required": ["claim_a_index", "claim_b_index", "description", "severity"],
+            },
+        }
+    },
+    "required": ["contradictions"],
+}
+
+
+def contradiction_prompt(claims: list[dict]) -> str:
+    lines = []
+    for i, c in enumerate(claims):
+        lines.append(
+            f"[{i}] type={c.get('claim_type')} value={c.get('normalized_value')!r} "
+            f"entities={c.get('entities')} :: {c.get('claim_text')}"
+        )
+    listing = "\n".join(lines) if lines else "(no claims)"
+    return (
+        "Identify pairs of claims that contradict each other.\n"
+        "Return JSON: contradictions = list of {claim_a_index, claim_b_index, "
+        "description, severity (low|medium|high|critical)}.\n"
+        "Severity guide: critical = casualty/death toll or public-safety facts "
+        "that cannot both be true; high = material financial/policy numbers or "
+        "who-holds-office; medium = dates/places/secondary figures; low = "
+        "emphasis or weakly conflicting wording.\n"
+        "Use the integer indexes shown. Skip near-duplicates that agree.\n\n"
+        f"CLAIMS:\n{listing}"
+    )
+
+
 def _join_fields(title: str | None, summary: str | None, content: str | None) -> str:
     parts = []
     if title:

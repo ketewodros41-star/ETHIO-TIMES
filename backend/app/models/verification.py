@@ -59,10 +59,10 @@ class EventClaim(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         JSONB, nullable=False, default=dict, server_default="{}"
     )
 
-    event: Mapped["NewsEvent"] = relationship(  # noqa: F821
+    event: Mapped[NewsEvent] = relationship(  # noqa: F821
         "NewsEvent", back_populates="claims"
     )
-    article: Mapped["Article | None"] = relationship("Article")  # noqa: F821
+    article: Mapped[Article | None] = relationship("Article")  # noqa: F821
     evidence: Mapped[list[ClaimEvidence]] = relationship(
         back_populates="claim", cascade="all, delete-orphan"
     )
@@ -71,8 +71,15 @@ class EventClaim(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 class ClaimEvidence(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "claim_evidence"
     __table_args__ = (
-        UniqueConstraint("claim_id", "article_id", name="uq_claim_evidence_claim_article"),
-        {"comment": "Source excerpts/URLs backing a claim. Editorial may only use evidenced claims."},
+        UniqueConstraint(
+            "claim_id", "article_id", name="uq_claim_evidence_claim_article"
+        ),
+        {
+            "comment": (
+                "Source excerpts/URLs backing a claim. "
+                "Editorial may only use evidenced claims."
+            )
+        },
     )
 
     claim_id: Mapped[uuid.UUID] = mapped_column(
@@ -97,8 +104,8 @@ class ClaimEvidence(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 
     claim: Mapped[EventClaim] = relationship(back_populates="evidence")
-    article: Mapped["Article"] = relationship("Article")  # noqa: F821
-    source: Mapped["NewsSource | None"] = relationship("NewsSource")  # noqa: F821
+    article: Mapped[Article] = relationship("Article")  # noqa: F821
+    source: Mapped[NewsSource | None] = relationship("NewsSource")  # noqa: F821
 
 
 class Contradiction(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -135,7 +142,7 @@ class Contradiction(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         JSONB, nullable=False, default=dict, server_default="{}"
     )
 
-    event: Mapped["NewsEvent"] = relationship(  # noqa: F821
+    event: Mapped[NewsEvent] = relationship(  # noqa: F821
         "NewsEvent", back_populates="contradictions"
     )
     claim_a: Mapped[EventClaim] = relationship(

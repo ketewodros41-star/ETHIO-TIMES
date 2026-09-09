@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
@@ -31,6 +32,9 @@ from app.models.enums import (
     EventVerificationStatus,
     EventVerifyStatus,
 )
+
+if TYPE_CHECKING:
+    from app.models.verification import Contradiction, EventClaim
 
 
 class NewsEvent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -153,12 +157,12 @@ class NewsEvent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         cascade="all, delete-orphan",
         order_by="EventTimeline.occurred_at",
     )
-    claims: Mapped[list["EventClaim"]] = relationship(  # noqa: F821
+    claims: Mapped[list[EventClaim]] = relationship(  # noqa: F821
         "EventClaim",
         back_populates="event",
         cascade="all, delete-orphan",
     )
-    contradictions: Mapped[list["Contradiction"]] = relationship(  # noqa: F821
+    contradictions: Mapped[list[Contradiction]] = relationship(  # noqa: F821
         "Contradiction",
         back_populates="event",
         cascade="all, delete-orphan",
