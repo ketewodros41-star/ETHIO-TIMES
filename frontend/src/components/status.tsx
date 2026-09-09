@@ -109,8 +109,14 @@ export function EventVerificationBadge({
 }: {
   status: EventVerificationStatus;
 }) {
-  const label = status.replaceAll("_", " ");
-  return <Badge variant={VERIFY_VARIANT[status]}>{label}</Badge>;
+  const labels: Record<EventVerificationStatus, string> = {
+    unverified: "unverified",
+    developing: "verify developing",
+    partially_confirmed: "partially confirmed",
+    confirmed: "confirmed",
+    contradicted: "contradicted",
+  };
+  return <Badge variant={VERIFY_VARIANT[status]}>{labels[status]}</Badge>;
 }
 
 const SEVERITY_VARIANT: Record<ContradictionSeverity, "green" | "gold" | "red" | "muted" | "default"> = {

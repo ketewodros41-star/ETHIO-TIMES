@@ -152,8 +152,13 @@ class PrimarySourceService:
             via_member_article=via_member,
         )
 
-        # Attach newly discovered (not already a member) primary sources as a
-        # timeline note — we do not fabricate an article from that outlet.
+        # Replace any prior MVP discovery notes so re-runs stay accurate.
+        for entry in list(self.session.scalars(
+            select(EventTimeline).where(EventTimeline.event_id == event_id)
+        ).all()):
+            if (entry.detail or {}).get("mvp") is True:
+                self.session.delete(entry)
+        self.session.flush()
         already_member_source_ids = {str(a.source_id) for a in articles}
         new_ids = [
             sid for sid in discovery.matched_source_ids if sid not in already_member_source_ids
