@@ -83,17 +83,19 @@ class ArticleRepository:
 
     # ---- Pipeline selection & locking ----
     def select_processable_ids(
-        self, *, limit: int = 50, include_failed: bool = True
+        self,
+        *,
+        limit: int = 50,
+        statuses: list[ProcessingStatus] | None = None,
     ) -> list[uuid.UUID]:
         """IDs of articles that still need pipeline work (not terminal)."""
-        active = [
+        active = statuses or [
             ProcessingStatus.pending,
             ProcessingStatus.relevance_scored,
             ProcessingStatus.analyzed,
             ProcessingStatus.embedded,
+            ProcessingStatus.failed,
         ]
-        if include_failed:
-            active.append(ProcessingStatus.failed)
         stmt = (
             select(Article.id)
             .where(Article.processing_status.in_(active))

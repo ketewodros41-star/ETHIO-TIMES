@@ -7,13 +7,19 @@ ingestion synchronously in the request path.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from app.core.logging import configure_logging, get_logger
 from app.db.session import SessionLocal
+from app.integrations.ai.registry import get_text_provider
+from app.models.audit import AuditLog, PipelineJob
+from app.models.enums import AuditAction, JobStatus, ProcessingStatus
 from app.models.news_source import NewsSource
+from app.repositories.article_repository import ArticleRepository
 from app.repositories.source_repository import SourceRepository
 from app.services.ingestion_service import IngestionService
+from app.services.intelligence.pipeline import IntelligencePipeline
 from app.workers.celery_app import celery_app
 
 configure_logging()
@@ -22,19 +28,100 @@ logger = get_logger(__name__)
 
 @celery_app.task(bind=True, name="app.workers.tasks.ingest_source", max_retries=3)
 def ingest_source(self, source_id: str) -> dict:
-    """Ingest a single source. Idempotent by canonical URL."""
-    import uuid
-
+    """Ingest a single source, then enqueue the intelligence pipeline per new article."""
     session = SessionLocal()
     try:
         service = IngestionService(session)
         result = service.ingest_source(uuid.UUID(source_id), celery_task_id=self.request.id)
         session.commit()
+        # Enqueue the intelligence pipeline for each newly-created article.
+        for article_id in result.created_ids:
+            process_article.delay(str(article_id))
         return result.as_dict()
     except Exception:  # noqa: BLE001
         session.rollback()
         logger.exception("ingest_source_task_error", source_id=source_id)
         raise
+    finally:
+        session.close()
+
+
+@celery_app.task(bind=True, name="app.workers.tasks.process_article", max_retries=3)
+def process_article(self, article_id: str) -> dict:
+    """Run the intelligence pipeline for one article.
+
+    Uses a row-level lock (SKIP LOCKED) so concurrent workers never process the
+    same article. Records a PipelineJob and, on dead-letter, an audit entry.
+    """
+    session = SessionLocal()
+    try:
+        repo = ArticleRepository(session)
+        article = repo.lock_for_processing(uuid.UUID(article_id))
+        if article is None:
+            # Not found, or currently locked by another worker.
+            return {"skipped": True, "article_id": article_id}
+
+        source_id = article.source_id
+        pipeline = IntelligencePipeline(session, get_text_provider())
+        result = pipeline.process(article)
+
+        job = PipelineJob(
+            task_name="process_article",
+            celery_task_id=self.request.id,
+            source_id=source_id,
+            status=JobStatus.success if result.error is None else JobStatus.failed,
+            started_at=datetime.now(UTC),
+            finished_at=datetime.now(UTC),
+            items_processed=1,
+            items_created=1 if "cluster" in result.steps_run else 0,
+            error_message=result.error,
+            detail=result.as_dict(),
+        )
+        session.add(job)
+
+        if result.final_status == ProcessingStatus.dead_letter:
+            session.add(
+                AuditLog(
+                    action=AuditAction.system,
+                    entity_type="article",
+                    entity_id=article_id,
+                    message="Article moved to dead_letter after repeated failures",
+                    changes=result.as_dict(),
+                )
+            )
+        session.commit()
+        return result.as_dict()
+    except Exception:  # noqa: BLE001
+        session.rollback()
+        logger.exception("process_article_task_error", article_id=article_id)
+        raise
+    finally:
+        session.close()
+
+
+@celery_app.task(name="app.workers.tasks.poll_pending_articles")
+def poll_pending_articles(limit: int = 200) -> dict:
+    """Enqueue the pipeline for articles that still need processing.
+
+    When no AI provider is configured, only relevance + analysis (which have
+    deterministic fallbacks) can advance, so we do not re-enqueue articles that
+    are already ``analyzed`` (they would loop). With a provider, all non-terminal
+    states are advanced.
+    """
+    session = SessionLocal()
+    try:
+        provider = get_text_provider()
+        repo = ArticleRepository(session)
+        statuses = (
+            None
+            if provider.is_available()
+            else [ProcessingStatus.pending, ProcessingStatus.failed]
+        )
+        ids = repo.select_processable_ids(limit=limit, statuses=statuses)
+        for article_id in ids:
+            process_article.delay(str(article_id))
+        logger.info("poll_pending_articles", enqueued=len(ids))
+        return {"enqueued": len(ids)}
     finally:
         session.close()
 

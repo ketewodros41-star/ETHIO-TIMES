@@ -36,12 +36,14 @@ class IngestionResult:
         created: int = 0,
         status: JobStatus = JobStatus.success,
         error: str | None = None,
+        created_ids: list[uuid.UUID] | None = None,
     ) -> None:
         self.source_id = source_id
         self.processed = processed
         self.created = created
         self.status = status
         self.error = error
+        self.created_ids = created_ids or []
 
     def as_dict(self) -> dict:
         return {
@@ -50,6 +52,7 @@ class IngestionResult:
             "created": self.created,
             "status": self.status.value,
             "error": self.error,
+            "created_ids": [str(i) for i in self.created_ids],
         }
 
 
@@ -78,14 +81,16 @@ class IngestionService:
                 )
 
             items = adapter.fetch()
-            processed, created = self._persist_items(source, items)
+            processed, created, created_ids = self._persist_items(source, items)
 
             self.sources.mark_success(source, created)
             self._finish_job(job, JobStatus.success, processed, created)
             logger.info(
                 "ingest_success", source=source.slug, processed=processed, created=created
             )
-            return IngestionResult(source_id, processed, created, JobStatus.success)
+            return IngestionResult(
+                source_id, processed, created, JobStatus.success, created_ids=created_ids
+            )
 
         except (AdapterError, NotImplementedError) as exc:
             return self._finish_failed(job, source, str(exc))
@@ -95,9 +100,10 @@ class IngestionService:
 
     def _persist_items(
         self, source: NewsSource, items: list[FetchedItem]
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, list[uuid.UUID]]:
         processed = 0
         created = 0
+        created_ids: list[uuid.UUID] = []
         for item in items:
             processed += 1
             if self.articles.exists_canonical_url(item.canonical_url):
@@ -105,7 +111,8 @@ class IngestionService:
             article = self._build_article(source, item)
             self.articles.add(article)
             created += 1
-        return processed, created
+            created_ids.append(article.id)
+        return processed, created, created_ids
 
     def _build_article(self, source: NewsSource, item: FetchedItem) -> Article:
         score, keywords = score_relevance(item.title, item.summary, item.content)
