@@ -15,6 +15,7 @@ from app.models.enums import (
     ArticleRelationType,
     EventStatus,
     EventTimelineType,
+    EventVerifyStatus,
 )
 from app.models.news_event import EventArticle, EventTimeline, NewsEvent
 from app.repositories.event_repository import EventRepository
@@ -157,6 +158,10 @@ class EventService:
                 detail={"relation": relation.value, "source_id": str(article.source_id)},
             )
         )
+        # New coverage invalidates the previous verification run.
+        event.verification_processing_status = EventVerifyStatus.pending
+        event.verification_attempts = 0
+        event.last_verification_error = None
 
     # -- aggregate recomputation ------------------------------------------- #
     def _recompute(self, event: NewsEvent) -> None:
