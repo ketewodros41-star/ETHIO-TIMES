@@ -8,8 +8,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.article import Article
-from app.models.enums import EventStatus
+from app.models.enums import EventStatus, EventVerificationStatus, EventVerifyStatus
 from app.models.news_event import EventArticle, EventTimeline, NewsEvent
+from app.models.verification import EventClaim
 
 
 class EventRepository:
@@ -27,6 +28,8 @@ class EventRepository:
                 .selectinload(EventArticle.article)
                 .selectinload(Article.source),
                 selectinload(NewsEvent.timeline),
+                selectinload(NewsEvent.claims).selectinload(EventClaim.evidence),
+                selectinload(NewsEvent.contradictions),
             )
             .where(NewsEvent.id == event_id)
         )
@@ -58,6 +61,8 @@ class EventRepository:
         status: EventStatus | None = None,
         category: str | None = None,
         search: str | None = None,
+        event_verification_status: EventVerificationStatus | None = None,
+        review_required: bool | None = None,
     ) -> tuple[list[NewsEvent], int]:
         stmt = select(NewsEvent)
         count_stmt = select(func.count()).select_from(NewsEvent)
@@ -71,6 +76,16 @@ class EventRepository:
             pattern = f"%{search.lower()}%"
             stmt = stmt.where(func.lower(NewsEvent.title).like(pattern))
             count_stmt = count_stmt.where(func.lower(NewsEvent.title).like(pattern))
+        if event_verification_status is not None:
+            stmt = stmt.where(
+                NewsEvent.event_verification_status == event_verification_status
+            )
+            count_stmt = count_stmt.where(
+                NewsEvent.event_verification_status == event_verification_status
+            )
+        if review_required is not None:
+            stmt = stmt.where(NewsEvent.review_required.is_(review_required))
+            count_stmt = count_stmt.where(NewsEvent.review_required.is_(review_required))
 
         total = self.session.scalar(count_stmt) or 0
         stmt = (
@@ -106,3 +121,28 @@ class EventRepository:
                 .where(EventArticle.event_id == event_id)
             ).all()
         )
+
+    def lock_for_verification(self, event_id: uuid.UUID) -> NewsEvent | None:
+        """Row-lock an event with SKIP LOCKED so concurrent workers don't collide."""
+        return self.session.scalar(
+            select(NewsEvent)
+            .where(NewsEvent.id == event_id)
+            .with_for_update(skip_locked=True)
+        )
+
+    def select_pending_verification_ids(self, *, limit: int = 100) -> list[uuid.UUID]:
+        """Events whose verification worker still has work to do."""
+        stmt = (
+            select(NewsEvent.id)
+            .where(
+                NewsEvent.verification_processing_status.in_(
+                    [
+                        EventVerifyStatus.pending,
+                        EventVerifyStatus.failed,
+                    ]
+                )
+            )
+            .order_by(NewsEvent.last_seen_at.desc().nullslast(), NewsEvent.created_at.asc())
+            .limit(limit)
+        )
+        return list(self.session.scalars(stmt).all())

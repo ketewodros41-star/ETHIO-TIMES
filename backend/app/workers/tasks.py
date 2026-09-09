@@ -14,12 +14,14 @@ from app.core.logging import configure_logging, get_logger
 from app.db.session import SessionLocal
 from app.integrations.ai.registry import get_text_provider
 from app.models.audit import AuditLog, PipelineJob
-from app.models.enums import AuditAction, JobStatus, ProcessingStatus
+from app.models.enums import AuditAction, EventVerifyStatus, JobStatus, ProcessingStatus
 from app.models.news_source import NewsSource
 from app.repositories.article_repository import ArticleRepository
+from app.repositories.event_repository import EventRepository
 from app.repositories.source_repository import SourceRepository
 from app.services.ingestion_service import IngestionService
 from app.services.intelligence.pipeline import IntelligencePipeline
+from app.services.intelligence.verification_pipeline import VerificationPipeline
 from app.workers.celery_app import celery_app
 
 configure_logging()
@@ -90,6 +92,8 @@ def process_article(self, article_id: str) -> dict:
                 )
             )
         session.commit()
+        if result.event_id:
+            verify_event.delay(result.event_id)
         return result.as_dict()
     except Exception:  # noqa: BLE001
         session.rollback()
@@ -121,6 +125,73 @@ def poll_pending_articles(limit: int = 200) -> dict:
         for article_id in ids:
             process_article.delay(str(article_id))
         logger.info("poll_pending_articles", enqueued=len(ids))
+        return {"enqueued": len(ids)}
+    finally:
+        session.close()
+
+
+@celery_app.task(bind=True, name="app.workers.tasks.verify_event", max_retries=3)
+def verify_event(self, event_id: str) -> dict:
+    """Run claim extraction, evidence, contradictions, and scoring for one event.
+
+    Uses a row-level lock (SKIP LOCKED). Records a PipelineJob and, on
+    dead-letter, an audit entry. Idempotent: already-verified events with no
+    new coverage are skipped.
+    """
+    session = SessionLocal()
+    try:
+        repo = EventRepository(session)
+        event = repo.lock_for_verification(uuid.UUID(event_id))
+        if event is None:
+            return {"skipped": True, "event_id": event_id, "reason": "locked_or_missing"}
+
+        pipeline = VerificationPipeline(session, get_text_provider())
+        result = pipeline.process(event)
+
+        job = PipelineJob(
+            task_name="verify_event",
+            celery_task_id=self.request.id,
+            event_id=event.id,
+            status=JobStatus.success if result.error is None else JobStatus.failed,
+            started_at=datetime.now(UTC),
+            finished_at=datetime.now(UTC),
+            items_processed=1,
+            items_created=result.claim_count,
+            error_message=result.error,
+            detail=result.as_dict(),
+        )
+        session.add(job)
+
+        if result.final_status == EventVerifyStatus.dead_letter:
+            session.add(
+                AuditLog(
+                    action=AuditAction.system,
+                    entity_type="news_event",
+                    entity_id=event_id,
+                    message="Event verification moved to dead_letter after repeated failures",
+                    changes=result.as_dict(),
+                )
+            )
+        session.commit()
+        return result.as_dict()
+    except Exception:  # noqa: BLE001
+        session.rollback()
+        logger.exception("verify_event_task_error", event_id=event_id)
+        raise
+    finally:
+        session.close()
+
+
+@celery_app.task(name="app.workers.tasks.poll_pending_verifications")
+def poll_pending_verifications(limit: int = 100) -> dict:
+    """Enqueue verification for clustered events that still need it."""
+    session = SessionLocal()
+    try:
+        repo = EventRepository(session)
+        ids = repo.select_pending_verification_ids(limit=limit)
+        for event_id in ids:
+            verify_event.delay(str(event_id))
+        logger.info("poll_pending_verifications", enqueued=len(ids))
         return {"enqueued": len(ids)}
     finally:
         session.close()
