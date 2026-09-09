@@ -28,6 +28,38 @@ export type VerificationStatus =
 
 export type ArticleStatus = "raw" | "normalized" | "duplicate" | "discarded";
 
+export type ProcessingStatus =
+  | "pending"
+  | "relevance_scored"
+  | "analyzed"
+  | "embedded"
+  | "clustered"
+  | "skipped_irrelevant"
+  | "failed"
+  | "dead_letter";
+
+export type RelevanceDecision = "relevant" | "borderline" | "irrelevant";
+
+export type EventStatus =
+  | "developing"
+  | "confirmed"
+  | "updated"
+  | "dormant"
+  | "closed";
+
+export type ArticleRelationType =
+  | "primary"
+  | "duplicate"
+  | "related"
+  | "follow_up"
+  | "context";
+
+export type EventTimelineType =
+  | "first_report"
+  | "source_confirmation"
+  | "new_development"
+  | "correction";
+
 export interface PageMeta {
   total: number;
   limit: number;
@@ -104,6 +136,84 @@ export interface Article {
   published_at?: string | null;
   fetched_at?: string | null;
   created_at: string;
+  processing_status: ProcessingStatus;
+  relevance_score?: number | null;
+  relevance_decision?: RelevanceDecision | null;
+  is_ethiopia_related?: boolean | null;
+  primary_region?: string | null;
+  detected_language?: string | null;
+  importance_score: number;
+}
+
+export interface SourceRef {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface ArticleSummary {
+  id: string;
+  title?: string | null;
+  summary?: string | null;
+  url?: string | null;
+  published_at?: string | null;
+  detected_language?: string | null;
+  importance_score: number;
+  relevance_score?: number | null;
+  relevance_decision?: RelevanceDecision | null;
+  processing_status: ProcessingStatus;
+  category?: string | null;
+  source?: SourceRef | null;
+}
+
+export interface EventArticleLink {
+  relation_type: ArticleRelationType;
+  similarity_score: number;
+  confidence: number;
+  is_primary: boolean;
+  article: ArticleSummary;
+}
+
+export interface EventTimelineEntry {
+  id: string;
+  entry_type: EventTimelineType;
+  occurred_at: string;
+  title?: string | null;
+  detail: Record<string, unknown>;
+  article_id?: string | null;
+}
+
+export interface NewsEvent {
+  id: string;
+  title: string;
+  summary?: string | null;
+  slug?: string | null;
+  status: EventStatus;
+  primary_category?: string | null;
+  primary_region?: string | null;
+  categories: string[];
+  key_entities: string[];
+  significance_score: number;
+  cluster_confidence: number;
+  article_count: number;
+  source_count: number;
+  first_seen_at?: string | null;
+  last_seen_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewsEventDetail extends NewsEvent {
+  articles: EventArticleLink[];
+  timeline: EventTimelineEntry[];
+}
+
+export interface PipelineStats {
+  total_articles: number;
+  embedded: number;
+  ethiopia_related: number;
+  total_events: number;
+  by_processing_status: Record<ProcessingStatus, number>;
 }
 
 export interface IngestTriggerResponse {

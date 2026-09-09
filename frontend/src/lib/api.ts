@@ -1,7 +1,10 @@
 import type {
   Article,
   IngestTriggerResponse,
+  NewsEvent,
+  NewsEventDetail,
   Page,
+  PipelineStats,
   Source,
   SourceHealth,
 } from "./types";
@@ -72,6 +75,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ source_id: source_id ?? null }),
     }),
+
+  listEvents: (params: {
+    limit?: number;
+    offset?: number;
+    status?: string;
+    category?: string;
+    search?: string;
+  }) => request<Page<NewsEvent>>(`/events${qs(params)}`),
+
+  getEvent: (id: string) => request<NewsEventDetail>(`/events/${id}`),
+
+  pipelineStats: () => request<PipelineStats>("/pipeline/stats"),
 };
 
 export { API_BASE };

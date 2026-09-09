@@ -1,6 +1,10 @@
 import { Badge } from "@/components/ui/badge";
 import type {
+  ArticleRelationType,
   ArticleStatus,
+  EventStatus,
+  ProcessingStatus,
+  RelevanceDecision,
   SourceHealthStatus,
   VerificationStatus,
 } from "@/lib/types";
@@ -40,6 +44,63 @@ export function ArticleStatusBadge({ status }: { status: ArticleStatus }) {
           ? "red"
           : "default";
   return <Badge variant={variant}>{status}</Badge>;
+}
+
+export function ProcessingBadge({ status }: { status: ProcessingStatus }) {
+  const map: Record<ProcessingStatus, { variant: "green" | "gold" | "red" | "muted" | "default"; label: string }> = {
+    clustered: { variant: "green", label: "clustered" },
+    embedded: { variant: "default", label: "embedded" },
+    analyzed: { variant: "default", label: "analyzed" },
+    relevance_scored: { variant: "default", label: "scored" },
+    pending: { variant: "muted", label: "pending" },
+    skipped_irrelevant: { variant: "muted", label: "not relevant" },
+    failed: { variant: "gold", label: "failed" },
+    dead_letter: { variant: "red", label: "dead letter" },
+  };
+  const { variant, label } = map[status];
+  return <Badge variant={variant}>{label}</Badge>;
+}
+
+export function RelevanceBadge({
+  decision,
+  score,
+}: {
+  decision?: RelevanceDecision | null;
+  score?: number | null;
+}) {
+  if (decision == null) return <Badge variant="muted">—</Badge>;
+  const variant =
+    decision === "relevant" ? "green" : decision === "borderline" ? "gold" : "muted";
+  return (
+    <Badge variant={variant}>
+      {decision}
+      {score != null ? ` ${score}` : ""}
+    </Badge>
+  );
+}
+
+const EVENT_STATUS_VARIANT: Record<EventStatus, "green" | "gold" | "muted" | "default"> = {
+  confirmed: "green",
+  updated: "default",
+  developing: "gold",
+  dormant: "muted",
+  closed: "muted",
+};
+
+export function EventStatusBadge({ status }: { status: EventStatus }) {
+  return <Badge variant={EVENT_STATUS_VARIANT[status]}>{status}</Badge>;
+}
+
+const RELATION_VARIANT: Record<ArticleRelationType, "green" | "gold" | "red" | "muted" | "default"> = {
+  primary: "green",
+  duplicate: "red",
+  related: "default",
+  follow_up: "gold",
+  context: "muted",
+};
+
+export function RelationBadge({ relation }: { relation: ArticleRelationType }) {
+  return <Badge variant={RELATION_VARIANT[relation]}>{relation.replace("_", " ")}</Badge>;
 }
 
 export function RelevanceMeter({ score }: { score: number }) {

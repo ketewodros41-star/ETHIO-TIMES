@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
+  Layers,
   Newspaper,
   Radio,
   Image as ImageIcon,
@@ -14,6 +15,7 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
+  { href: "/events", label: "Events", icon: Layers },
   { href: "/sources", label: "Sources", icon: Radio },
   { href: "/articles", label: "Articles", icon: Newspaper },
   { href: "/studio/templates", label: "Post Studio", icon: ImageIcon },

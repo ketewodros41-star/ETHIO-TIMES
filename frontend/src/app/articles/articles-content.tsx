@@ -8,7 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArticleStatusBadge, RelevanceMeter } from "@/components/status";
+import {
+  ProcessingBadge,
+  RelevanceBadge,
+  RelevanceMeter,
+} from "@/components/status";
 import { formatDate } from "@/lib/utils";
 
 const PAGE_SIZE = 25;
@@ -64,7 +68,14 @@ export function ArticlesContent() {
                       {c}
                     </Badge>
                   ))}
-                  <ArticleStatusBadge status={a.status} />
+                  <ProcessingBadge status={a.processing_status} />
+                  <RelevanceBadge
+                    decision={a.relevance_decision}
+                    score={a.relevance_score}
+                  />
+                  {a.detected_language && (
+                    <Badge variant="muted">{a.detected_language}</Badge>
+                  )}
                 </div>
                 <h3 className="font-display text-lg font-medium leading-snug text-paper-50">
                   {a.title ?? "(untitled)"}
