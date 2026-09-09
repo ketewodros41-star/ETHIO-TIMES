@@ -40,9 +40,9 @@ This document describes the Phase 1 foundation and how later phases attach to it
 
 `✓` implemented in Phase 1. `⋯` stub for a later phase.
 
-> **Phase 2 (Intelligence) is now implemented.** On top of ingestion, articles
-> flow through a Gemini-powered pipeline: relevance → analysis → embedding →
-> clustering into events. See [Intelligence pipeline (Phase 2)](#intelligence-pipeline-phase-2).
+> **Phase 3 (Verification) is now implemented.** Clustered events run claim
+> extraction, evidence mapping, contradiction detection, and a 0–100
+> verification score. See [Verification (Phase 3)](#verification-phase-3).
 
 ## Backend domain layout
 
@@ -208,6 +208,105 @@ resumes safely if re-run.
 - **CI:** no production AI calls — tests use a deterministic `FakeAIProvider`
   and a mocked SDK client.
 
+## Verification (Phase 3)
+
+Phase 3 sits **after clustering**. A clustered `news_event` is verified
+asynchronously; editorial later must only use **evidenced** claims.
+
+```
+clustered event ─▶ claims ─▶ evidence ─▶ contradictions ─▶ primary source
+                         │         │            │
+                   Gemini+regex  excerpts    heuristic+Gemini
+                         └──────────┴────────────┴─▶ score 0–100 + status
+                                                    + sensitive-news gate
+```
+
+`EventStatus` (developing / confirmed / …) remains the **clustering lifecycle**.
+Source Telegram-handle `verification_status` is unchanged. Event verification
+uses a distinct PostgreSQL enum `event_verification_status`:
+
+`unverified | developing | partially_confirmed | confirmed | contradicted`
+
+Worker processing state is `event_verify_status`:
+`pending | verifying | verified | failed | dead_letter`.
+
+### Claims & evidence
+
+`ClaimExtractionService` asks Gemini for structured claims
+(`financial / statistical / political / policy / casualty / geographic /
+timeline / announcement`) with a verbatim excerpt. Pydantic validates the JSON;
+on provider failure a deterministic fallback mines `article_analysis`
+money/statistics/dates plus casualty/percent/currency regexes.
+
+`EvidenceMappingService` persists `event_claims` **only** when an excerpt (and
+source article URL) can be attached in `claim_evidence`. Claims without evidence
+are dropped.
+
+### Contradictions
+
+`ContradictionService` compares claims across sources. A numeric heuristic
+flags conflicting casualty counts (critical) and material financial/statistical
+deltas (high/medium). Gemini may add/confirm pairs when available. Results live
+in `contradictions` with severity `low | medium | high | critical`.
+
+- Any contradiction **disables** `auto_publish_eligible`.
+- High/critical conflicts set `review_required` and map verification status to
+  `contradicted`.
+
+### Scoring
+
+Weighted 0–100 (see `app/services/intelligence/scoring.py`):
+
+| Component | Weight |
+|-----------|--------|
+| Source reliability / trust profiles | 25% |
+| Independent source count (cap 5) | 20% |
+| Primary source available | 15% |
+| Source-type / language / domain diversity | 15% |
+| Claim consistency | 15% |
+| Evidence coverage of major claims | 10% |
+
+Critical contradictions cap the score at 25. Status mapping uses configurable
+thresholds (`VERIFICATION_CONFIRMED_MIN_SCORE` default 75, partial 50,
+developing 30) plus independent-source floors. The breakdown is stored on
+`news_events.verification_explanation` JSON.
+
+### Primary-source discovery (MVP)
+
+When secondary coverage cites an official institution (NBE, MoF, PMO, MFA, EIC,
+ESS, …), `PrimarySourceService` searches the **registered** source registry
+(`is_primary_source`) by name/slug/alias and attaches a timeline note if found.
+A member article already from a primary source also sets
+`primary_source_available`. No fabricated articles are created.
+
+### Sensitive-news rules
+
+Politics, conflict, military, deaths, crime, ethnic tension, religion,
+elections, public safety, financial panic, and disasters **always** require
+human review and **never** auto-publish.
+
+Auto-publish is otherwise conservative: confirmed status, score ≥
+`VERIFICATION_AUTO_PUBLISH_MIN_SCORE` (80), no contradictions, not
+`review_required`.
+
+### Workers
+
+- `process_article` enqueues `verify_event` after a successful cluster.
+- Beat `poll_pending_verifications` (every 2 min) picks up `pending`/`failed`
+  events (including events that received new coverage — attaching an article
+  resets verification to `pending`).
+- `verify_event` takes `SELECT … FOR UPDATE SKIP LOCKED`, is idempotent
+  (skips if already verified and `last_seen_at` ≤ `verified_at`), writes
+  `pipeline_jobs` (`event_id` set), and dead-letters after
+  `VERIFICATION_MAX_ATTEMPTS` with an `audit_logs` row.
+
+### API / UI
+
+`GET /api/v1/events` filters: `verification_status`, `review_required`.
+Event detail includes score/status, claims + evidence, contradictions,
+`primary_source_available`, and review reasons. The dashboard event feed and
+detail pages render these from the real schema (not placeholders).
+
 ## Roadmap (phases)
 
 | Phase | Scope |
@@ -215,21 +314,26 @@ resumes safely if re-run.
 | **1** | Foundation: schema+migrations, source registry, RSS ingestion, Celery scaffolding, dashboard, brand system, provider abstractions. |
 | 1.5 | Verified Telegram channel ingestion. |
 | **2 (done)** | Gemini provider; Ethiopia relevance detection; article analysis (multilingual entities/facts); embeddings + pgvector cosine search; duplicate detection & event clustering; event lifecycle + timeline; event feed/detail UI. |
-| 3 (next) | Verification & trust scoring (cross-source corroboration); deeper editorial analysis & summarization; Website/API + Telegram adapters feeding the pipeline; Visual Director (Gemini/Imagen image generation) behind the existing `ImageProvider`. |
-| 4 | Instagram post composition (Playwright render) + publishing. |
+| **3 (done)** | Claim extraction; claim–evidence mapping; contradiction detection; verification scoring; primary-source discovery MVP; sensitive-news review gates; verification workers + event feed/detail UI. |
+| **4 (next)** | Instagram post composition (Playwright render) + publishing. |
 | 5–8 | Carousels; Telegram/X/Facebook/TikTok/website distribution; full editorial AI; analytics. |
 
-### What remains for Phase 3
+### What remains for Phase 4
 
-- **Verification & trust:** corroborate events across independent sources; score
-  claim confidence; flag single-source / unverified events (the `event_status`
-  and `source_count` fields already support this).
+- **Instagram composition:** Playwright render of branded post templates from
+  verified/evidenced event briefs (not raw unverified claims).
+- **Publishing:** Instagram Graph/content publishing, scheduling, and failure
+  handling. Auto-publish must honour `auto_publish_eligible` and
+  `review_required` (sensitive/contradicted events stay in the newsroom).
+
+### Deferred (not Phase 4)
+
 - **Editorial synthesis:** generate a neutral event brief/summary and headline
-  candidates from clustered coverage.
-- **More adapters into the pipeline:** implement the Website crawler, API, and
-  (Phase 1.5) Telegram adapters so RSS-less and Telegram-first sources feed the
-  same intelligence flow.
-- **Visual Director:** implement `ImageProvider` (Gemini/Imagen) to generate the
+  candidates from clustered, *evidenced* coverage.
+- **More adapters into the pipeline:** Website crawler, API, and (Phase 1.5)
+  Telegram adapters so RSS-less and Telegram-first sources feed the same
+  intelligence + verification flow.
+- **Visual Director:** implement `ImageProvider` (Gemini/Imagen) for the
   Instagram image zone per the brand visual styles.
 - **Backfill embeddings** if `EMBEDDING_DIM`/model changes (re-embed + reindex).
 

@@ -8,14 +8,14 @@ content, and (in later phases) clusters, verifies, analyzes, and publishes
 premium editorial posts to Instagram — and later Telegram, X, Facebook, TikTok,
 and a website.
 
-This repository contains the **Phase 1 foundation**: real database schema and
-migrations, a seeded Ethiopian source registry, a working RSS ingestion pipeline
-on Celery, the FastAPI backend, and a dark "newsroom terminal" Next.js dashboard.
+This repository contains the **Phase 1–3** stack: schema and migrations, a
+seeded Ethiopian source registry, RSS ingestion on Celery, the Gemini
+intelligence pipeline (relevance → analysis → embedding → clustering),
+**verification** (claims, evidence, contradictions, scoring, sensitive-news
+gates), the FastAPI backend, and a dark newsroom Next.js dashboard.
 
-> Phases 2–8 (event clustering, verification, Gemini analysis/embeddings, the
-> Visual Director, Instagram publishing, carousels, multi-channel distribution)
-> are **out of scope** for Phase 1 and exist only as stubs/TODOs. See
-> [`docs/architecture.md`](docs/architecture.md).
+> Phase 4 (Instagram composition + publishing) and later distribution channels
+> are **out of scope** on this branch. See [`docs/architecture.md`](docs/architecture.md).
 
 ---
 
@@ -194,6 +194,37 @@ curl -s http://localhost:8000/api/v1/pipeline/stats | jq
 
 Clustered stories appear on the dashboard **Events** feed and **Event detail**
 pages (grouped coverage, sources, relations, timeline, cluster confidence).
+After clustering, each event is enqueued into **verification** (Phase 3).
+
+---
+
+## Phase 3 — Verification
+
+Clustered events are verified asynchronously:
+
+```
+claims → evidence → contradictions → primary-source discovery → score / review gate
+```
+
+Without `GEMINI_API_KEY`, claim extraction and contradiction detection use
+deterministic fallbacks (analysis facts + regex). Scoring, sensitive-news
+rules, and primary-source registry lookup always run.
+
+Beat enqueues `poll_pending_verifications` every 2 minutes;
+`process_article` also enqueues `verify_event` immediately after clustering.
+
+The **Events** feed filters by verification status and `review_required`.
+Event detail shows the 0–100 score, status, evidenced claims, contradictions,
+primary-source flag, and review reasons.
+
+Sensitive categories (politics, conflict, military, deaths, crime, ethnic,
+religion, elections, public safety, financial panic, disasters) always require
+human review and never auto-publish. Any contradiction also disables
+auto-publish.
+
+See [docs/architecture.md](docs/architecture.md#verification-phase-3).
+
+---
 
 ---
 
@@ -227,8 +258,8 @@ seeded with `rss_url = NULL` for the website/API adapters in later phases.
 | GET/PATCH/DELETE | `/api/v1/sources/{id}` | Read / update / delete |
 | GET | `/api/v1/articles` | List articles (filter, paginate) |
 | GET | `/api/v1/articles/{id}` | Article detail (incl. analysis + processing state) |
-| GET | `/api/v1/events` | List clustered events (filter, paginate) |
-| GET | `/api/v1/events/{id}` | Event detail (grouped articles, timeline) |
+| GET | `/api/v1/events` | List clustered events (`status`, `verification_status`, `review_required`, paginate) |
+| GET | `/api/v1/events/{id}` | Event detail (articles, timeline, claims, evidence, contradictions, verification) |
 | GET | `/api/v1/pipeline/stats` | Pipeline processing stats |
 | POST | `/api/v1/ingest/trigger` | **Enqueue** ingestion |
 
@@ -246,7 +277,7 @@ Integration tests mock Gemini — **no production AI calls run in CI**.
 cd backend
 createdb ethiotimes_test    # one-time (or let CI provision it)
 export TEST_DATABASE_URL=postgresql+psycopg://ethiotimes:ethiotimes@localhost:5432/ethiotimes_test
-pytest                       # unit + integration (relevance, clustering, pipeline, ...)
+pytest                       # unit + integration (relevance, clustering, verification, ...)
 ruff check app migrations tests   # lint
 
 cd ../frontend
