@@ -53,10 +53,33 @@ class Settings(BaseSettings):
         default="ETHIOTIMES-Bot/1.0 (+https://ethiotimes.example)"
     )
 
-    # ---- AI providers (Phase 1: unused stubs) ----
+    # ---- AI providers (Gemini) ----
     gemini_api_key: str | None = Field(default=None)
-    gemini_text_model: str = Field(default="gemini-1.5-pro")
+    gemini_text_model: str = Field(default="gemini-2.5-flash")
     gemini_image_model: str = Field(default="imagen-3.0")
+    gemini_embedding_model: str = Field(default="gemini-embedding-001")
+    # gemini-embedding-001 defaults to 3072 dims; 1536 is a recommended MRL
+    # truncation that matches the Phase-1 vector column. Truncated dims are NOT
+    # auto-normalized by this model, so we L2-normalize in the provider.
+    embedding_dim: int = Field(default=1536)
+    gemini_request_timeout_seconds: int = Field(default=60)
+    gemini_max_retries: int = Field(default=4)
+    gemini_retry_base_delay_seconds: float = Field(default=2.0)
+    gemini_temperature: float = Field(default=0.2)
+
+    # ---- Intelligence pipeline thresholds ----
+    relevance_threshold: int = Field(default=70)  # score >= => relevant
+    relevance_borderline_margin: int = Field(default=15)  # [thr-margin, thr) => borderline
+    # Cosine similarity bands for clustering (0..1).
+    cluster_duplicate_threshold: float = Field(default=0.90)
+    cluster_same_event_threshold: float = Field(default=0.80)
+    cluster_related_threshold: float = Field(default=0.70)
+    # Window (hours) within which two articles can be considered the same event.
+    cluster_time_window_hours: int = Field(default=72)
+    # Max neighbors to consider when clustering a new article.
+    cluster_candidate_limit: int = Field(default=25)
+    # Max pipeline attempts before an article is sent to the dead-letter state.
+    pipeline_max_attempts: int = Field(default=5)
 
     @field_validator("cors_origins")
     @classmethod
