@@ -66,7 +66,30 @@ def test_member_primary_source_counts(db_session):
     assert discovery.via_member_article is True
 
 
-def test_business_copy_does_not_false_match_ess(db_session):
+def test_media_outlet_is_not_treated_as_official_primary(db_session):
+    reporter = make_source(
+        db_session,
+        slug="reporter-ethiopia",
+        name="The Reporter Ethiopia",
+        source_type=SourceType.independent_media,
+        is_primary_source=True,
+        trust_profile={"tier": 1, "editorial_standards": "high"},
+    )
+    article = make_article(
+        db_session,
+        reporter,
+        title="Coffee exports rise",
+        summary="Shipments increased this quarter.",
+    )
+    article.source = reporter
+    event = NewsEvent(title="Coffee exports")
+    db_session.add(event)
+    db_session.flush()
+    discovery = PrimarySourceService(db_session).discover(
+        event_id=event.id, articles=[article], cited_institutions=[]
+    )
+    assert discovery.available is False
+    assert discovery.via_member_article is False
     make_source(
         db_session,
         slug="ess-ethiopia",

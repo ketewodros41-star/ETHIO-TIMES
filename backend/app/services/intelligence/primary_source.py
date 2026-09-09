@@ -16,12 +16,27 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.article import Article
-from app.models.enums import EventTimelineType
+from app.models.enums import EventTimelineType, SourceType
 from app.models.news_event import EventTimeline
 from app.models.news_source import NewsSource
 
-# Aliases used to match citations in copy / extracted institutions
-# onto seeded official registry rows (slug or name).
+_OFFICIAL_SOURCE_TYPES = {
+    SourceType.government,
+    SourceType.government_agency,
+    SourceType.financial_institution,
+    SourceType.research_institution,
+}
+
+
+def is_official_primary(source: NewsSource) -> bool:
+    """True for official-registry institutions (NBE, MoF, PMO, …), not media desks."""
+    if not source.is_primary_source:
+        return False
+    if (source.trust_profile or {}).get("type") == "primary_official":
+        return True
+    return source.source_type in _OFFICIAL_SOURCE_TYPES
+
+
 INSTITUTION_ALIASES: dict[str, tuple[str, ...]] = {
     "nbe-ethiopia": (
         "nbe",
@@ -84,7 +99,9 @@ class PrimarySourceService:
         cited_institutions: list[str],
     ) -> PrimarySourceDiscovery:
         member_primary = [
-            a.source for a in articles if a.source is not None and a.source.is_primary_source
+            a.source
+            for a in articles
+            if a.source is not None and is_official_primary(a.source)
         ]
         via_member = bool(member_primary)
 
@@ -99,11 +116,13 @@ class PrimarySourceService:
             if p
         ).lower()
 
-        registry = list(
-            self.session.scalars(
+        registry = [
+            src
+            for src in self.session.scalars(
                 select(NewsSource).where(NewsSource.is_primary_source.is_(True))
             ).all()
-        )
+            if is_official_primary(src)
+        ]
 
         matched: dict[str, NewsSource] = {str(s.id): s for s in member_primary}
         cited_hits: list[str] = list(dict.fromkeys(cited_institutions))
@@ -173,9 +192,10 @@ def _entity_blob(article: Article) -> str:
 def _matches(source: NewsSource, haystack: str) -> bool:
     needles = [source.name.lower()]
     needles.extend(INSTITUTION_ALIASES.get(source.slug, ()))
-    slug_head = source.slug.split("-")[0].lower()
-    if slug_head and slug_head not in {"ethiopia"}:
-        needles.append(slug_head)
+    if is_official_primary(source):
+        slug_head = source.slug.split("-")[0].lower()
+        if slug_head and slug_head not in {"ethiopia"}:
+            needles.append(slug_head)
     for needle in needles:
         if not needle:
             continue
