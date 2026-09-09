@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.article import Article
-from app.models.enums import ArticleStatus
+from app.models.enums import ArticleStatus, ProcessingStatus
 
 
 class ArticleRepository:
@@ -79,3 +80,64 @@ class ArticleRepository:
         self.session.add(article)
         self.session.flush()
         return article
+
+    # ---- Pipeline selection & locking ----
+    def select_processable_ids(
+        self, *, limit: int = 50, include_failed: bool = True
+    ) -> list[uuid.UUID]:
+        """IDs of articles that still need pipeline work (not terminal)."""
+        active = [
+            ProcessingStatus.pending,
+            ProcessingStatus.relevance_scored,
+            ProcessingStatus.analyzed,
+            ProcessingStatus.embedded,
+        ]
+        if include_failed:
+            active.append(ProcessingStatus.failed)
+        stmt = (
+            select(Article.id)
+            .where(Article.processing_status.in_(active))
+            .order_by(Article.created_at.asc())
+            .limit(limit)
+        )
+        return list(self.session.scalars(stmt).all())
+
+    def lock_for_processing(self, article_id: uuid.UUID) -> Article | None:
+        """Row-lock an article with SKIP LOCKED to prevent concurrent pipelines."""
+        return self.session.scalar(
+            select(Article)
+            .where(Article.id == article_id)
+            .with_for_update(skip_locked=True)
+        )
+
+    # ---- Vector nearest-neighbor (cosine) ----
+    def nearest_by_embedding(
+        self,
+        embedding: list[float],
+        *,
+        limit: int = 25,
+        exclude_id: uuid.UUID | None = None,
+        published_after: datetime | None = None,
+        only_embedded: bool = True,
+    ) -> list[tuple[Article, float]]:
+        """Return (article, cosine_similarity) neighbors, most similar first.
+
+        cosine_similarity = 1 - cosine_distance, in [0, 1] for normalized vectors.
+        """
+        distance = Article.embedding.cosine_distance(embedding)
+        stmt = select(Article, distance.label("distance"))
+        if only_embedded:
+            stmt = stmt.where(Article.embedding.isnot(None))
+        if exclude_id is not None:
+            stmt = stmt.where(Article.id != exclude_id)
+        if published_after is not None:
+            stmt = stmt.where(
+                (Article.published_at.is_(None))
+                | (Article.published_at >= published_after)
+            )
+        stmt = stmt.order_by(distance.asc()).limit(limit)
+
+        results: list[tuple[Article, float]] = []
+        for article, dist in self.session.execute(stmt).all():
+            results.append((article, 1.0 - float(dist)))
+        return results
