@@ -7,7 +7,7 @@ exposes a demo login and a dependency that decodes bearer tokens.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from jose import JWTError, jwt
@@ -29,7 +29,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 def create_access_token(
     subject: str, extra_claims: dict[str, Any] | None = None
 ) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expire = now + timedelta(minutes=settings.access_token_expire_minutes)
     payload: dict[str, Any] = {
         "sub": subject,

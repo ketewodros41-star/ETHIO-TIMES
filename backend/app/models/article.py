@@ -98,13 +98,13 @@ class Article(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
     # ---- Relationships ----
-    source: Mapped["NewsSource"] = relationship(  # noqa: F821
+    source: Mapped[NewsSource] = relationship(  # noqa: F821
         back_populates="articles"
     )
-    versions: Mapped[list["ArticleVersion"]] = relationship(
+    versions: Mapped[list[ArticleVersion]] = relationship(
         back_populates="article", cascade="all, delete-orphan"
     )
-    event_links: Mapped[list["EventArticle"]] = relationship(  # noqa: F821
+    event_links: Mapped[list[EventArticle]] = relationship(  # noqa: F821
         back_populates="article", cascade="all, delete-orphan"
     )
 
@@ -138,4 +138,4 @@ class ArticleVersion(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         JSONB, nullable=False, default=dict, server_default="{}"
     )
 
-    article: Mapped["Article"] = relationship(back_populates="versions")
+    article: Mapped[Article] = relationship(back_populates="versions")

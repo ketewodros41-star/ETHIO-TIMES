@@ -14,7 +14,6 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
-
 from app.data.sources_seed import SEED_SOURCES
 
 revision: str = "0002"

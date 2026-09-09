@@ -53,7 +53,7 @@ class NewsEvent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         JSONB, nullable=False, default=dict, server_default="{}"
     )
 
-    article_links: Mapped[list["EventArticle"]] = relationship(
+    article_links: Mapped[list[EventArticle]] = relationship(
         back_populates="event", cascade="all, delete-orphan"
     )
 
@@ -82,5 +82,5 @@ class EventArticle(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         default=False, server_default="false", nullable=False
     )
 
-    event: Mapped["NewsEvent"] = relationship(back_populates="article_links")
-    article: Mapped["Article"] = relationship(back_populates="event_links")  # noqa: F821
+    event: Mapped[NewsEvent] = relationship(back_populates="article_links")
+    article: Mapped[Article] = relationship(back_populates="event_links")  # noqa: F821

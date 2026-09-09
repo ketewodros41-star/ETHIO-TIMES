@@ -106,7 +106,7 @@ class NewsSource(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
     # ---- Relationships ----
-    articles: Mapped[list["Article"]] = relationship(  # noqa: F821
+    articles: Mapped[list[Article]] = relationship(  # noqa: F821
         back_populates="source", cascade="all, delete-orphan"
     )
 
