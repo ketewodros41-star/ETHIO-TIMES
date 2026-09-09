@@ -12,7 +12,7 @@ Design rules (spec §22):
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.integrations.ai.base import AIProvider
 from app.models.enums import ContentFormat, InstagramPostFormat, TrendStatus
@@ -33,6 +33,7 @@ class EditorialBrief:
     suggested_theme: str         # ThemeId string
     suggested_format: InstagramPostFormat
     content_format: ContentFormat
+    carousel_slides: list[dict] = field(default_factory=list)
 
 class EditorialEngine:
     def __init__(self, provider: AIProvider) -> None:
@@ -52,7 +53,8 @@ class EditorialEngine:
 
     def _auto_format(self, event: NewsEvent) -> InstagramPostFormat:
         cat = (event.primary_category or "").lower()
-        if cat in {"economy", "business"} and getattr(event, "trend_score", 0) < 70:
+        trend_score = getattr(event, "trend_score", None) or 0.0
+        if cat in {"economy", "business"} and trend_score < 70:
             return InstagramPostFormat.square
         return InstagramPostFormat.portrait
 
@@ -93,7 +95,7 @@ class EditorialEngine:
         cap_parts.append(" ".join(hashtags))
         caption = "\\n\\n".join(cap_parts)[:2200]
 
-        return EditorialBrief(
+        brief = EditorialBrief(
             headline=headline,
             subheadline=None,
             short_summary=short_summary,
@@ -108,6 +110,85 @@ class EditorialEngine:
             suggested_format=fmt,
             content_format=cfmt,
         )
+        brief.carousel_slides = self.generate_carousel_slides(event, brief)
+        return brief
+
+    def generate_carousel_slides(self, event: NewsEvent, brief: EditorialBrief) -> list[dict]:
+        accent = "green"
+        if brief.suggested_theme == "breaking":
+            accent = "red"
+        elif brief.suggested_theme in {"data_chart", "politics_sensitive", "official_statement", "culture_photo"}:
+            accent = "gold"
+
+        raw_slides = []
+        # 1. Cover
+        raw_slides.append({
+            "slide_type": "cover",
+            "header": brief.headline,
+            "body_text": brief.short_summary,
+            "bullet_points": [],
+            "source_attribution": brief.source_attribution,
+            "accent": accent,
+        })
+        # 2. What Happened
+        if brief.full_summary:
+            raw_slides.append({
+                "slide_type": "what_happened",
+                "header": "What Happened",
+                "body_text": brief.full_summary[:380],
+                "bullet_points": [],
+                "source_attribution": None,
+                "accent": accent,
+            })
+        # 3. Key Evidenced Facts
+        if brief.key_facts:
+            raw_slides.append({
+                "slide_type": "key_facts",
+                "header": "Key Facts",
+                "body_text": None,
+                "bullet_points": brief.key_facts[:4],
+                "source_attribution": None,
+                "accent": accent,
+            })
+        # 4. Why It Matters
+        if brief.why_it_matters:
+            raw_slides.append({
+                "slide_type": "why_it_matters",
+                "header": "Why It Matters",
+                "body_text": brief.why_it_matters,
+                "bullet_points": [],
+                "source_attribution": None,
+                "accent": accent,
+            })
+        # 5. What Happens Next (optional)
+        if brief.what_happens_next:
+            raw_slides.append({
+                "slide_type": "what_next",
+                "header": "What's Next",
+                "body_text": brief.what_happens_next,
+                "bullet_points": [],
+                "source_attribution": None,
+                "accent": accent,
+            })
+        # 6. Verified Sources
+        raw_slides.append({
+            "slide_type": "sources",
+            "header": "Verified Coverage",
+            "body_text": "Story verified across multiple independent and primary sources by the ETHIOTIMES intelligence engine.",
+            "bullet_points": [brief.source_attribution] if brief.source_attribution else [],
+            "source_attribution": brief.source_attribution,
+            "accent": accent,
+        })
+
+        total = len(raw_slides)
+        slides = []
+        for i, s in enumerate(raw_slides):
+            slides.append({
+                "slide_number": i + 1,
+                "total_slides": total,
+                **s,
+            })
+        return slides
 
     def compose(self, event: NewsEvent) -> EditorialBrief:
         if not self.provider.is_available():
@@ -121,7 +202,7 @@ class EditorialEngine:
             fmt = self._auto_format(event)
             cfmt = self._auto_content_format(event, theme)
             
-            return EditorialBrief(
+            brief = EditorialBrief(
                 headline=result.get("headline", event.title),
                 subheadline=result.get("subheadline"),
                 short_summary=result.get("short_summary", (event.summary or "")[:280]),
@@ -136,5 +217,7 @@ class EditorialEngine:
                 suggested_format=fmt,
                 content_format=cfmt,
             )
+            brief.carousel_slides = self.generate_carousel_slides(event, brief)
+            return brief
         except Exception:
             return self._fallback(event)

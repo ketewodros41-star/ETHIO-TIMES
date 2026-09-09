@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Play } from "lucide-react";
+import { RefreshCw, Play, Plus } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,14 @@ export function SourcesContent() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+
+  // Add Source Modal State
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newWebsite, setNewWebsite] = useState("");
+  const [newRssUrl, setNewRssUrl] = useState("");
+  const [newType, setNewType] = useState("rss_feed");
+  const [newFreq, setNewFreq] = useState(30);
 
   const { data, isLoading } = useQuery({
     queryKey: ["sources", search],
@@ -33,6 +41,37 @@ export function SourcesContent() {
     mutationFn: (id: string) => api.triggerIngest(id),
     onSuccess: (res) => flash(res.message),
     onError: (e: Error) => flash(e.message),
+  });
+
+  const createSource = useMutation({
+    mutationFn: () =>
+      api.createSource({
+        name: newName.trim(),
+        website: newWebsite.trim() || undefined,
+        rss_url: newRssUrl.trim() || undefined,
+        source_type: newType,
+        crawl_frequency_minutes: Number(newFreq) || 30,
+        is_active: true,
+      }),
+    onSuccess: (src) => {
+      setShowAddModal(false);
+      setNewName("");
+      setNewWebsite("");
+      setNewRssUrl("");
+      flash(`Source "${src.name}" added successfully.`);
+      void qc.invalidateQueries({ queryKey: ["sources"] });
+    },
+    onError: (e: Error) => flash(`Failed to add source: ${e.message}`),
+  });
+
+  const toggleActive = useMutation({
+    mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) =>
+      api.updateSource(id, { is_active }),
+    onSuccess: (src) => {
+      flash(`Source "${src.name}" ${src.is_active ? "activated" : "paused"}.`);
+      void qc.invalidateQueries({ queryKey: ["sources"] });
+    },
+    onError: (e: Error) => flash(`Failed to update status: ${e.message}`),
   });
 
   function flash(msg: string) {
@@ -61,6 +100,13 @@ export function SourcesContent() {
             <RefreshCw className="h-4 w-4" /> Refresh
           </Button>
           <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowAddModal(true)}
+          >
+            <Plus className="h-4 w-4" /> Add Source
+          </Button>
+          <Button
             size="sm"
             onClick={() => ingestAll.mutate()}
             disabled={ingestAll.isPending}
@@ -70,6 +116,106 @@ export function SourcesContent() {
           </Button>
         </div>
       </div>
+
+      {/* Add Source Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
+          <Card className="w-full max-w-lg border-ink-600 bg-ink-900 p-6 space-y-4">
+            <div>
+              <h3 className="font-display text-lg font-semibold text-paper-50">
+                Add Ethiopian News Source
+              </h3>
+              <p className="text-xs text-paper-400 mt-1">
+                Configure an official Ethiopian publisher, wire, RSS feed, or telegram news channel.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs uppercase font-mono tracking-label text-paper-400 mb-1">
+                  Source Name *
+                </label>
+                <Input
+                  placeholder="e.g. Tikvah Ethiopia, Addis Standard, Capital Ethiopia"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs uppercase font-mono tracking-label text-paper-400 mb-1">
+                    Source Type
+                  </label>
+                  <select
+                    className="w-full h-9 rounded-card border border-ink-600 bg-ink-800 px-3 text-sm text-paper-50 focus:outline-none focus:border-accent-green"
+                    value={newType}
+                    onChange={(e) => setNewType(e.target.value)}
+                  >
+                    <option value="rss_feed">RSS Feed</option>
+                    <option value="news_site">News Site</option>
+                    <option value="telegram_channel">Telegram Channel</option>
+                    <option value="government_portal">Government Portal</option>
+                    <option value="fact_checker">Fact Checker</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs uppercase font-mono tracking-label text-paper-400 mb-1">
+                    Crawl Frequency (min)
+                  </label>
+                  <Input
+                    type="number"
+                    value={newFreq}
+                    onChange={(e) => setNewFreq(Number(e.target.value))}
+                    min={5}
+                    max={1440}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs uppercase font-mono tracking-label text-paper-400 mb-1">
+                  Website URL
+                </label>
+                <Input
+                  placeholder="https://addisstandard.com"
+                  value={newWebsite}
+                  onChange={(e) => setNewWebsite(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs uppercase font-mono tracking-label text-paper-400 mb-1">
+                  RSS Feed URL (optional)
+                </label>
+                <Input
+                  placeholder="https://addisstandard.com/feed"
+                  value={newRssUrl}
+                  onChange={(e) => setNewRssUrl(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAddModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={!newName.trim() || createSource.isPending}
+                onClick={() => createSource.mutate()}
+              >
+                {createSource.isPending ? "Adding…" : "Add Source"}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {toast && (
         <div className="rounded-card border border-accent-green/40 bg-accent-green/10 px-4 py-2 text-sm text-accent-green">
@@ -84,6 +230,7 @@ export function SourcesContent() {
               <TH>Source</TH>
               <TH>Type</TH>
               <TH>Ingest</TH>
+              <TH>Status</TH>
               <TH>Verification</TH>
               <TH>Health</TH>
               <TH>Last check</TH>
@@ -94,7 +241,7 @@ export function SourcesContent() {
           <TBody>
             {isLoading && (
               <TR>
-                <TD colSpan={8} className="text-paper-500">
+                <TD colSpan={9} className="text-paper-500">
                   Loading…
                 </TD>
               </TR>
@@ -122,6 +269,21 @@ export function SourcesContent() {
                   )}
                 </TD>
                 <TD>
+                  <button
+                    type="button"
+                    onClick={() => toggleActive.mutate({ id: s.id, is_active: !s.is_active })}
+                    disabled={toggleActive.isPending}
+                    title="Click to toggle active / paused"
+                    className="focus:outline-none"
+                  >
+                    {s.is_active ? (
+                      <Badge variant="green" className="cursor-pointer hover:opacity-80">Active</Badge>
+                    ) : (
+                      <Badge variant="muted" className="cursor-pointer hover:opacity-80">Paused</Badge>
+                    )}
+                  </button>
+                </TD>
+                <TD>
                   <VerificationBadge status={s.verification_status} />
                 </TD>
                 <TD>
@@ -147,7 +309,7 @@ export function SourcesContent() {
             ))}
             {!isLoading && items.length === 0 && (
               <TR>
-                <TD colSpan={8} className="text-paper-500">
+                <TD colSpan={9} className="text-paper-500">
                   No sources found.
                 </TD>
               </TR>

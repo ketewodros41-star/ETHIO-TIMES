@@ -1,9 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink } from "lucide-react";
-import { api } from "@/lib/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  CheckCircle,
+  ExternalLink,
+  Image as ImageIcon,
+  Palette,
+  Sparkles,
+} from "lucide-react";
+import { api, postsApi } from "@/lib/api";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -26,10 +35,44 @@ const TIMELINE_LABEL: Record<string, string> = {
 };
 
 export function EventDetailContent({ id }: { id: string }) {
+  const queryClient = useQueryClient();
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [clearReason, setClearReason] = useState("");
+  const [feedback, setFeedback] = useState<string | null>(null);
+
   const { data: e, isLoading, isError } = useQuery({
     queryKey: ["event", id],
     queryFn: () => api.getEvent(id),
   });
+
+  const clearMutation = useMutation({
+    mutationFn: () => api.clearReview(id, clearReason),
+    onSuccess: () => {
+      setShowClearModal(false);
+      setClearReason("");
+      setFeedback("Editorial review cleared. Event is now auto-publish eligible.");
+      void queryClient.invalidateQueries({ queryKey: ["event", id] });
+    },
+    onError: (err: Error) => setFeedback(`Failed to clear review: ${err.message}`),
+  });
+
+  const composeMutation = useMutation({
+    mutationFn: () => postsApi.compose({ event_id: id, format: "portrait" }),
+    onSuccess: (res) => {
+      setFeedback(`Instagram post composition enqueued (Task: ${res.task_id.slice(0, 8)}). View in Posts.`);
+      void queryClient.invalidateQueries({ queryKey: ["posts"] });
+    },
+    onError: (err: Error) => setFeedback(`Failed to enqueue compose: ${err.message}`),
+  });
+
+  const generateVisualMutation = useMutation({
+    mutationFn: () => postsApi.generateAsset(id),
+    onSuccess: (res) => {
+      setFeedback(`Visual asset generation enqueued (Task: ${res.task_id.slice(0, 8)}).`);
+    },
+    onError: (err: Error) => setFeedback(`Failed to generate visual: ${err.message}`),
+  });
+
 
   if (isLoading) return <p className="text-sm text-paper-500">Loading…</p>;
   if (isError || !e)
@@ -48,6 +91,116 @@ export function EventDetailContent({ id }: { id: string }) {
       >
         <ArrowLeft className="h-3 w-3" /> Back to events
       </Link>
+
+      {/* Feedback Toast */}
+      {feedback && (
+        <div className="flex items-center justify-between rounded-card border border-accent-green/40 bg-accent-green/10 px-4 py-2.5 text-sm text-accent-green">
+          <span>{feedback}</span>
+          <button
+            onClick={() => setFeedback(null)}
+            className="text-xs uppercase hover:underline ml-4"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Editorial Intelligence & Publishing Actions */}
+      <Card className="border-accent-green/30 bg-ink-850">
+        <CardContent className="p-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xs uppercase font-mono tracking-label text-accent-green">
+                Editorial Control Desk
+              </span>
+              {e.auto_publish_eligible ? (
+                <Badge variant="green">Auto-Publish Ready</Badge>
+              ) : e.review_required ? (
+                <Badge variant="gold">Human Clearance Required</Badge>
+              ) : (
+                <Badge variant="muted">Restricted</Badge>
+              )}
+            </div>
+            <p className="text-xs text-paper-400">
+              Transform verified claims into Instagram posts, generate cinematic visuals, or clear review blocks.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {e.review_required && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-accent-gold text-accent-gold hover:bg-accent-gold/10"
+                onClick={() => setShowClearModal(true)}
+              >
+                <CheckCircle className="h-3.5 w-3.5" /> Clear Review Block
+              </Button>
+            )}
+
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={generateVisualMutation.isPending}
+              onClick={() => generateVisualMutation.mutate()}
+            >
+              <ImageIcon className="h-3.5 w-3.5" />
+              {generateVisualMutation.isPending ? "Generating…" : "Generate Visual"}
+            </Button>
+
+            <Button
+              size="sm"
+              disabled={composeMutation.isPending}
+              onClick={() => composeMutation.mutate()}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              {composeMutation.isPending ? "Queuing…" : "Compose Instagram Post"}
+            </Button>
+
+            <Link href={`/studio/templates?event_id=${e.id}`}>
+              <Button variant="ghost" size="sm">
+                <Palette className="h-3.5 w-3.5" /> Open in Studio
+              </Button>
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Clear Review Dialog Modal */}
+      {showClearModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
+          <Card className="w-full max-w-md border-ink-600 bg-ink-900 p-6 space-y-4">
+            <h3 className="font-display text-lg font-semibold text-paper-50">
+              Clear Editorial Review
+            </h3>
+            <p className="text-xs text-paper-300">
+              Clearing review marks this event as human-cleared and enables automated Instagram post publishing. Provide the editorial justification for the audit trail.
+            </p>
+            <textarea
+              className="w-full h-24 rounded-card border border-ink-700 bg-ink-800 p-3 text-sm text-paper-100 placeholder:text-paper-600 focus:outline-none focus:border-accent-green"
+              placeholder="e.g. Verified against official government press release and 3 wire reports."
+              value={clearReason}
+              onChange={(e) => setClearReason(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowClearModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={!clearReason.trim() || clearMutation.isPending}
+                onClick={() => clearMutation.mutate()}
+              >
+                {clearMutation.isPending ? "Clearing…" : "Confirm Clearance"}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
 
       <div>
         <div className="mb-2 flex flex-wrap items-center gap-2">

@@ -81,3 +81,34 @@ def test_events_filter_by_verification_and_review(db_session):
         assert scores == sorted(scores, reverse=True)
     finally:
         app.dependency_overrides.clear()
+
+
+def test_clear_event_review(db_session):
+    event = NewsEvent(
+        title="Event Needing Review",
+        event_verification_status=EventVerificationStatus.unverified,
+        review_required=True,
+        auto_publish_eligible=False,
+    )
+    db_session.add(event)
+    db_session.flush()
+
+    def _override():
+        yield db_session
+
+    app.dependency_overrides[get_db] = _override
+    try:
+        client = TestClient(app)
+        # 404 test
+        bad_resp = client.post(f"/api/v1/events/{uuid.uuid4()}/clear-review", json={"reason": "Test"})
+        assert bad_resp.status_code == 404
+
+        # Success test
+        resp = client.post(f"/api/v1/events/{event.id}/clear-review", json={"reason": "Manually verified by senior editor"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["review_required"] is False
+        assert data["auto_publish_eligible"] is True
+    finally:
+        app.dependency_overrides.clear()
+

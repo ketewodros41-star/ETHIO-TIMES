@@ -50,6 +50,14 @@ def list_events(
     )
 
 
+from pydantic import BaseModel, Field
+
+
+class ClearReviewRequest(BaseModel):
+    note: str = Field(..., min_length=2, description="Editorial justification for clearing review")
+    actor: str = Field(default="editor", description="Editor username/email")
+
+
 @router.get("/{event_id}", response_model=EventDetail)
 def get_event(event_id: uuid.UUID, session: Session = Depends(get_db)) -> EventDetail:
     repo = EventRepository(session)
@@ -58,4 +66,27 @@ def get_event(event_id: uuid.UUID, session: Session = Depends(get_db)) -> EventD
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Event not found"
         )
+    return to_event_detail(event)
+
+
+@router.post("/{event_id}/clear-review", response_model=EventDetail)
+def clear_event_review(
+    event_id: uuid.UUID,
+    payload: ClearReviewRequest,
+    session: Session = Depends(get_db),
+) -> EventDetail:
+    repo = EventRepository(session)
+    event = repo.get_detail(event_id)
+    if event is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Event not found"
+        )
+    event.review_required = False
+    reasons = list(event.review_reasons or [])
+    reasons.append(f"Cleared by {payload.actor}: {payload.note}")
+    event.review_reasons = reasons
+    event.auto_publish_eligible = True
+    session.add(event)
+    session.commit()
+    session.refresh(event)
     return to_event_detail(event)

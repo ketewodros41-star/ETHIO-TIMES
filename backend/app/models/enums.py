@@ -198,9 +198,12 @@ class VisualAssetStatus(str, enum.Enum):
 
 
 class ContentFormat(str, enum.Enum):
-    """Instagram post content format (spec §23). Carousels are Phase 6."""
+    """Instagram post content format (spec §23)."""
     breaking_card = "breaking_card"
     single_image_post = "single_image_post"
+    news_carousel = "news_carousel"
+    explainer_carousel = "explainer_carousel"
     data_visual = "data_visual"
     story = "story"
+
 

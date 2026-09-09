@@ -357,11 +357,24 @@ export interface SocialPost {
     verification_score: number;
     trend_score: number;
     event_verification_status: string;
+    carousel_slides?: CarouselSlide[];
   };
+  carousel_slides?: CarouselSlide[] | null;
   visual_asset: VisualAsset | null;
   created_at: string;
   updated_at: string;
   event?: NewsEvent;
+}
+
+export interface CarouselSlide {
+  slide_number: number;
+  total_slides: number;
+  slide_type: "cover" | "what_happened" | "key_facts" | "why_it_matters" | "what_next" | "sources";
+  header: string;
+  body_text?: string | null;
+  bullet_points: string[];
+  source_attribution?: string | null;
+  accent: "green" | "red" | "gold";
 }
 
 export interface EligibilityCheck {

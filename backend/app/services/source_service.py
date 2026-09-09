@@ -50,15 +50,20 @@ class SourceService:
         return source
 
     def create_source(self, payload: SourceCreate) -> NewsSource:
-        if self.repo.get_by_slug(payload.slug) is not None:
-            raise SourceAlreadyExistsError(payload.slug)
-        source = NewsSource(**payload.model_dump())
+        import re
+
+        data = payload.model_dump()
+        slug = payload.slug or re.sub(r"[^a-z0-9]+", "-", payload.name.lower()).strip("-")
+        data["slug"] = slug
+        if self.repo.get_by_slug(slug) is not None:
+            raise SourceAlreadyExistsError(slug)
+        source = NewsSource(**data)
         try:
             self.repo.create(source)
             self.session.commit()
         except IntegrityError as exc:
             self.session.rollback()
-            raise SourceAlreadyExistsError(payload.slug) from exc
+            raise SourceAlreadyExistsError(slug) from exc
         self.session.refresh(source)
         return source
 

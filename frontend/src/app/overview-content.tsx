@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, postsApi } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EventStatusBadge, EventVerificationBadge, HealthDot, RelevanceMeter, TrendStatusBadge } from "@/components/status";
@@ -31,6 +31,10 @@ export function OverviewContent() {
   });
   const health = useQuery({ queryKey: ["source-health"], queryFn: api.sourceHealth });
   const stats = useQuery({ queryKey: ["pipeline-stats"], queryFn: api.pipelineStats });
+  const posts = useQuery({
+    queryKey: ["posts", "overview"],
+    queryFn: () => postsApi.list({ limit: 100 }),
+  });
   const events = useQuery({
     queryKey: ["events", "recent"],
     queryFn: () => api.listEvents({ limit: 6, sort: "trend_score" }),
@@ -49,6 +53,12 @@ export function OverviewContent() {
   const activeCount = srcItems.filter((s) => s.is_active).length;
   const healthy = (health.data ?? []).filter((h) => h.health_status === "healthy").length;
   const clustered = stats.data?.by_processing_status.clustered ?? 0;
+
+  const postItems = posts.data?.items ?? [];
+  const draftsCount = postItems.filter((p) => p.status === "draft").length;
+  const renderedCount = postItems.filter((p) => p.status === "rendered").length;
+  const publishedCount = postItems.filter((p) => p.status === "published").length;
+
 
   return (
     <div className="space-y-6">
@@ -85,6 +95,44 @@ export function OverviewContent() {
         />
       </div>
 
+      {/* Instagram Publishing Operations Desk */}
+      <Card className="border-accent-green/30 bg-ink-850">
+        <CardContent className="p-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xs uppercase font-mono tracking-label text-accent-green font-semibold">
+                Instagram Publishing Pipeline
+              </span>
+              <Badge variant="muted">{postItems.length} Total Posts</Badge>
+            </div>
+            <p className="text-xs text-paper-400">
+              AI-assisted multi-slide carousels, visual assets, and human-in-the-loop Instagram releases.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 text-xs font-mono">
+              <span className="px-2.5 py-1 rounded bg-ink-800 border border-ink-700 text-paper-300">
+                <span className="text-paper-100 font-semibold">{draftsCount}</span> Drafts
+              </span>
+              <span className="px-2.5 py-1 rounded bg-ink-800 border border-ink-700 text-paper-300">
+                <span className="text-paper-100 font-semibold">{renderedCount}</span> Rendered
+              </span>
+              <span className="px-2.5 py-1 rounded bg-ink-800 border border-ink-700 text-accent-green">
+                <span className="font-semibold">{publishedCount}</span> Published
+              </span>
+            </div>
+
+            <Link
+              href="/posts"
+              className="text-xs font-medium text-accent-green hover:underline ml-2"
+            >
+              Open Publishing Desk →
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader className="flex-row items-center justify-between">
@@ -104,14 +152,15 @@ export function OverviewContent() {
               <Link
                 key={e.id}
                 href={`/events/${e.id}`}
-                className="flex items-center justify-between gap-4 border-b border-ink-800 py-2 last:border-0 hover:text-paper-50"
+                className="group flex items-center justify-between gap-4 border-b border-ink-800 py-2 last:border-0 hover:text-paper-50"
               >
-                <span className="min-w-0 flex-1 truncate text-sm text-paper-300">
+                <span className="min-w-0 flex-1 truncate text-sm text-paper-300 group-hover:text-paper-100">
                   {e.title}
                 </span>
                 <span className="flex shrink-0 items-center gap-3 text-xs text-paper-500">
                   <span className="font-mono tabular-nums">{Math.round(e.trend_score)}</span>
                   <TrendStatusBadge status={e.trend_status} />
+                  <span className="text-[11px] font-mono text-accent-green">Compose →</span>
                 </span>
               </Link>
             ))}
@@ -135,14 +184,15 @@ export function OverviewContent() {
               <Link
                 key={e.id}
                 href={`/events/${e.id}`}
-                className="flex items-center justify-between gap-4 border-b border-ink-800 py-2 last:border-0 hover:text-paper-50"
+                className="group flex items-center justify-between gap-4 border-b border-ink-800 py-2 last:border-0 hover:text-paper-50"
               >
-                <span className="min-w-0 flex-1 truncate text-sm text-paper-300">
+                <span className="min-w-0 flex-1 truncate text-sm text-paper-300 group-hover:text-paper-100">
                   {e.title}
                 </span>
                 <span className="flex shrink-0 items-center gap-3 text-xs text-paper-500">
                   <span className="font-mono tabular-nums">{Math.round(e.trend_score)}</span>
                   <TrendStatusBadge status={e.trend_status} />
+                  <span className="text-[11px] font-mono text-accent-green">Compose →</span>
                 </span>
               </Link>
             ))}

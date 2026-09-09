@@ -179,4 +179,10 @@ def delete_post(post_id: uuid.UUID, session: Session = Depends(get_db)) -> Respo
 
 
 def _to_read(post) -> SocialPostRead:
-    return SocialPostRead.model_validate(post)
+    data = SocialPostRead.model_validate(post)
+    snapshot = post.eligibility_snapshot or {}
+    slides = snapshot.get("carousel_slides", [])
+    if slides:
+        from app.schemas.social_post import CarouselSlide
+        data.carousel_slides = [CarouselSlide.model_validate(s) for s in slides]
+    return data

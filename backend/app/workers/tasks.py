@@ -390,6 +390,7 @@ def compose_post(self, event_id: str, format: str = "portrait", theme: str | Non
                 if hasattr(event.event_verification_status, "value")
                 else str(event.event_verification_status)
             ),
+            "carousel_slides": brief.carousel_slides,
         }
 
         post = SocialPost(

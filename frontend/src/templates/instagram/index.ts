@@ -14,4 +14,5 @@ export { QuotePost } from "./QuotePost";
 export { CulturePhotoPost } from "./CulturePhotoPost";
 
 export { THEMES, THEME_IDS, type ThemeId } from "./themes";
+export { CarouselCard, type CarouselSlideData } from "./CarouselCard";
 export * from "./primitives";

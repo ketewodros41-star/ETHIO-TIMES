@@ -91,11 +91,44 @@ export const api = {
 
   getEvent: (id: string) => request<NewsEventDetail>(`/events/${id}`),
 
+  clearReview: (eventId: string, reason: string) =>
+    request<NewsEventDetail>(`/events/${eventId}/clear-review`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+
+  createSource: (body: {
+    name: string;
+    website?: string;
+    rss_url?: string;
+    source_type: string;
+    crawl_frequency_minutes?: number;
+    is_active?: boolean;
+  }) =>
+    request<Source>("/sources", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateSource: (
+    id: string,
+    body: {
+      is_active?: boolean;
+      crawl_frequency_minutes?: number;
+      name?: string;
+      website?: string;
+    },
+  ) =>
+    request<Source>(`/sources/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
   pipelineStats: () => request<PipelineStats>("/pipeline/stats"),
 };
 
 export const postsApi = {
-  list: (params?: { status?: string; event_id?: string; theme?: string }) =>
+  list: (params?: { limit?: number; offset?: number; status?: string; event_id?: string; theme?: string }) =>
     request<Page<import('./types').SocialPost>>("/posts" + qs(params || {})),
   get: (id: string) => request<import('./types').SocialPost>(`/posts/${id}`),
   compose: (body: { event_id: string; format: string; theme?: string }) =>

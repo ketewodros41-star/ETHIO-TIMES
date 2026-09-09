@@ -12,7 +12,7 @@ from app.models.enums import SourceHealthStatus, SourceType, VerificationStatus
 
 class SourceBase(BaseModel):
     name: str = Field(..., max_length=255)
-    slug: str = Field(..., max_length=255)
+    slug: str | None = Field(default=None, max_length=255)
     description: str | None = None
     website: str | None = None
     base_url: str | None = None

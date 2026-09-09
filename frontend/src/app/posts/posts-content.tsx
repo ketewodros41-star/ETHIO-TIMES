@@ -66,100 +66,209 @@ export function PostsContent() {
         ) : (
           <div className="space-y-4">
             {items.map((post) => (
-              <Card key={post.id} className="p-4 transition-colors hover:border-ink-600">
-                <div className="flex gap-4">
-                  {/* Thumbnail */}
-                  <div className="h-24 w-24 shrink-0 rounded-sm bg-ink-800 border border-ink-700 overflow-hidden relative flex items-center justify-center">
-                    {post.media_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={post.media_url} alt="" className="object-cover w-full h-full" />
-                    ) : (
-                      <span className="text-[10px] text-paper-500 font-mono text-center px-1 break-words w-full uppercase">
-                        {post.theme}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Main Content */}
-                  <div className="min-w-0 flex-1 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="muted">{post.theme.replace("_", " ")}</Badge>
-                      <Badge variant="outline">{post.format}</Badge>
-                      <span className="text-xs text-paper-500 ml-2">
-                        {new Date(post.created_at).toLocaleDateString()}
-                      </span>
-                    </div>
-                    
-                    <h3 className="font-display text-lg font-medium text-paper-50 leading-snug">
-                      {post.headline}
-                    </h3>
-                    
-                    <p className="text-sm text-paper-300 line-clamp-1">{post.caption}</p>
-                    
-                    {post.source_attribution && (
-                      <p className="text-xs text-paper-500 uppercase tracking-label font-mono">
-                        Source: {post.source_attribution}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Status & Actions */}
-                  <div className="shrink-0 flex flex-col items-end justify-between min-w-[140px]">
-                    <div className="flex flex-col items-end gap-2">
-                      <PostStatusBadge status={post.status} />
-                      <EligibilityBadge snapshot={post.eligibility_snapshot} />
-                    </div>
-
-                    <div className="flex items-center gap-2 mt-4">
-                      {post.status === "draft" && (
-                        <>
-                          <Button 
-                            variant="secondary" 
-                            size="sm"
-                            disabled={renderMutation.isPending}
-                            onClick={() => renderMutation.mutate(post.id)}
-                          >
-                            Render
-                          </Button>
-                          <Button 
-                            variant="destructive" 
-                            size="sm"
-                            disabled={deleteMutation.isPending}
-                            onClick={() => deleteMutation.mutate(post.id)}
-                          >
-                            Delete
-                          </Button>
-                        </>
-                      )}
-                      {post.status === "rendered" && (
-                        <Button 
-                          variant="default" 
-                          size="sm"
-                          disabled={publishMutation.isPending || (post.eligibility_snapshot && post.eligibility_snapshot.review_required)}
-                          onClick={() => publishMutation.mutate(post.id)}
-                        >
-                          Publish
-                        </Button>
-                      )}
-                      {post.status === "failed" && (
-                        <Button 
-                          variant="secondary" 
-                          size="sm"
-                          disabled={renderMutation.isPending}
-                          onClick={() => renderMutation.mutate(post.id)}
-                        >
-                          Retry
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </Card>
+              <PostCard
+                key={post.id}
+                post={post}
+                onRender={() => renderMutation.mutate(post.id)}
+                onPublish={() => publishMutation.mutate(post.id)}
+                onDelete={() => deleteMutation.mutate(post.id)}
+                isRendering={renderMutation.isPending}
+                isPublishing={publishMutation.isPending}
+                isDeleting={deleteMutation.isPending}
+              />
             ))}
           </div>
         )}
       </div>
     </PageShell>
+  );
+}
+
+function PostCard({
+  post,
+  onRender,
+  onPublish,
+  onDelete,
+  isRendering,
+  isPublishing,
+  isDeleting,
+}: {
+  post: SocialPost;
+  onRender: () => void;
+  onPublish: () => void;
+  onDelete: () => void;
+  isRendering: boolean;
+  isPublishing: boolean;
+  isDeleting: boolean;
+}) {
+  const slides = post.carousel_slides ?? [];
+  const hasCarousel = slides.length > 0;
+  const [slideIdx, setSlideIdx] = useState(0);
+  const [showSlideViewer, setShowSlideViewer] = useState(false);
+
+  const currentSlide = slides[slideIdx];
+
+  return (
+    <Card className="p-4 transition-colors hover:border-ink-600">
+      <div className="flex gap-4">
+        {/* Thumbnail */}
+        <div className="h-24 w-24 shrink-0 rounded-sm bg-ink-800 border border-ink-700 overflow-hidden relative flex flex-col items-center justify-center p-1 text-center">
+          {post.media_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={post.media_url} alt="" className="object-cover w-full h-full" />
+          ) : (
+            <>
+              <span className="text-[10px] text-paper-400 font-mono uppercase">
+                {post.theme.replace("_", " ")}
+              </span>
+              {hasCarousel && (
+                <span className="text-[9px] text-accent-green font-mono mt-1">
+                  {slides.length} slides
+                </span>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Main Content */}
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="muted">{post.theme.replace("_", " ")}</Badge>
+            <Badge variant="muted">{post.format}</Badge>
+            {hasCarousel && (
+              <Badge variant="green">{slides.length} Slides Carousel</Badge>
+            )}
+            <span className="text-xs text-paper-500 ml-2">
+              {new Date(post.created_at).toLocaleDateString()}
+            </span>
+          </div>
+
+          <h3 className="font-display text-lg font-medium text-paper-50 leading-snug">
+            {post.headline}
+          </h3>
+
+          <p className="text-sm text-paper-300 line-clamp-1">{post.caption}</p>
+
+          {post.source_attribution && (
+            <p className="text-xs text-paper-500 uppercase tracking-label font-mono">
+              Source: {post.source_attribution}
+            </p>
+          )}
+
+          {/* Carousel Slide Viewer Toggle & Strip */}
+          {hasCarousel && (
+            <div className="mt-3 pt-2 border-t border-ink-800">
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setShowSlideViewer(!showSlideViewer)}
+                  className="text-xs font-mono text-accent-green hover:underline flex items-center gap-1"
+                >
+                  {showSlideViewer ? "Hide Carousel Slides" : "Inspect Carousel Slides →"}
+                </button>
+                {showSlideViewer && currentSlide && (
+                  <div className="flex items-center gap-2 text-xs font-mono text-paper-400">
+                    <button
+                      type="button"
+                      disabled={slideIdx === 0}
+                      onClick={() => setSlideIdx((i) => Math.max(0, i - 1))}
+                      className="px-2 py-0.5 rounded bg-ink-800 border border-ink-700 disabled:opacity-30 hover:bg-ink-700"
+                    >
+                      ←
+                    </button>
+                    <span>
+                      {slideIdx + 1} / {slides.length}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={slideIdx === slides.length - 1}
+                      onClick={() => setSlideIdx((i) => Math.min(slides.length - 1, i + 1))}
+                      className="px-2 py-0.5 rounded bg-ink-800 border border-ink-700 disabled:opacity-30 hover:bg-ink-700"
+                    >
+                      →
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {showSlideViewer && currentSlide && (
+                <div className="mt-2 rounded border border-ink-700 bg-ink-850 p-3 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] font-mono text-paper-400">
+                    <span className="uppercase text-accent-green font-semibold">
+                      Slide {currentSlide.slide_number}: {currentSlide.slide_type.replace("_", " ")}
+                    </span>
+                    <span>Accent: {currentSlide.accent}</span>
+                  </div>
+                  <p className="text-sm font-semibold text-paper-100">{currentSlide.header}</p>
+                  {currentSlide.body_text && (
+                    <p className="text-xs text-paper-300">{currentSlide.body_text}</p>
+                  )}
+                  {currentSlide.bullet_points && currentSlide.bullet_points.length > 0 && (
+                    <ul className="text-xs text-paper-300 list-disc list-inside space-y-0.5">
+                      {currentSlide.bullet_points.map((pt, idx) => (
+                        <li key={idx}>{pt}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Status & Actions */}
+        <div className="shrink-0 flex flex-col items-end justify-between min-w-[140px]">
+          <div className="flex flex-col items-end gap-2">
+            <PostStatusBadge status={post.status} />
+            <EligibilityBadge snapshot={post.eligibility_snapshot} />
+          </div>
+
+          <div className="flex items-center gap-2 mt-4">
+            {post.status === "draft" && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isRendering}
+                  onClick={onRender}
+                >
+                  {isRendering ? "Rendering…" : "Render"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-signal-red hover:bg-signal-red/10"
+                  disabled={isDeleting}
+                  onClick={onDelete}
+                >
+                  Delete
+                </Button>
+              </>
+            )}
+            {post.status === "rendered" && (
+              <Button
+                variant="default"
+                size="sm"
+                disabled={isPublishing || (post.eligibility_snapshot && post.eligibility_snapshot.review_required)}
+                onClick={onPublish}
+              >
+                {isPublishing ? "Publishing…" : "Publish"}
+              </Button>
+            )}
+            {post.status === "failed" && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isRendering}
+                onClick={onRender}
+              >
+                Retry
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }
 

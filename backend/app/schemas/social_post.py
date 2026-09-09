@@ -30,6 +30,17 @@ class VisualAssetRead(BaseModel):
     created_at: datetime
 
 
+class CarouselSlide(BaseModel):
+    slide_number: int
+    total_slides: int
+    slide_type: str
+    header: str
+    body_text: str | None = None
+    bullet_points: list[str] = Field(default_factory=list)
+    source_attribution: str | None = None
+    accent: str = "green"
+
+
 class SocialPostRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
@@ -50,6 +61,7 @@ class SocialPostRead(BaseModel):
     error: str | None
     eligibility_snapshot: dict
     visual_asset: VisualAssetRead | None
+    carousel_slides: list[CarouselSlide] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
