@@ -147,9 +147,53 @@ curl -X POST http://localhost:8000/api/v1/ingest/trigger \
 ```
 
 The Celery worker fetches each RSS feed, normalizes items, deduplicates by
-`canonical_url`, scores Ethiopia relevance (keyword heuristic in Phase 1),
-stores new `articles`, updates source health, and records a `pipeline_jobs` row.
-The dashboard's **Sources** and **Articles** pages reflect the results.
+`canonical_url`, stores new `articles`, updates source health, and records a
+`pipeline_jobs` row. Each new article is then enqueued into the **intelligence
+pipeline** (below). The dashboard's **Sources** and **Articles** pages reflect
+the results.
+
+---
+
+## Phase 2 — Intelligence pipeline
+
+After ingestion, each article flows through:
+
+```
+relevance → analysis → embedding → clustering (→ event)
+```
+
+powered by Gemini (with deterministic fallbacks). See
+[docs/architecture.md](docs/architecture.md#intelligence-pipeline-phase-2) for
+the full design, model choices, and cost notes.
+
+### Enable Gemini (local runtime only)
+
+Set your key in `.env` (never commit it):
+
+```
+GEMINI_API_KEY=your-key-here
+```
+
+Without a key, relevance + analysis still run via deterministic fallbacks, but
+embeddings and event clustering (which require the model) are skipped.
+
+The same Celery worker/beat you already run handles the pipeline — no extra
+process is needed:
+
+```bash
+celery -A app.workers.celery_app.celery_app worker --loglevel=INFO -Q ingestion
+celery -A app.workers.celery_app.celery_app beat  --loglevel=INFO
+```
+
+Beat enqueues `poll_pending_articles` every 2 minutes; `ingest_source` also
+enqueues `process_article` for each new article immediately. Watch progress:
+
+```bash
+curl -s http://localhost:8000/api/v1/pipeline/stats | jq
+```
+
+Clustered stories appear on the dashboard **Events** feed and **Event detail**
+pages (grouped coverage, sources, relations, timeline, cluster confidence).
 
 ---
 
@@ -182,7 +226,10 @@ seeded with `rss_url = NULL` for the website/API adapters in later phases.
 | GET/POST | `/api/v1/sources` | List / create sources |
 | GET/PATCH/DELETE | `/api/v1/sources/{id}` | Read / update / delete |
 | GET | `/api/v1/articles` | List articles (filter, paginate) |
-| GET | `/api/v1/articles/{id}` | Article detail |
+| GET | `/api/v1/articles/{id}` | Article detail (incl. analysis + processing state) |
+| GET | `/api/v1/events` | List clustered events (filter, paginate) |
+| GET | `/api/v1/events/{id}` | Event detail (grouped articles, timeline) |
+| GET | `/api/v1/pipeline/stats` | Pipeline processing stats |
 | POST | `/api/v1/ingest/trigger` | **Enqueue** ingestion |
 
 Interactive docs at `/docs`.
@@ -191,10 +238,16 @@ Interactive docs at `/docs`.
 
 ## Tests & linting
 
+Backend tests use an isolated `ethiotimes_test` database (override with
+`TEST_DATABASE_URL`); DB-backed tests skip automatically if it is unreachable.
+Integration tests mock Gemini — **no production AI calls run in CI**.
+
 ```bash
 cd backend
-pytest                       # unit tests (normalize, relevance, adapters, seed)
-ruff check app migrations    # lint
+createdb ethiotimes_test    # one-time (or let CI provision it)
+export TEST_DATABASE_URL=postgresql+psycopg://ethiotimes:ethiotimes@localhost:5432/ethiotimes_test
+pytest                       # unit + integration (relevance, clustering, pipeline, ...)
+ruff check app migrations tests   # lint
 
 cd ../frontend
 npm run typecheck            # tsc --noEmit
