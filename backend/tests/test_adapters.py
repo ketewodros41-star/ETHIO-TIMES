@@ -12,16 +12,16 @@ from app.pipelines.adapters.website import WebsiteCrawlerAdapter
 
 
 def _source(**kwargs):
-    defaults = dict(
-        rss_url=None,
-        api_url=None,
-        base_url=None,
-        telegram_username=None,
-        telegram_url=None,
-        source_type=SourceType.independent_media,
-        language="en",
-        slug="test",
-    )
+    defaults = {
+        "rss_url": None,
+        "api_url": None,
+        "base_url": None,
+        "telegram_username": None,
+        "telegram_url": None,
+        "source_type": SourceType.independent_media,
+        "language": "en",
+        "slug": "test",
+    }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
 
