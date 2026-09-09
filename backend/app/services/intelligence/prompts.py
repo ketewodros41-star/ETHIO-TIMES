@@ -280,6 +280,76 @@ def contradiction_prompt(claims: list[dict]) -> str:
     )
 
 
+# --------------------------------------------------------------------------- #
+# Trend signals (Phase 4)
+# --------------------------------------------------------------------------- #
+TREND_SIGNALS_SYSTEM = (
+    "You are a newsdesk editor for ETHIOTIMES scoring how much a clustered "
+    "Ethiopian news event is trending. Be conservative. Do not invent social "
+    "metrics you cannot infer from the coverage itself. Respond ONLY with JSON."
+)
+
+TREND_SIGNALS_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "public_impact": {"type": "integer", "minimum": 0, "maximum": 100},
+        "social_momentum": {"type": "integer", "minimum": 0, "maximum": 100},
+        "search_interest": {"type": "integer", "minimum": 0, "maximum": 100},
+        "breaking_likely": {"type": "boolean"},
+        "reason": {"type": "string"},
+        "affected_scope": {
+            "type": "string",
+            "enum": ["local", "regional", "national", "diaspora", "international"],
+        },
+    },
+    "required": [
+        "public_impact",
+        "social_momentum",
+        "search_interest",
+        "breaking_likely",
+        "reason",
+        "affected_scope",
+    ],
+}
+
+
+def trend_signals_prompt(event, articles) -> str:  # noqa: ANN001
+    lines = [
+        f"TITLE: {getattr(event, 'title', None)}",
+        f"SUMMARY: {getattr(event, 'summary', None)}",
+        f"CATEGORY: {getattr(event, 'primary_category', None)}",
+        f"REGION: {getattr(event, 'primary_region', None)}",
+        f"ENTITIES: {getattr(event, 'key_entities', None)}",
+        f"ARTICLE_COUNT: {getattr(event, 'article_count', None)}",
+        f"SOURCE_COUNT: {getattr(event, 'source_count', None)}",
+        f"VERIFICATION_SCORE: {getattr(event, 'verification_score', None)}",
+        "",
+        "COVERAGE:",
+    ]
+    for article in articles[:8]:
+        src = getattr(getattr(article, "source", None), "name", None)
+        lines.append(
+            f"- [{src}] {getattr(article, 'title', None)} :: "
+            f"{(getattr(article, 'summary', None) or '')[:280]}"
+        )
+    body = "\n".join(lines)
+    return (
+        "Assess trend signals for this clustered Ethiopian news event.\n"
+        "Return JSON with:\n"
+        "- public_impact (0-100): how many people / how severely this affects "
+        "Ethiopians (casualties, nationwide policy, markets, elections score high).\n"
+        "- social_momentum (0-100): inferred social/Telegram/cross-outlet buzz "
+        "from the coverage mix — not a live firehose.\n"
+        "- search_interest (0-100): inferred likelihood people are searching "
+        "for this story now.\n"
+        "- breaking_likely (bool): true only if this looks like breaking news "
+        "right now (rapid new facts, not a slow-burn feature).\n"
+        "- reason (one sentence).\n"
+        "- affected_scope (local|regional|national|diaspora|international).\n\n"
+        f"{body}"
+    )
+
+
 def _join_fields(title: str | None, summary: str | None, content: str | None) -> str:
     parts = []
     if title:

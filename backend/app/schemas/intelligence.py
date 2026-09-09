@@ -238,3 +238,33 @@ class ContradictionPair(BaseModel):
 
 class ContradictionDetectionResult(BaseModel):
     contradictions: list[ContradictionPair] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# Trend intelligence (Phase 4)
+# --------------------------------------------------------------------------- #
+class TrendSignals(BaseModel):
+    """Gemini (or heuristic) qualitative signals that feed trend weights."""
+
+    public_impact: int = Field(default=50, ge=0, le=100)
+    social_momentum: int = Field(default=40, ge=0, le=100)
+    search_interest: int = Field(default=40, ge=0, le=100)
+    breaking_likely: bool = False
+    reason: str = ""
+    affected_scope: str = Field(default="national")
+
+    @field_validator("public_impact", "social_momentum", "search_interest", mode="before")
+    @classmethod
+    def _clamp_signal(cls, v: object) -> int:
+        try:
+            n = int(round(float(v)))
+        except (TypeError, ValueError):
+            return 50
+        return max(0, min(100, n))
+
+    @field_validator("affected_scope", mode="before")
+    @classmethod
+    def _norm_scope(cls, v: object) -> str:
+        s = str(v or "").strip().lower()
+        allowed = {"local", "regional", "national", "diaspora", "international"}
+        return s if s in allowed else "national"
