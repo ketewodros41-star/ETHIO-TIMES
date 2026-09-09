@@ -1,9 +1,5 @@
-"""`news_events`, `event_articles`, and `event_timeline` — clustering (Phase 2).
-
-Phase 2 populates these via the clustering pipeline: articles that cover the same
-real-world event are grouped under a `NewsEvent`, with each membership typed by
-its relation (primary / duplicate / related / follow_up / context) and a
-timeline of notable moments.
+"""`news_events`, `event_articles`, and `event_timeline` — clustering (Phase 2)
+plus verification fields persisted by Phase 3.
 """
 
 from __future__ import annotations
@@ -13,6 +9,7 @@ from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Enum,
     Float,
@@ -27,7 +24,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 from app.models.article import EMBEDDING_DIM
-from app.models.enums import ArticleRelationType, EventStatus, EventTimelineType
+from app.models.enums import (
+    ArticleRelationType,
+    EventStatus,
+    EventTimelineType,
+    EventVerificationStatus,
+    EventVerifyStatus,
+)
 
 
 class NewsEvent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -85,6 +88,63 @@ class NewsEvent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         JSONB, nullable=False, default=dict, server_default="{}"
     )
 
+    # ---- Verification (Phase 3) ----
+    # Public 0–100 score + status (unverified/developing/partially_confirmed/
+    # confirmed/contradicted). Distinct from clustering `status` (EventStatus)
+    # and source-handle VerificationStatus.
+    verification_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    event_verification_status: Mapped[EventVerificationStatus] = mapped_column(
+        Enum(
+            EventVerificationStatus,
+            name="event_verification_status",
+            native_enum=True,
+        ),
+        nullable=False,
+        default=EventVerificationStatus.unverified,
+        server_default=EventVerificationStatus.unverified.value,
+        index=True,
+    )
+    verification_explanation: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+    primary_source_available: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false", index=True
+    )
+    cited_institutions: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    discovered_primary_source_ids: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    review_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false", index=True
+    )
+    review_reasons: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    auto_publish_eligible: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    verification_processing_status: Mapped[EventVerifyStatus] = mapped_column(
+        Enum(EventVerifyStatus, name="event_verify_status", native_enum=True),
+        nullable=False,
+        default=EventVerifyStatus.pending,
+        server_default=EventVerifyStatus.pending.value,
+        index=True,
+    )
+    verification_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    last_verification_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    verification_lock_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     article_links: Mapped[list[EventArticle]] = relationship(
         back_populates="event", cascade="all, delete-orphan"
     )
@@ -92,6 +152,16 @@ class NewsEvent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         back_populates="event",
         cascade="all, delete-orphan",
         order_by="EventTimeline.occurred_at",
+    )
+    claims: Mapped[list["EventClaim"]] = relationship(  # noqa: F821
+        "EventClaim",
+        back_populates="event",
+        cascade="all, delete-orphan",
+    )
+    contradictions: Mapped[list["Contradiction"]] = relationship(  # noqa: F821
+        "Contradiction",
+        back_populates="event",
+        cascade="all, delete-orphan",
     )
 
 

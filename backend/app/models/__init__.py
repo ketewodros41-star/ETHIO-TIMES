@@ -12,8 +12,12 @@ from app.models.enums import (
     ArticleRelationType,
     ArticleStatus,
     AuditAction,
+    ClaimType,
+    ContradictionSeverity,
     EventStatus,
     EventTimelineType,
+    EventVerificationStatus,
+    EventVerifyStatus,
     JobStatus,
     ProcessingStatus,
     RelevanceDecision,
@@ -24,6 +28,7 @@ from app.models.enums import (
 from app.models.news_event import EventArticle, EventTimeline, NewsEvent
 from app.models.news_source import NewsSource
 from app.models.user import User
+from app.models.verification import ClaimEvidence, Contradiction, EventClaim
 
 __all__ = [
     "Base",
@@ -36,13 +41,20 @@ __all__ = [
     "NewsEvent",
     "EventArticle",
     "EventTimeline",
+    "EventClaim",
+    "ClaimEvidence",
+    "Contradiction",
     "NewsSource",
     "User",
     "ArticleRelationType",
     "ArticleStatus",
     "AuditAction",
+    "ClaimType",
+    "ContradictionSeverity",
     "EventStatus",
     "EventTimelineType",
+    "EventVerificationStatus",
+    "EventVerifyStatus",
     "JobStatus",
     "ProcessingStatus",
     "RelevanceDecision",

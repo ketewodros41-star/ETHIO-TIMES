@@ -81,6 +81,14 @@ class Settings(BaseSettings):
     # Max pipeline attempts before an article is sent to the dead-letter state.
     pipeline_max_attempts: int = Field(default=5)
 
+    # ---- Verification (Phase 3) ----
+    verification_max_attempts: int = Field(default=5)
+    verification_confirmed_min_score: int = Field(default=75)
+    verification_partial_min_score: int = Field(default=50)
+    verification_developing_min_score: int = Field(default=30)
+    verification_auto_publish_min_score: int = Field(default=80)
+    verification_max_articles_for_llm: int = Field(default=8)
+
     @field_validator("cors_origins")
     @classmethod
     def _strip(cls, v: str) -> str:

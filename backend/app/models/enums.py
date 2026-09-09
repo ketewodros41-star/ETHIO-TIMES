@@ -112,3 +112,46 @@ class EventTimelineType(str, enum.Enum):
     source_confirmation = "source_confirmation"
     new_development = "new_development"
     correction = "correction"
+
+
+class EventVerificationStatus(str, enum.Enum):
+    """Public verification state of a clustered *event* (Phase 3).
+
+    Distinct from ``VerificationStatus``, which is for source Telegram handles,
+    and from ``EventStatus``, which is the clustering lifecycle.
+    PostgreSQL type name: ``event_verification_status``.
+    """
+
+    unverified = "unverified"
+    developing = "developing"
+    partially_confirmed = "partially_confirmed"
+    confirmed = "confirmed"
+    contradicted = "contradicted"
+
+
+class EventVerifyStatus(str, enum.Enum):
+    """Worker processing state for the verification pipeline (Phase 3)."""
+
+    pending = "pending"
+    verifying = "verifying"
+    verified = "verified"
+    failed = "failed"
+    dead_letter = "dead_letter"
+
+
+class ClaimType(str, enum.Enum):
+    financial = "financial"
+    statistical = "statistical"
+    political = "political"
+    policy = "policy"
+    casualty = "casualty"
+    geographic = "geographic"
+    timeline = "timeline"
+    announcement = "announcement"
+
+
+class ContradictionSeverity(str, enum.Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+    critical = "critical"
