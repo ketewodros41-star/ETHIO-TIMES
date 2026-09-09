@@ -23,10 +23,12 @@ from app.models.enums import (
     RelevanceDecision,
     SourceHealthStatus,
     SourceType,
+    TrendStatus,
     VerificationStatus,
 )
 from app.models.news_event import EventArticle, EventTimeline, NewsEvent
 from app.models.news_source import NewsSource
+from app.models.trending import EventVelocityMetric
 from app.models.user import User
 from app.models.verification import ClaimEvidence, Contradiction, EventClaim
 
@@ -44,6 +46,7 @@ __all__ = [
     "EventClaim",
     "ClaimEvidence",
     "Contradiction",
+    "EventVelocityMetric",
     "NewsSource",
     "User",
     "ArticleRelationType",
@@ -60,5 +63,6 @@ __all__ = [
     "RelevanceDecision",
     "SourceHealthStatus",
     "SourceType",
+    "TrendStatus",
     "VerificationStatus",
 ]

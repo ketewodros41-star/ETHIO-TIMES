@@ -1,5 +1,5 @@
-"""`news_events`, `event_articles`, and `event_timeline` — clustering (Phase 2)
-plus verification fields persisted by Phase 3.
+"""`news_events`, `event_articles`, and `event_timeline` — clustering (Phase 2),
+verification fields (Phase 3), and trend intelligence fields (Phase 4).
 """
 
 from __future__ import annotations
@@ -31,9 +31,11 @@ from app.models.enums import (
     EventTimelineType,
     EventVerificationStatus,
     EventVerifyStatus,
+    TrendStatus,
 )
 
 if TYPE_CHECKING:
+    from app.models.trending import EventVelocityMetric
     from app.models.verification import Contradiction, EventClaim
 
 
@@ -149,6 +151,30 @@ class NewsEvent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
 
+    # ---- Trend intelligence (Phase 4) ----
+    trend_score: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default="0"
+    )
+    trend_status: Mapped[TrendStatus] = mapped_column(
+        Enum(TrendStatus, name="trend_status", native_enum=True),
+        nullable=False,
+        default=TrendStatus.low,
+        server_default=TrendStatus.low.value,
+        index=True,
+    )
+    trend_breakdown: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+    editorial_importance: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default="0"
+    )
+    breaking_candidate: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false", index=True
+    )
+    trend_scored_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     article_links: Mapped[list[EventArticle]] = relationship(
         back_populates="event", cascade="all, delete-orphan"
     )
@@ -164,6 +190,11 @@ class NewsEvent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     contradictions: Mapped[list[Contradiction]] = relationship(  # noqa: F821
         "Contradiction",
+        back_populates="event",
+        cascade="all, delete-orphan",
+    )
+    velocity_metrics: Mapped[list[EventVelocityMetric]] = relationship(  # noqa: F821
+        "EventVelocityMetric",
         back_populates="event",
         cascade="all, delete-orphan",
     )

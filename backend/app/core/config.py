@@ -89,6 +89,25 @@ class Settings(BaseSettings):
     verification_auto_publish_min_score: int = Field(default=80)
     verification_max_articles_for_llm: int = Field(default=8)
 
+    # ---- Trend intelligence (Phase 4) ----
+    # Weights must sum to 1.0. Component scores are 0–100 before weighting.
+    trend_recency_weight: float = Field(default=0.20)
+    trend_velocity_weight: float = Field(default=0.20)
+    trend_diversity_weight: float = Field(default=0.15)
+    trend_public_impact_weight: float = Field(default=0.20)
+    trend_social_momentum_weight: float = Field(default=0.10)
+    trend_search_interest_weight: float = Field(default=0.10)
+    trend_editorial_importance_weight: float = Field(default=0.05)
+    trend_status_emerging_min: float = Field(default=40.0)
+    trend_status_trending_min: float = Field(default=60.0)
+    trend_status_high_priority_min: float = Field(default=80.0)
+    trend_breaking_min_score: float = Field(default=65.0)
+    trend_breaking_min_articles_1h: int = Field(default=3)
+    trend_breaking_min_sources_1h: int = Field(default=2)
+    trend_breaking_min_growth: float = Field(default=3.0)
+    trend_stale_minutes: int = Field(default=15)
+    trend_skip_fresh_seconds: int = Field(default=120)
+
     @field_validator("cors_origins")
     @classmethod
     def _strip(cls, v: str) -> str:

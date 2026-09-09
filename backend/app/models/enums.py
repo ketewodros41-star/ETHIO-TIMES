@@ -155,3 +155,17 @@ class ContradictionSeverity(str, enum.Enum):
     medium = "medium"
     high = "high"
     critical = "critical"
+
+
+class TrendStatus(str, enum.Enum):
+    """Public trend-intelligence state of a clustered event (Phase 4).
+
+    Distinct from clustering ``EventStatus`` and verification statuses.
+    PostgreSQL type name: ``trend_status``.
+    """
+
+    low = "low"
+    emerging = "emerging"
+    trending = "trending"
+    high_priority = "high_priority"
+    breaking = "breaking"
