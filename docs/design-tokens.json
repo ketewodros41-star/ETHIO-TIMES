@@ -1,0 +1,64 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "meta": {
+    "brand": "ETHIOTIMES",
+    "description": "Canonical design tokens for ETHIOTIMES dashboard chrome and Instagram post templates.",
+    "version": "0.1.0"
+  },
+  "color": {
+    "ink": {
+      "900": "#0B0C0E",
+      "800": "#131519",
+      "700": "#1C1F24",
+      "600": "#262A31"
+    },
+    "paper": {
+      "50": "#F7F6F2",
+      "300": "#C9C7BF",
+      "500": "#8A897F"
+    },
+    "accent": {
+      "green": "#1FA35A",
+      "gold": "#D4A24E"
+    },
+    "signal": {
+      "red": "#C2483B",
+      "amber": "#D4A24E",
+      "green": "#1FA35A"
+    }
+  },
+  "typography": {
+    "family": {
+      "display": "Fraunces, 'Playfair Display', Georgia, serif",
+      "sans": "Inter, 'Neue Haas Grotesk', system-ui, sans-serif",
+      "mono": "'JetBrains Mono', 'SFMono-Regular', ui-monospace, monospace"
+    },
+    "tracking": {
+      "label": "0.08em",
+      "tight": "-0.01em"
+    }
+  },
+  "instagram": {
+    "formats": {
+      "portrait": { "width": 1080, "height": 1350 },
+      "square": { "width": 1080, "height": 1080 },
+      "story": { "width": 1080, "height": 1920 }
+    },
+    "safeMargin": {
+      "portrait": 84,
+      "square": 72,
+      "story": 120
+    },
+    "scale": {
+      "categoryPill": 28,
+      "headline": 104,
+      "dek": 40,
+      "source": 28,
+      "wordmark": 30
+    }
+  },
+  "radius": {
+    "pill": 999,
+    "card": 8
+  }
+}
