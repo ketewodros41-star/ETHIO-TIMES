@@ -1,14 +1,15 @@
-"""News event feed + detail endpoints (Phase 2)."""
+"""News event feed + detail endpoints (Phase 2–4)."""
 
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.models.enums import EventStatus, EventVerificationStatus
+from app.models.enums import EventStatus, EventVerificationStatus, TrendStatus
 from app.repositories.event_repository import EventRepository
 from app.schemas.common import Page, PageMeta
 from app.schemas.event import EventDetail, EventRead, to_event_detail
@@ -26,6 +27,9 @@ def list_events(
     search: str | None = Query(None),
     verification_status: EventVerificationStatus | None = Query(None),
     review_required: bool | None = Query(None),
+    trend_status: TrendStatus | None = Query(None),
+    breaking: bool | None = Query(None),
+    sort: Literal["last_seen", "trend_score"] = Query("last_seen"),
 ) -> Page[EventRead]:
     repo = EventRepository(session)
     items, total = repo.list(
@@ -36,6 +40,9 @@ def list_events(
         search=search,
         event_verification_status=verification_status,
         review_required=review_required,
+        trend_status=trend_status,
+        breaking=breaking,
+        sort=sort,
     )
     return Page[EventRead](
         items=[EventRead.model_validate(e) for e in items],

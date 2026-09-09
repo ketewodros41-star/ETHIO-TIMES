@@ -21,6 +21,7 @@ from app.repositories.event_repository import EventRepository
 from app.repositories.source_repository import SourceRepository
 from app.services.ingestion_service import IngestionService
 from app.services.intelligence.pipeline import IntelligencePipeline
+from app.services.intelligence.trend_pipeline import TrendPipeline
 from app.services.intelligence.verification_pipeline import VerificationPipeline
 from app.workers.celery_app import celery_app
 
@@ -94,6 +95,7 @@ def process_article(self, article_id: str) -> dict:
         session.commit()
         if result.event_id:
             verify_event.delay(result.event_id)
+            score_event_trend.delay(result.event_id)
         return result.as_dict()
     except Exception:  # noqa: BLE001
         session.rollback()
@@ -173,6 +175,8 @@ def verify_event(self, event_id: str) -> dict:
                 )
             )
         session.commit()
+        if result.error is None:
+            score_event_trend.delay(event_id)
         return result.as_dict()
     except Exception:  # noqa: BLE001
         session.rollback()
@@ -192,6 +196,61 @@ def poll_pending_verifications(limit: int = 100) -> dict:
         for event_id in ids:
             verify_event.delay(str(event_id))
         logger.info("poll_pending_verifications", enqueued=len(ids))
+        return {"enqueued": len(ids)}
+    finally:
+        session.close()
+
+
+@celery_app.task(bind=True, name="app.workers.tasks.score_event_trend", max_retries=3)
+def score_event_trend(self, event_id: str) -> dict:
+    """Recompute velocity + weighted trend score for one event.
+
+    Uses a row-level lock (SKIP LOCKED). Records a PipelineJob. Idempotent: a
+    freshly scored event with no new coverage is skipped.
+    """
+    session = SessionLocal()
+    try:
+        repo = EventRepository(session)
+        event = repo.lock_for_trend(uuid.UUID(event_id))
+        if event is None:
+            return {"skipped": True, "event_id": event_id, "reason": "locked_or_missing"}
+
+        pipeline = TrendPipeline(session, get_text_provider())
+        result = pipeline.process(event)
+
+        job = PipelineJob(
+            task_name="score_event_trend",
+            celery_task_id=self.request.id,
+            event_id=event.id,
+            status=JobStatus.success if result.error is None else JobStatus.failed,
+            started_at=datetime.now(UTC),
+            finished_at=datetime.now(UTC),
+            items_processed=1,
+            items_created=0,
+            error_message=result.error,
+            detail=result.as_dict(),
+        )
+        session.add(job)
+        session.commit()
+        return result.as_dict()
+    except Exception:  # noqa: BLE001
+        session.rollback()
+        logger.exception("score_event_trend_task_error", event_id=event_id)
+        raise
+    finally:
+        session.close()
+
+
+@celery_app.task(name="app.workers.tasks.poll_stale_trends")
+def poll_stale_trends(limit: int = 100) -> dict:
+    """Enqueue trend rescoring for events that are stale or have new coverage."""
+    session = SessionLocal()
+    try:
+        repo = EventRepository(session)
+        ids = repo.select_stale_trend_ids(limit=limit)
+        for eid in ids:
+            score_event_trend.delay(str(eid))
+        logger.info("poll_stale_trends", enqueued=len(ids))
         return {"enqueued": len(ids)}
     finally:
         session.close()

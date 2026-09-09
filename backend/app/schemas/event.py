@@ -17,6 +17,7 @@ from app.models.enums import (
     EventVerifyStatus,
     ProcessingStatus,
     RelevanceDecision,
+    TrendStatus,
 )
 from app.models.news_event import EventArticle, EventTimeline, NewsEvent
 from app.models.verification import ClaimEvidence, Contradiction, EventClaim
@@ -88,6 +89,11 @@ class EventRead(BaseModel):
     auto_publish_eligible: bool = False
     verification_processing_status: EventVerifyStatus = EventVerifyStatus.pending
     verified_at: datetime | None = None
+    trend_score: float = 0.0
+    trend_status: TrendStatus = TrendStatus.low
+    editorial_importance: float = 0.0
+    breaking_candidate: bool = False
+    trend_scored_at: datetime | None = None
 
 
 class ClaimEvidenceRead(BaseModel):
@@ -118,6 +124,15 @@ class ContradictionRead(BaseModel):
     details: dict
 
 
+class VelocityMetricRead(BaseModel):
+    window_hours: int
+    article_count: int
+    unique_source_count: int
+    growth_rate: float
+    articles_per_hour: float
+    computed_at: datetime | None
+
+
 class EventDetail(EventRead):
     articles: list[EventArticleRead]
     timeline: list[EventTimelineRead]
@@ -126,6 +141,8 @@ class EventDetail(EventRead):
     verification_explanation: dict
     cited_institutions: list[str]
     discovered_primary_source_ids: list[str]
+    trend_breakdown: dict
+    velocity_metrics: list[VelocityMetricRead]
 
 
 # --------------------------------------------------------------------------- #
@@ -198,6 +215,21 @@ def to_event_detail(event: NewsEvent) -> EventDetail:
         cited_institutions=list(event.cited_institutions or []),
         discovered_primary_source_ids=[
             str(x) for x in (event.discovered_primary_source_ids or [])
+        ],
+        trend_breakdown=event.trend_breakdown or {},
+        velocity_metrics=[
+            VelocityMetricRead(
+                window_hours=row.window_hours,
+                article_count=row.article_count,
+                unique_source_count=row.unique_source_count,
+                growth_rate=row.growth_rate,
+                articles_per_hour=row.articles_per_hour,
+                computed_at=row.computed_at,
+            )
+            for row in sorted(
+                event.velocity_metrics or [],
+                key=lambda r: r.window_hours,
+            )
         ],
     )
 

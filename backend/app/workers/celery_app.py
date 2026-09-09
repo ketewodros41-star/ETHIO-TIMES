@@ -46,6 +46,10 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.tasks.poll_pending_verifications",
         "schedule": crontab(minute="*/2"),
     },
+    "poll-stale-trends-every-5-min": {
+        "task": "app.workers.tasks.poll_stale_trends",
+        "schedule": crontab(minute="*/5"),
+    },
     "source-health-sweep-hourly": {
         "task": "app.workers.tasks.source_health_sweep",
         "schedule": crontab(minute=0),

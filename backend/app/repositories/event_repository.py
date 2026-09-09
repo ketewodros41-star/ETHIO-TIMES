@@ -7,8 +7,9 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import settings
 from app.models.article import Article
-from app.models.enums import EventStatus, EventVerificationStatus, EventVerifyStatus
+from app.models.enums import EventStatus, EventVerificationStatus, EventVerifyStatus, TrendStatus
 from app.models.news_event import EventArticle, EventTimeline, NewsEvent
 from app.models.verification import EventClaim
 
@@ -30,6 +31,7 @@ class EventRepository:
                 selectinload(NewsEvent.timeline),
                 selectinload(NewsEvent.claims).selectinload(EventClaim.evidence),
                 selectinload(NewsEvent.contradictions),
+                selectinload(NewsEvent.velocity_metrics),
             )
             .where(NewsEvent.id == event_id)
         )
@@ -63,6 +65,9 @@ class EventRepository:
         search: str | None = None,
         event_verification_status: EventVerificationStatus | None = None,
         review_required: bool | None = None,
+        trend_status: TrendStatus | None = None,
+        breaking: bool | None = None,
+        sort: str = "last_seen",
     ) -> tuple[list[NewsEvent], int]:
         stmt = select(NewsEvent)
         count_stmt = select(func.count()).select_from(NewsEvent)
@@ -86,16 +91,29 @@ class EventRepository:
         if review_required is not None:
             stmt = stmt.where(NewsEvent.review_required.is_(review_required))
             count_stmt = count_stmt.where(NewsEvent.review_required.is_(review_required))
+        if trend_status is not None:
+            stmt = stmt.where(NewsEvent.trend_status == trend_status)
+            count_stmt = count_stmt.where(NewsEvent.trend_status == trend_status)
+        if breaking is True:
+            stmt = stmt.where(NewsEvent.breaking_candidate.is_(True))
+            count_stmt = count_stmt.where(NewsEvent.breaking_candidate.is_(True))
+        elif breaking is False:
+            stmt = stmt.where(NewsEvent.breaking_candidate.is_(False))
+            count_stmt = count_stmt.where(NewsEvent.breaking_candidate.is_(False))
 
         total = self.session.scalar(count_stmt) or 0
-        stmt = (
-            stmt.order_by(
+        if sort == "trend_score":
+            order = (
+                NewsEvent.trend_score.desc(),
                 NewsEvent.last_seen_at.desc().nullslast(),
                 NewsEvent.created_at.desc(),
             )
-            .limit(limit)
-            .offset(offset)
-        )
+        else:
+            order = (
+                NewsEvent.last_seen_at.desc().nullslast(),
+                NewsEvent.created_at.desc(),
+            )
+        stmt = stmt.order_by(*order).limit(limit).offset(offset)
         return list(self.session.scalars(stmt).all()), total
 
     def add(self, event: NewsEvent) -> NewsEvent:
@@ -143,6 +161,34 @@ class EventRepository:
                 )
             )
             .order_by(NewsEvent.last_seen_at.desc().nullslast(), NewsEvent.created_at.asc())
+            .limit(limit)
+        )
+        return list(self.session.scalars(stmt).all())
+
+    def lock_for_trend(self, event_id: uuid.UUID) -> NewsEvent | None:
+        """Row-lock an event with SKIP LOCKED for trend recomputation."""
+        return self.session.scalar(
+            select(NewsEvent)
+            .where(NewsEvent.id == event_id)
+            .with_for_update(skip_locked=True)
+        )
+
+    def select_stale_trend_ids(self, *, limit: int = 100) -> list[uuid.UUID]:
+        """Events never scored, with new coverage, or past the freshness window."""
+        from datetime import UTC, datetime, timedelta
+
+        cutoff = datetime.now(UTC) - timedelta(minutes=settings.trend_stale_minutes)
+        stmt = (
+            select(NewsEvent.id)
+            .where(
+                (NewsEvent.trend_scored_at.is_(None))
+                | (NewsEvent.last_seen_at > NewsEvent.trend_scored_at)
+                | (NewsEvent.trend_scored_at < cutoff)
+            )
+            .order_by(
+                NewsEvent.last_seen_at.desc().nullslast(),
+                NewsEvent.created_at.asc(),
+            )
             .limit(limit)
         )
         return list(self.session.scalars(stmt).all())
