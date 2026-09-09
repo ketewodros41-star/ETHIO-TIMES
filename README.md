@@ -1,4 +1,4 @@
-﻿# ETHIOTIMES
+# ETHIOTIMES
 
 **Ethiopian News Intelligence & Automated Social Media Publishing Platform.**
 
@@ -8,6 +8,7 @@ content, and (in later phases) clusters, verifies, analyzes, and publishes
 premium editorial posts to Instagram — and later Telegram, X, Facebook, TikTok,
 and a website.
 
+### What was built in Phase 5
 This repository contains the **Phase 1–4** stack: schema and migrations, a
 seeded Ethiopian source registry, RSS ingestion on Celery, the Gemini
 intelligence pipeline (relevance → analysis → embedding → clustering),
@@ -15,8 +16,7 @@ intelligence pipeline (relevance → analysis → embedding → clustering),
 gates), **trend intelligence** (weighted trend scores, velocity, breaking
 candidates), the FastAPI backend, and a dark newsroom Next.js dashboard.
 
-> Phase 5 (Instagram composition + publishing) and later distribution channels
-> are **out of scope** on this branch. See [`docs/architecture.md`](docs/architecture.md).
+> Phase 5 (done) | Instagram post composition (Playwright render) + publishing.
 
 ---
 

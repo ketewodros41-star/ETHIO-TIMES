@@ -108,6 +108,32 @@ class Settings(BaseSettings):
     trend_stale_minutes: int = Field(default=15)
     trend_skip_fresh_seconds: int = Field(default=120)
 
+    # ---- Instagram Graph API (Phase 5) ----
+    instagram_access_token: str | None = Field(default=None)
+    instagram_business_account_id: str | None = Field(default=None)
+
+    # ---- Media / Playwright render (Phase 5) ----
+    media_root: str = Field(default="./media")
+    next_public_url: str = Field(default="http://localhost:3000")
+    playwright_timeout_ms: int = Field(default=15_000)
+    mock_render: bool = Field(default=False)
+
+    # ---- Image generation (Phase 5) ----
+    max_image_retries: int = Field(default=2)
+    image_quality_threshold: int = Field(default=75)
+    image_candidates_per_event: int = Field(default=2)
+
+    # ---- Editorial (Phase 5) ----
+    caption_max_chars: int = Field(default=2200)
+    editorial_min_verification_score: int = Field(default=50)
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _normalize_db_url(cls, v: str) -> str:
+        if isinstance(v, str) and v.startswith("postgresql://"):
+            return "postgresql+psycopg://" + v[len("postgresql://") :]
+        return v
+
     @field_validator("cors_origins")
     @classmethod
     def _strip(cls, v: str) -> str:

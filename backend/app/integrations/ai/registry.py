@@ -15,4 +15,5 @@ def get_text_provider() -> AIProvider:
 
 
 def get_image_provider() -> ImageProvider:
-    return GeminiImageProvider()
+    from app.integrations.ai.mock_image import MockImageProvider
+    return MockImageProvider()

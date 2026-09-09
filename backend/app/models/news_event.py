@@ -35,6 +35,7 @@ from app.models.enums import (
 )
 
 if TYPE_CHECKING:
+    from app.models.social_post import SocialPost, VisualAsset
     from app.models.trending import EventVelocityMetric
     from app.models.verification import Contradiction, EventClaim
 
@@ -195,6 +196,16 @@ class NewsEvent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     velocity_metrics: Mapped[list[EventVelocityMetric]] = relationship(  # noqa: F821
         "EventVelocityMetric",
+        back_populates="event",
+        cascade="all, delete-orphan",
+    )
+    social_posts: Mapped[list[SocialPost]] = relationship(  # noqa: F821
+        "SocialPost",
+        back_populates="event",
+        cascade="all, delete-orphan",
+    )
+    visual_assets: Mapped[list[VisualAsset]] = relationship(  # noqa: F821
+        "VisualAsset",
         back_populates="event",
         cascade="all, delete-orphan",
     )

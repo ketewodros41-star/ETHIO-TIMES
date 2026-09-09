@@ -63,16 +63,19 @@ def _is_rate_limit(exc: Exception) -> bool:
     )
 
 
+_DEFAULT_KEY = object()
+
+
 class GeminiTextProvider(AIProvider):
     name = "gemini"
 
     def __init__(
         self,
-        api_key: str | None = None,
+        api_key: str | None = _DEFAULT_KEY,
         model: str | None = None,
         embedding_model: str | None = None,
     ) -> None:
-        self.api_key = api_key or settings.gemini_api_key
+        self.api_key = settings.gemini_api_key if api_key is _DEFAULT_KEY else api_key
         self.model = model or settings.gemini_text_model
         self.embedding_model = embedding_model or settings.gemini_embedding_model
         self.embedding_dim = settings.embedding_dim

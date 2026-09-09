@@ -169,3 +169,38 @@ class TrendStatus(str, enum.Enum):
     trending = "trending"
     high_priority = "high_priority"
     breaking = "breaking"
+
+
+class SocialPlatform(str, enum.Enum):
+    instagram = "instagram"
+
+
+class InstagramPostFormat(str, enum.Enum):
+    portrait = "portrait"   # 1080×1350
+    square = "square"       # 1080×1080
+    story = "story"         # 1080×1920
+
+
+class SocialPostStatus(str, enum.Enum):
+    draft = "draft"
+    rendered = "rendered"
+    scheduled = "scheduled"
+    published = "published"
+    failed = "failed"
+
+
+class VisualAssetStatus(str, enum.Enum):
+    generating = "generating"
+    generated = "generated"
+    approved = "approved"
+    rejected = "rejected"
+    published = "published"
+
+
+class ContentFormat(str, enum.Enum):
+    """Instagram post content format (spec §23). Carousels are Phase 6."""
+    breaking_card = "breaking_card"
+    single_image_post = "single_image_post"
+    data_visual = "data_visual"
+    story = "story"
+

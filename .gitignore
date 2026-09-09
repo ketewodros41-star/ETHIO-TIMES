@@ -47,4 +47,6 @@ Thumbs.db
 *.db
 /tmp/
 /backend/.data/
+/backend/media/
+media/
 /frontend/.env.local

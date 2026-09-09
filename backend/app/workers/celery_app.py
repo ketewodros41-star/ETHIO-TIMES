@@ -54,4 +54,8 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.tasks.source_health_sweep",
         "schedule": crontab(minute=0),
     },
+    "auto-compose-eligible-events-every-30-min": {
+        "task": "app.workers.tasks.auto_compose_eligible_events",
+        "schedule": crontab(minute="*/30"),
+    },
 }

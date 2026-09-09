@@ -396,10 +396,10 @@ breaking and trending rails. Pipeline stats expose `by_trend_status` and
 | **2 (done)** | Gemini provider; Ethiopia relevance detection; article analysis (multilingual entities/facts); embeddings + pgvector cosine search; duplicate detection & event clustering; event lifecycle + timeline; event feed/detail UI. |
 | **3 (done)** | Claim extraction; claim–evidence mapping; contradiction detection; verification scoring; primary-source discovery MVP; sensitive-news review gates; verification workers + event feed/detail UI. |
 | **4 (done)** | Trend scoring; event velocity; editorial importance; breaking-candidate detection; trend workers + UI. |
-| **5 (next)** | Instagram post composition (Playwright render) + publishing. |
+| **5 (done)** | Instagram post composition (Playwright render) + publishing. |
 | 6–8 | Carousels; Telegram/X/Facebook/TikTok/website distribution; full editorial AI; analytics. |
 
-### What remains for Phase 5
+### What was built in Phase 5
 
 - **Instagram composition:** Playwright render of branded post templates from
   verified/evidenced event briefs (not raw unverified claims).

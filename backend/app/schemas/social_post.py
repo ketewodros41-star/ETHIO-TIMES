@@ -1,0 +1,85 @@
+"""Pydantic schemas for social posts and visual assets (Phase 5)."""
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.models.enums import (
+    InstagramPostFormat,
+    SocialPlatform,
+    SocialPostStatus,
+    VisualAssetStatus,
+)
+
+class VisualAssetRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    event_id: uuid.UUID
+    prompt: str
+    visual_strategy: dict
+    provider: str
+    model: str | None
+    style: str | None
+    storage_url: str | None
+    quality_score: int | None
+    quality_report: dict
+    status: VisualAssetStatus
+    is_selected: bool
+    created_at: datetime
+
+
+class SocialPostRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    event_id: uuid.UUID
+    platform: SocialPlatform
+    format: InstagramPostFormat
+    theme: str
+    headline: str
+    caption: str
+    hashtags: list[str]
+    source_attribution: str | None
+    key_facts: list[str]
+    media_url: str | None
+    status: SocialPostStatus
+    scheduled_at: datetime | None
+    published_at: datetime | None
+    ig_post_id: str | None
+    error: str | None
+    eligibility_snapshot: dict
+    visual_asset: VisualAssetRead | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SocialPostCompose(BaseModel):
+    event_id: uuid.UUID
+    format: InstagramPostFormat = InstagramPostFormat.portrait
+    theme: str | None = Field(default=None, description="None = auto-select")
+
+
+class SocialPostSchedule(BaseModel):
+    scheduled_at: datetime
+
+
+class SocialPostPatch(BaseModel):
+    """Human edits — draft only."""
+    headline: str | None = None
+    caption: str | None = None
+    hashtags: list[str] | None = None
+
+
+class EligibilityCheck(BaseModel):
+    eligible: bool
+    blocked_reasons: list[str]
+    verification_score: int
+    review_required: bool
+    auto_publish_eligible: bool
+
+
+class ComposeTaskResponse(BaseModel):
+    task_id: str
+    post_id: uuid.UUID | None  # None when async via Celery
+    message: str

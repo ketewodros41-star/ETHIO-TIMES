@@ -312,3 +312,216 @@ def _is_due(source: NewsSource) -> bool:
         return True
     elapsed = datetime.now(UTC) - source.last_checked_at
     return elapsed >= timedelta(minutes=source.crawl_frequency_minutes)
+
+
+@celery_app.task(bind=True, name="app.workers.tasks.generate_visual_asset", max_retries=2)
+def generate_visual_asset(self, event_id: str) -> dict:
+    """Run Visual Director → Prompt Engine → Gemini image gen → ImageCritic."""
+    session = SessionLocal()
+    try:
+        repo = EventRepository(session)
+        event = repo.get(uuid.UUID(event_id))
+        if event is None:
+            return {"skipped": True, "reason": "event_not_found"}
+
+        from app.integrations.ai.registry import get_image_provider, get_text_provider
+        from app.services.social.editorial_engine import EditorialEngine
+        from app.services.social.image_pipeline import ImagePipeline
+
+        text_provider = get_text_provider()
+        image_provider = get_image_provider()
+        editorial = EditorialEngine(text_provider)
+        brief = editorial.compose(event)
+        pipeline = ImagePipeline(session, text_provider, image_provider)
+        result = pipeline.run(event, brief)
+        session.commit()
+        return {
+            "selected_asset_id": str(result.selected_asset.id) if result.selected_asset else None,
+            "attempts": result.attempts,
+        }
+    except Exception:
+        session.rollback()
+        logger.exception("generate_visual_asset_error", event_id=event_id)
+        raise
+    finally:
+        session.close()
+
+
+@celery_app.task(bind=True, name="app.workers.tasks.compose_post", max_retries=2)
+def compose_post(self, event_id: str, format: str = "portrait", theme: str | None = None) -> dict:
+    """EditorialEngine → CaptionBuilder → save SocialPost(status=draft)."""
+    session = SessionLocal()
+    try:
+        from app.integrations.ai.registry import get_text_provider
+        from app.models.enums import InstagramPostFormat
+        from app.models.social_post import SocialPost
+        from app.repositories.social_post_repository import SocialPostRepository
+        from app.repositories.visual_asset_repository import VisualAssetRepository
+        from app.services.social.caption_builder import CaptionBuilder
+        from app.services.social.editorial_engine import EditorialEngine
+
+        repo = EventRepository(session)
+        event = repo.get_detail_for_compose(uuid.UUID(event_id))
+        if event is None:
+            return {"skipped": True, "reason": "event_not_found"}
+
+        provider = get_text_provider()
+        engine = EditorialEngine(provider)
+        brief = engine.compose(event)
+        builder = CaptionBuilder()
+        caption = builder.build(brief)
+
+        fmt = (
+            InstagramPostFormat(format)
+            if format in [f.value for f in InstagramPostFormat]
+            else InstagramPostFormat.portrait
+        )
+        selected_theme = theme or brief.suggested_theme
+        asset_repo = VisualAssetRepository(session)
+        selected_asset = asset_repo.get_selected_for_event(uuid.UUID(event_id))
+
+        snapshot = {
+            "auto_publish_eligible": event.auto_publish_eligible,
+            "review_required": event.review_required,
+            "verification_score": event.verification_score,
+            "trend_score": getattr(event, "trend_score", 0),
+            "event_verification_status": (
+                event.event_verification_status.value
+                if hasattr(event.event_verification_status, "value")
+                else str(event.event_verification_status)
+            ),
+        }
+
+        post = SocialPost(
+            event_id=event.id,
+            visual_asset_id=selected_asset.id if selected_asset else None,
+            format=fmt,
+            theme=selected_theme,
+            headline=brief.headline,
+            caption=caption,
+            hashtags=brief.hashtags,
+            source_attribution=brief.source_attribution,
+            key_facts=brief.key_facts,
+            eligibility_snapshot=snapshot,
+        )
+        post_repo = SocialPostRepository(session)
+        post_repo.create(post)
+        session.commit()
+        return {"post_id": str(post.id), "theme": selected_theme, "format": fmt.value}
+    except Exception:
+        session.rollback()
+        logger.exception("compose_post_task_error", event_id=event_id)
+        raise
+    finally:
+        session.close()
+
+
+@celery_app.task(bind=True, name="app.workers.tasks.render_post", max_retries=2)
+def render_post(self, post_id: str) -> dict:
+    """RenderService → update status=rendered."""
+    session = SessionLocal()
+    try:
+        from app.models.enums import SocialPostStatus
+        from app.models.social_post import SocialPost
+        from app.repositories.social_post_repository import SocialPostRepository
+        from app.services.social.render_service import RenderError, RenderService
+
+        post = session.get(SocialPost, uuid.UUID(post_id))
+        if post is None:
+            return {"skipped": True, "reason": "post_not_found"}
+
+        render_svc = RenderService()
+        try:
+            path = render_svc.render_post(post)
+            repo = SocialPostRepository(session)
+            repo.update_media(post.id, str(path), None)
+            repo.update_status(post.id, SocialPostStatus.rendered)
+            session.commit()
+            return {"post_id": post_id, "media_path": str(path)}
+        except RenderError as exc:
+            repo = SocialPostRepository(session)
+            repo.update_status(post.id, SocialPostStatus.failed, error=str(exc))
+            session.commit()
+            return {"post_id": post_id, "error": str(exc)}
+    except Exception:
+        session.rollback()
+        logger.exception("render_post_task_error", post_id=post_id)
+        raise
+    finally:
+        session.close()
+
+
+@celery_app.task(bind=True, name="app.workers.tasks.publish_post", max_retries=3)
+def publish_post(self, post_id: str) -> dict:
+    """PublishService → gate → InstagramPublisher → status=published or failed."""
+    session = SessionLocal()
+    try:
+        from app.integrations.publishers.instagram import InstagramPublisher
+        from app.models.enums import SocialPostStatus
+        from app.models.social_post import SocialPost
+        from app.repositories.social_post_repository import SocialPostRepository
+        from app.services.social.publish_service import PublishBlockedError, PublishService
+        from app.services.social.render_service import RenderService
+
+        post = session.get(SocialPost, uuid.UUID(post_id))
+        if post is None:
+            return {"skipped": True, "reason": "post_not_found"}
+
+        publisher = InstagramPublisher()
+        render_svc = RenderService()
+        svc = PublishService(session, publisher, render_svc)
+        try:
+            result = svc.publish(post)
+            session.commit()
+            return {
+                "post_id": post_id,
+                "ig_post_id": result.platform_post_id,
+                "dry_run": result.dry_run,
+            }
+        except PublishBlockedError as exc:
+            repo = SocialPostRepository(session)
+            repo.update_status(post.id, SocialPostStatus.failed, error=str(exc))
+            session.commit()
+            return {"post_id": post_id, "blocked": True, "reason": exc.reason}
+    except Exception:
+        session.rollback()
+        logger.exception("publish_post_task_error", post_id=post_id)
+        raise
+    finally:
+        session.close()
+
+
+@celery_app.task(name="app.workers.tasks.auto_compose_eligible_events")
+def auto_compose_eligible_events(limit: int = 20) -> dict:
+    """Beat: find trending/breaking events with auto_publish_eligible=True
+    and no existing SocialPost → enqueue compose_post.
+    """
+    session = SessionLocal()
+    try:
+        from sqlalchemy import select
+        from app.models.enums import TrendStatus
+        from app.models.news_event import NewsEvent
+        from app.repositories.social_post_repository import SocialPostRepository
+
+        post_repo = SocialPostRepository(session)
+        stmt = (
+            select(NewsEvent)
+            .where(
+                NewsEvent.auto_publish_eligible.is_(True),
+                NewsEvent.review_required.is_(False),
+                NewsEvent.trend_status.in_(
+                    [TrendStatus.trending, TrendStatus.high_priority, TrendStatus.breaking]
+                ),
+            )
+            .limit(limit)
+        )
+        events = list(session.scalars(stmt).all())
+        enqueued = []
+        for event in events:
+            if not post_repo.has_post_for_event(event.id):
+                compose_post.delay(str(event.id))
+                enqueued.append(str(event.id))
+        logger.info("auto_compose_eligible_events", enqueued=len(enqueued))
+        return {"enqueued": len(enqueued)}
+    finally:
+        session.close()

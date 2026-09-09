@@ -11,6 +11,7 @@ from app.api.routes import (
     health,
     ingest,
     pipeline,
+    posts,
     sources,
 )
 
@@ -22,3 +23,4 @@ api_router.include_router(articles.router)
 api_router.include_router(events.router)
 api_router.include_router(pipeline.router)
 api_router.include_router(ingest.router)
+api_router.include_router(posts.router)

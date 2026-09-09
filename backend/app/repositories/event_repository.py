@@ -36,6 +36,9 @@ class EventRepository:
             .where(NewsEvent.id == event_id)
         )
 
+    def get_detail_for_compose(self, event_id: uuid.UUID) -> NewsEvent | None:
+        return self.get_detail(event_id)
+
     def event_for_article(self, article_id: uuid.UUID) -> NewsEvent | None:
         """Return the event an article belongs to (if any)."""
         return self.session.scalar(
