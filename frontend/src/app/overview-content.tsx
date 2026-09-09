@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { EventStatusBadge, EventVerificationBadge, HealthDot, RelevanceMeter } from "@/components/status";
+import { EventStatusBadge, EventVerificationBadge, HealthDot, RelevanceMeter, TrendStatusBadge } from "@/components/status";
 import { relativeTime } from "@/lib/utils";
 
 function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
@@ -33,7 +33,16 @@ export function OverviewContent() {
   const stats = useQuery({ queryKey: ["pipeline-stats"], queryFn: api.pipelineStats });
   const events = useQuery({
     queryKey: ["events", "recent"],
-    queryFn: () => api.listEvents({ limit: 6 }),
+    queryFn: () => api.listEvents({ limit: 6, sort: "trend_score" }),
+  });
+  const breaking = useQuery({
+    queryKey: ["events", "breaking"],
+    queryFn: () => api.listEvents({ limit: 5, breaking: true, sort: "trend_score" }),
+  });
+  const trending = useQuery({
+    queryKey: ["events", "trending"],
+    queryFn: () =>
+      api.listEvents({ limit: 5, trend_status: "trending", sort: "trend_score" }),
   });
 
   const srcItems = sources.data?.items ?? [];
@@ -43,7 +52,7 @@ export function OverviewContent() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
         <Stat
           label="Sources"
           value={sources.data?.meta.total ?? "—"}
@@ -69,6 +78,76 @@ export function OverviewContent() {
           value={stats.data?.review_required_events ?? "—"}
           hint="sensitive or contradicted"
         />
+        <Stat
+          label="Breaking"
+          value={stats.data?.breaking_candidates ?? "—"}
+          hint="velocity burst candidates"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle>Breaking</CardTitle>
+            <Link
+              href="/events"
+              className="text-xs text-accent-green hover:underline"
+            >
+              Event feed →
+            </Link>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {breaking.data?.items.length === 0 && (
+              <p className="text-sm text-paper-500">No breaking candidates yet.</p>
+            )}
+            {breaking.data?.items.map((e) => (
+              <Link
+                key={e.id}
+                href={`/events/${e.id}`}
+                className="flex items-center justify-between gap-4 border-b border-ink-800 py-2 last:border-0 hover:text-paper-50"
+              >
+                <span className="min-w-0 flex-1 truncate text-sm text-paper-300">
+                  {e.title}
+                </span>
+                <span className="flex shrink-0 items-center gap-3 text-xs text-paper-500">
+                  <span className="font-mono tabular-nums">{Math.round(e.trend_score)}</span>
+                  <TrendStatusBadge status={e.trend_status} />
+                </span>
+              </Link>
+            ))}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle>Trending</CardTitle>
+            <Link
+              href="/events"
+              className="text-xs text-accent-green hover:underline"
+            >
+              Event feed →
+            </Link>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {trending.data?.items.length === 0 && (
+              <p className="text-sm text-paper-500">No trending events yet.</p>
+            )}
+            {trending.data?.items.map((e) => (
+              <Link
+                key={e.id}
+                href={`/events/${e.id}`}
+                className="flex items-center justify-between gap-4 border-b border-ink-800 py-2 last:border-0 hover:text-paper-50"
+              >
+                <span className="min-w-0 flex-1 truncate text-sm text-paper-300">
+                  {e.title}
+                </span>
+                <span className="flex shrink-0 items-center gap-3 text-xs text-paper-500">
+                  <span className="font-mono tabular-nums">{Math.round(e.trend_score)}</span>
+                  <TrendStatusBadge status={e.trend_status} />
+                </span>
+              </Link>
+            ))}
+          </CardContent>
+        </Card>
       </div>
 
       <Card>
@@ -96,6 +175,7 @@ export function OverviewContent() {
               <span className="flex shrink-0 items-center gap-3 text-xs text-paper-500">
                 <span>{e.article_count} arts · {e.source_count} src</span>
                 <EventVerificationBadge status={e.event_verification_status} />
+                <TrendStatusBadge status={e.trend_status} />
                 <EventStatusBadge status={e.status} />
               </span>
             </Link>
@@ -164,10 +244,10 @@ export function OverviewContent() {
           <Badge variant="green">Analysis ✓</Badge>
           <Badge variant="green">Embeddings ✓</Badge>
           <Badge variant="green">Event clustering ✓</Badge>
+          <Badge variant="green">Verification ✓</Badge>
+          <Badge variant="green">Trend intelligence ✓</Badge>
           <Badge variant="muted">Telegram · Phase 1.5</Badge>
-          <Badge variant="muted">Verification · Phase 3</Badge>
-          <Badge variant="muted">Visual Director · Phase 3</Badge>
-          <Badge variant="muted">Instagram publish · Phase 4</Badge>
+          <Badge variant="muted">Instagram publish · Phase 5</Badge>
         </CardContent>
       </Card>
     </div>

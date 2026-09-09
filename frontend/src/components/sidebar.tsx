@@ -54,7 +54,7 @@ export function Sidebar() {
         <p className="text-[11px] uppercase tracking-label text-paper-500">
           News Intelligence
         </p>
-        <p className="mt-1 text-[11px] text-ink-600">Phase 1 · v0.1.0</p>
+        <p className="mt-1 text-[11px] text-ink-600">Phase 4 · trending</p>
       </div>
     </aside>
   );

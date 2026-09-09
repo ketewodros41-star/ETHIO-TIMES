@@ -61,6 +61,13 @@ export type EventVerifyStatus =
   | "failed"
   | "dead_letter";
 
+export type TrendStatus =
+  | "low"
+  | "emerging"
+  | "trending"
+  | "high_priority"
+  | "breaking";
+
 export type ClaimType =
   | "financial"
   | "statistical"
@@ -235,6 +242,11 @@ export interface NewsEvent {
   auto_publish_eligible: boolean;
   verification_processing_status: EventVerifyStatus;
   verified_at?: string | null;
+  trend_score: number;
+  trend_status: TrendStatus;
+  editorial_importance: number;
+  breaking_candidate: boolean;
+  trend_scored_at?: string | null;
 }
 
 export interface ClaimEvidence {
@@ -265,6 +277,15 @@ export interface Contradiction {
   details: Record<string, unknown>;
 }
 
+export interface VelocityMetric {
+  window_hours: number;
+  article_count: number;
+  unique_source_count: number;
+  growth_rate: number;
+  articles_per_hour: number;
+  computed_at?: string | null;
+}
+
 export interface NewsEventDetail extends NewsEvent {
   articles: EventArticleLink[];
   timeline: EventTimelineEntry[];
@@ -273,6 +294,8 @@ export interface NewsEventDetail extends NewsEvent {
   verification_explanation: Record<string, unknown>;
   cited_institutions: string[];
   discovered_primary_source_ids: string[];
+  trend_breakdown: Record<string, unknown>;
+  velocity_metrics: VelocityMetric[];
 }
 
 export interface PipelineStats {
@@ -284,6 +307,8 @@ export interface PipelineStats {
   by_event_verify_status?: Record<EventVerifyStatus, number>;
   by_event_verification_status?: Record<EventVerificationStatus, number>;
   review_required_events?: number;
+  by_trend_status?: Record<TrendStatus, number>;
+  breaking_candidates?: number;
 }
 
 export interface IngestTriggerResponse {

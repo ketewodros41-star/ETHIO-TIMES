@@ -8,6 +8,7 @@ import type {
   ProcessingStatus,
   RelevanceDecision,
   SourceHealthStatus,
+  TrendStatus,
   VerificationStatus,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -117,6 +118,52 @@ export function EventVerificationBadge({
     contradicted: "contradicted",
   };
   return <Badge variant={VERIFY_VARIANT[status]}>{labels[status]}</Badge>;
+}
+
+const TREND_VARIANT: Record<
+  TrendStatus,
+  "green" | "gold" | "red" | "muted" | "default"
+> = {
+  breaking: "red",
+  high_priority: "gold",
+  trending: "green",
+  emerging: "default",
+  low: "muted",
+};
+
+export function TrendStatusBadge({ status }: { status: TrendStatus }) {
+  const labels: Record<TrendStatus, string> = {
+    low: "low",
+    emerging: "emerging",
+    trending: "trending",
+    high_priority: "high priority",
+    breaking: "breaking",
+  };
+  return <Badge variant={TREND_VARIANT[status]}>{labels[status]}</Badge>;
+}
+
+export function TrendScoreMeter({ score }: { score: number }) {
+  const color =
+    score >= 80
+      ? "bg-signal-red"
+      : score >= 60
+        ? "bg-accent-green"
+        : score >= 40
+          ? "bg-accent-gold"
+          : "bg-ink-600";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-ink-700">
+        <div
+          className={cn("h-full", color)}
+          style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
+        />
+      </div>
+      <span className="font-mono text-xs tabular-nums text-paper-500">
+        {Math.round(score)}
+      </span>
+    </div>
+  );
 }
 
 const SEVERITY_VARIANT: Record<ContradictionSeverity, "green" | "gold" | "red" | "muted" | "default"> = {

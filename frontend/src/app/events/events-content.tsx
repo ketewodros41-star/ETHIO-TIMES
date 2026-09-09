@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Layers, ShieldAlert, Users } from "lucide-react";
+import { Layers, ShieldAlert, TrendingUp, Users, Zap } from "lucide-react";
 import { api } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,10 +11,12 @@ import { Input } from "@/components/ui/input";
 import {
   EventStatusBadge,
   EventVerificationBadge,
+  TrendScoreMeter,
+  TrendStatusBadge,
   VerificationScoreMeter,
 } from "@/components/status";
 import { relativeTime } from "@/lib/utils";
-import type { EventVerificationStatus } from "@/lib/types";
+import type { EventVerificationStatus, TrendStatus } from "@/lib/types";
 
 const PAGE_SIZE = 25;
 
@@ -27,21 +29,36 @@ const VERIFY_FILTERS: { value: EventVerificationStatus | ""; label: string }[] =
   { value: "contradicted", label: "Contradicted" },
 ];
 
+const TREND_FILTERS: { value: TrendStatus | ""; label: string }[] = [
+  { value: "", label: "All trends" },
+  { value: "breaking", label: "Breaking" },
+  { value: "high_priority", label: "High priority" },
+  { value: "trending", label: "Trending" },
+  { value: "emerging", label: "Emerging" },
+  { value: "low", label: "Low" },
+];
+
 export function EventsContent() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [verification, setVerification] = useState<EventVerificationStatus | "">("");
+  const [trend, setTrend] = useState<TrendStatus | "">("");
+  const [breakingOnly, setBreakingOnly] = useState(false);
   const [reviewOnly, setReviewOnly] = useState(false);
+  const [sort, setSort] = useState<"last_seen" | "trend_score">("trend_score");
 
   const { data, isLoading } = useQuery({
-    queryKey: ["events", search, page, verification, reviewOnly],
+    queryKey: ["events", search, page, verification, trend, breakingOnly, reviewOnly, sort],
     queryFn: () =>
       api.listEvents({
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
         search: search || undefined,
         verification_status: verification || undefined,
+        trend_status: trend || undefined,
         review_required: reviewOnly ? true : undefined,
+        breaking: breakingOnly ? true : undefined,
+        sort,
       }),
   });
 
@@ -75,6 +92,42 @@ export function EventsContent() {
               </option>
             ))}
           </select>
+          <select
+            value={trend}
+            onChange={(e) => {
+              setPage(0);
+              setTrend(e.target.value as TrendStatus | "");
+            }}
+            className="h-9 rounded-card border border-ink-600 bg-ink-800 px-3 text-xs text-paper-300"
+          >
+            {TREND_FILTERS.map((opt) => (
+              <option key={opt.label} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={sort}
+            onChange={(e) => {
+              setPage(0);
+              setSort(e.target.value as "last_seen" | "trend_score");
+            }}
+            className="h-9 rounded-card border border-ink-600 bg-ink-800 px-3 text-xs text-paper-300"
+          >
+            <option value="trend_score">Sort by trend score</option>
+            <option value="last_seen">Sort by last seen</option>
+          </select>
+          <label className="inline-flex items-center gap-2 text-xs text-paper-300">
+            <input
+              type="checkbox"
+              checked={breakingOnly}
+              onChange={(e) => {
+                setPage(0);
+                setBreakingOnly(e.target.checked);
+              }}
+            />
+            Breaking candidates
+          </label>
           <label className="inline-flex items-center gap-2 text-xs text-paper-300">
             <input
               type="checkbox"
@@ -105,6 +158,10 @@ export function EventsContent() {
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <TrendStatusBadge status={e.trend_status} />
+                    {e.breaking_candidate && (
+                      <Badge variant="red">breaking candidate</Badge>
+                    )}
                     <EventVerificationBadge status={e.event_verification_status} />
                     <EventStatusBadge status={e.status} />
                     {e.review_required && (
@@ -135,6 +192,14 @@ export function EventsContent() {
                     <span className="inline-flex items-center gap-1">
                       <Users className="h-3 w-3" /> {e.source_count} sources
                     </span>
+                    <span className="inline-flex items-center gap-1">
+                      <TrendingUp className="h-3 w-3" /> trend {Math.round(e.trend_score)}
+                    </span>
+                    {e.breaking_candidate && (
+                      <span className="inline-flex items-center gap-1 text-signal-red">
+                        <Zap className="h-3 w-3" /> velocity burst
+                      </span>
+                    )}
                     {e.review_required && (
                       <span className="inline-flex items-center gap-1 text-accent-gold">
                         <ShieldAlert className="h-3 w-3" /> human review
@@ -144,9 +209,15 @@ export function EventsContent() {
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
-                  <div className="font-mono text-xs text-paper-500">verification</div>
+                  <div className="font-mono text-xs text-paper-500">trend</div>
                   <div className="font-display text-2xl tabular-nums text-paper-50">
-                    {e.verification_score}
+                    {Math.round(e.trend_score)}
+                  </div>
+                  <div className="mt-1 flex justify-end">
+                    <TrendScoreMeter score={e.trend_score} />
+                  </div>
+                  <div className="mt-2 font-mono text-[10px] uppercase tracking-label text-paper-500">
+                    verification {e.verification_score}
                   </div>
                   <div className="mt-1 flex justify-end">
                     <VerificationScoreMeter score={e.verification_score} />

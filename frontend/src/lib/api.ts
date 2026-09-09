@@ -84,6 +84,9 @@ export const api = {
     search?: string;
     verification_status?: string;
     review_required?: boolean;
+    trend_status?: string;
+    breaking?: boolean;
+    sort?: "last_seen" | "trend_score";
   }) => request<Page<NewsEvent>>(`/events${qs(params)}`),
 
   getEvent: (id: string) => request<NewsEventDetail>(`/events/${id}`),
