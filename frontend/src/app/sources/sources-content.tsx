@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Play, Plus } from "lucide-react";
+import { RefreshCw, Play, Plus, Check } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,8 @@ export function SourcesContent() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const [ingestingId, setIngestingId] = useState<string | null>(null);
+  const [ingestedMap, setIngestedMap] = useState<Record<string, number>>({});
 
   // Add Source Modal State
   const [showAddModal, setShowAddModal] = useState(false);
@@ -31,15 +33,42 @@ export function SourcesContent() {
     queryFn: () => api.listSources({ limit: 200, search: search || undefined }),
   });
 
+  function refreshAll() {
+    void qc.invalidateQueries({ queryKey: ["sources"] });
+    void qc.invalidateQueries({ queryKey: ["source-health"] });
+    void qc.invalidateQueries({ queryKey: ["articles"] });
+    void qc.invalidateQueries({ queryKey: ["events"] });
+    void qc.invalidateQueries({ queryKey: ["pipeline-stats"] });
+  }
+
+  function scheduleSync() {
+    refreshAll();
+    setTimeout(refreshAll, 1500);
+    setTimeout(refreshAll, 4000);
+    setTimeout(refreshAll, 8000);
+    setTimeout(refreshAll, 15000);
+  }
+
   const ingestAll = useMutation({
     mutationFn: () => api.triggerIngest(),
-    onSuccess: (res) => flash(res.message),
+    onMutate: () => setIngestingId("all"),
+    onSettled: () => setIngestingId(null),
+    onSuccess: (res) => {
+      flash(res.message);
+      scheduleSync();
+    },
     onError: (e: Error) => flash(e.message),
   });
 
   const ingestOne = useMutation({
     mutationFn: (id: string) => api.triggerIngest(id),
-    onSuccess: (res) => flash(res.message),
+    onMutate: (id) => setIngestingId(id),
+    onSettled: () => setIngestingId(null),
+    onSuccess: (res, id) => {
+      flash(res.message);
+      setIngestedMap((prev) => ({ ...prev, [id]: Date.now() }));
+      scheduleSync();
+    },
     onError: (e: Error) => flash(e.message),
   });
 
@@ -293,17 +322,33 @@ export function SourcesContent() {
                   {relativeTime(s.last_checked_at)}
                 </TD>
                 <TD className="font-mono text-xs tabular-nums text-paper-300">
-                  {s.total_articles_ingested}
+                  <span className={s.total_articles_ingested > 0 ? "font-semibold text-paper-100" : "text-paper-500"}>
+                    {s.total_articles_ingested}
+                  </span>
                 </TD>
                 <TD className="text-right">
-                  <Button
-                    variant="subtle"
-                    size="sm"
-                    disabled={!s.is_active || ingestOne.isPending}
-                    onClick={() => ingestOne.mutate(s.id)}
-                  >
-                    Ingest
-                  </Button>
+                  <div className="inline-flex items-center gap-2 justify-end">
+                    {Boolean(ingestedMap[s.id] && Date.now() - (ingestedMap[s.id] || 0) < 60000) && (
+                      <Badge variant="green" className="flex items-center gap-1 text-[11px] animate-pulse">
+                        <Check className="h-3 w-3" /> Ingested
+                      </Badge>
+                    )}
+                    <Button
+                      variant="subtle"
+                      size="sm"
+                      disabled={!s.is_active || (ingestingId === s.id || ingestingId === "all")}
+                      onClick={() => ingestOne.mutate(s.id)}
+                      className="min-w-[80px]"
+                    >
+                      {ingestingId === s.id || ingestingId === "all" ? (
+                        <span className="flex items-center gap-1 text-accent-green">
+                          <RefreshCw className="h-3 w-3 animate-spin" /> Ingesting…
+                        </span>
+                      ) : (
+                        "Ingest"
+                      )}
+                    </Button>
+                  </div>
                 </TD>
               </TR>
             ))}

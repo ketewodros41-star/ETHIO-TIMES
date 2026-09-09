@@ -63,6 +63,17 @@ def _is_rate_limit(exc: Exception) -> bool:
     )
 
 
+def _is_unretryable(exc: Exception) -> bool:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return (
+        "api key not valid" in text
+        or "api_key_invalid" in text
+        or "invalid_argument" in text
+        or "permission_denied" in text
+        or "unauthenticated" in text
+    )
+
+
 _DEFAULT_KEY = object()
 
 
@@ -80,14 +91,15 @@ class GeminiTextProvider(AIProvider):
         self.embedding_model = embedding_model or settings.gemini_embedding_model
         self.embedding_dim = settings.embedding_dim
         self._client: Any | None = None
+        self._key_invalid: bool = False
 
     # -- client ------------------------------------------------------------- #
     def is_available(self) -> bool:
-        return bool(self.api_key)
+        return bool(self.api_key) and not self._key_invalid
 
     def _get_client(self) -> Any:
         if not self.is_available():
-            raise ProviderNotConfiguredError("GEMINI_API_KEY is not set")
+            raise ProviderNotConfiguredError("GEMINI_API_KEY is not set or invalid")
         if self._client is None:
             from google import genai  # lazy import
             from google.genai import types  # noqa: F401
@@ -118,25 +130,26 @@ class GeminiTextProvider(AIProvider):
 
             config_kwargs: dict[str, Any] = {
                 "response_mime_type": "application/json",
-                "temperature": (
-                    request.temperature
-                    if request.temperature is not None
-                    else settings.gemini_temperature
-                ),
-                "max_output_tokens": request.max_tokens,
+                "temperature": request.temperature or settings.gemini_temperature,
             }
             if request.system:
                 config_kwargs["system_instruction"] = request.system
-            if request.response_schema:
+            if request.max_tokens:
+                config_kwargs["max_output_tokens"] = request.max_tokens
+            if request.response_schema is not None:
                 config_kwargs["response_schema"] = request.response_schema
 
+            config = types.GenerateContentConfig(**config_kwargs)
             try:
                 response = client.models.generate_content(
                     model=self.model,
                     contents=request.prompt,
-                    config=types.GenerateContentConfig(**config_kwargs),
+                    config=config,
                 )
             except Exception as exc:  # noqa: BLE001 - SDK raises varied types
+                if _is_unretryable(exc):
+                    self._key_invalid = True
+                    raise ProviderNotConfiguredError(f"Gemini API key is invalid: {exc}") from exc
                 if _is_rate_limit(exc):
                     raise RateLimitError(str(exc)) from exc
                 raise ProviderResponseError(f"Gemini generation failed: {exc}") from exc
@@ -178,6 +191,9 @@ class GeminiTextProvider(AIProvider):
                     ),
                 )
             except Exception as exc:  # noqa: BLE001
+                if _is_unretryable(exc):
+                    self._key_invalid = True
+                    raise ProviderNotConfiguredError(f"Gemini API key is invalid: {exc}") from exc
                 if _is_rate_limit(exc):
                     raise RateLimitError(str(exc)) from exc
                 raise ProviderResponseError(f"Gemini embedding failed: {exc}") from exc

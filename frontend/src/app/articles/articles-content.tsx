@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink } from "lucide-react";
+import { AlertCircle, ExternalLink, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,7 @@ export function ArticlesContent() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["articles", search, page],
     queryFn: () =>
       api.listArticles({
@@ -29,6 +29,7 @@ export function ArticlesContent() {
         offset: page * PAGE_SIZE,
         search: search || undefined,
       }),
+    refetchInterval: 10000,
   });
 
   const items = data?.items ?? [];
@@ -47,11 +48,42 @@ export function ArticlesContent() {
           }}
           className="max-w-sm"
         />
-        <span className="text-xs text-paper-500">{total} articles</span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-paper-500">{total} articles</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="flex items-center gap-1.5"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin text-accent-green" : ""}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
-      {isLoading && <p className="text-sm text-paper-500">Loading…</p>}
-      {!isLoading && items.length === 0 && (
+      {isError && (
+        <Card className="border-red-500/30 bg-red-950/20 p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2 text-sm text-red-400">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>Failed to load articles: {error instanceof Error ? error.message : "Unknown error"}</span>
+            </div>
+            <Button size="sm" variant="subtle" onClick={() => refetch()}>
+              Retry
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {isLoading && (
+        <div className="flex items-center gap-2 text-sm text-paper-500 py-6">
+          <RefreshCw className="h-4 w-4 animate-spin text-accent-green" />
+          <span>Loading articles…</span>
+        </div>
+      )}
+      {!isLoading && !isError && items.length === 0 && (
         <Card className="p-8 text-center text-sm text-paper-500">
           No articles yet. Trigger ingestion from the Sources page.
         </Card>

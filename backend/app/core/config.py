@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(default=60)
 
     # ---- CORS ----
-    cors_origins: str = Field(default="http://localhost:3000")
+    cors_origins: str = Field(default="http://localhost:3000,http://127.0.0.1:3000")
 
     # ---- Ingestion ----
     default_crawl_frequency_minutes: int = Field(default=30)

@@ -23,7 +23,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.integrations.ai.base import AIProvider, ProviderNotConfiguredError
+from app.integrations.ai.base import (
+    AIProvider,
+    ProviderNotConfiguredError,
+    ProviderResponseError,
+)
 from app.models.article import Article, ArticleAnalysis
 from app.models.enums import ProcessingStatus, RelevanceDecision
 from app.services.intelligence.analysis_service import AnalysisService
@@ -81,16 +85,10 @@ class IntelligencePipeline:
                 self._step_analysis(article, result)
 
             if article.embedding is None:
-                if not self.provider.is_available():
-                    # Cannot embed/cluster without a provider; stop after analysis.
-                    result.final_status = article.processing_status
-                    return result
-                self._step_embedding(article, result)
+                if self.provider.is_available():
+                    self._step_embedding(article, result)
 
-            if (
-                article.embedding is not None
-                and article.processing_status != ProcessingStatus.clustered
-            ):
+            if article.processing_status != ProcessingStatus.clustered:
                 self._step_cluster(article, result)
 
             article.processing_error = None
@@ -165,7 +163,19 @@ class IntelligencePipeline:
     def _step_embedding(self, article: Article, result: PipelineResult) -> None:
         try:
             ok = self.embedding.embed_article(article)
-        except ProviderNotConfiguredError:
+        except (ProviderNotConfiguredError, ProviderResponseError) as exc:
+            logger.warning(
+                "embedding_provider_error",
+                article_id=str(article.id),
+                error=str(exc),
+            )
+            return
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "embedding_failed_fallback",
+                article_id=str(article.id),
+                error=str(exc),
+            )
             return
         if ok:
             article.processing_status = ProcessingStatus.embedded

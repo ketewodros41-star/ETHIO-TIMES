@@ -68,7 +68,7 @@ class ClusteringService:
 
     def find_best_match(self, article: Article) -> ClusterMatch | None:
         if article.embedding is None:
-            return None
+            return self._find_best_heuristic_match(article)
 
         window_start = datetime.now(UTC) - timedelta(
             hours=settings.cluster_time_window_hours
@@ -154,3 +154,59 @@ class ClusteringService:
             confidence=verdict.confidence,
             source="gemini",
         )
+
+    def _find_best_heuristic_match(self, article: Article) -> ClusterMatch | None:
+        window_start = datetime.now(UTC) - timedelta(
+            hours=settings.cluster_time_window_hours
+        )
+        candidates = self.articles.recent_candidates(
+            limit=settings.cluster_candidate_limit,
+            exclude_id=article.id,
+            published_after=window_start,
+        )
+        if not candidates:
+            return None
+
+        a_entities, a_topics, a_category, a_region = _signals_for(article)
+        a_title_words = {w.lower() for w in (article.title or "").split() if len(w) > 3}
+
+        best: ClusterMatch | None = None
+        for candidate in candidates:
+            b_entities, b_topics, b_category, b_region = _signals_for(candidate)
+            b_title_words = {w.lower() for w in (candidate.title or "").split() if len(w) > 3}
+
+            title_sim = jaccard(a_title_words, b_title_words)
+            ent_sim = jaccard(a_entities, b_entities)
+            top_sim = jaccard(a_topics, b_topics)
+            cat_match = bool(a_category and a_category == b_category)
+            reg_match = bool(a_region and a_region == b_region)
+
+            sim = (
+                0.45 * title_sim
+                + 0.35 * ent_sim
+                + 0.10 * top_sim
+                + (0.05 if cat_match else 0.0)
+                + (0.05 if reg_match else 0.0)
+            )
+
+            if sim >= self.thresholds.duplicate:
+                relation = "duplicate"
+            elif sim >= self.thresholds.same_event:
+                relation = "same_event"
+            elif sim >= self.thresholds.related:
+                relation = "related"
+            else:
+                continue
+
+            match = ClusterMatch(
+                article=candidate,
+                cosine=0.0,
+                composite=sim,
+                relation=relation,
+                confidence=sim,
+                source="heuristic",
+            )
+            if best is None or match.composite > best.composite:
+                best = match
+
+        return best

@@ -26,12 +26,17 @@ class RSSSourceAdapter(BaseSourceAdapter):
         if not self.source.rss_url:
             raise AdapterError(f"Source {self.source.slug} has no rss_url")
 
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 (ETHIOTIMES-News-Bot)",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+        }
         try:
             response = httpx.get(
                 self.source.rss_url,
                 timeout=settings.ingest_http_timeout_seconds,
                 follow_redirects=True,
-                headers={"User-Agent": settings.ingest_user_agent},
+                headers=headers,
             )
             response.raise_for_status()
         except httpx.HTTPError as exc:

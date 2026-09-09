@@ -10,6 +10,8 @@ import {
   Image as ImageIcon,
   Settings,
   Send,
+  Zap,
+  ShieldCheck,
 } from "lucide-react";
 import { Wordmark } from "@/components/wordmark";
 import { cn } from "@/lib/utils";
@@ -17,6 +19,8 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/events", label: "Events", icon: Layers },
+  { href: "/trends", label: "Trend Radar", icon: Zap },
+  { href: "/verification", label: "Fact-Check Desk", icon: ShieldCheck },
   { href: "/posts", label: "Posts", icon: Send },
   { href: "/sources", label: "Sources", icon: Radio },
   { href: "/articles", label: "Articles", icon: Newspaper },

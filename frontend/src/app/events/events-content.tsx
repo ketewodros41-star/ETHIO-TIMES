@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { Layers, ShieldAlert, TrendingUp, Users, Zap } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertCircle, Layers, Play, RefreshCw, ShieldAlert, TrendingUp, Users, Zap } from "lucide-react";
 import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -39,6 +40,7 @@ const TREND_FILTERS: { value: TrendStatus | ""; label: string }[] = [
 ];
 
 export function EventsContent() {
+  const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [verification, setVerification] = useState<EventVerificationStatus | "">("");
@@ -47,7 +49,7 @@ export function EventsContent() {
   const [reviewOnly, setReviewOnly] = useState(false);
   const [sort, setSort] = useState<"last_seen" | "trend_score">("trend_score");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["events", search, page, verification, trend, breakingOnly, reviewOnly, sort],
     queryFn: () =>
       api.listEvents({
@@ -60,6 +62,15 @@ export function EventsContent() {
         breaking: breakingOnly ? true : undefined,
         sort,
       }),
+    refetchInterval: 10000,
+  });
+
+  const ingestMutation = useMutation({
+    mutationFn: () => api.triggerIngest(),
+    onSuccess: () => {
+      setTimeout(() => refetch(), 2000);
+      setTimeout(() => refetch(), 5000);
+    },
   });
 
   const items = data?.items ?? [];
@@ -140,14 +151,61 @@ export function EventsContent() {
             Review required
           </label>
         </div>
-        <span className="text-xs text-paper-500">{total} clustered events</span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-paper-500">{total} clustered events</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="flex items-center gap-1.5"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin text-accent-green" : ""}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
-      {isLoading && <p className="text-sm text-paper-500">Loading…</p>}
-      {!isLoading && items.length === 0 && (
-        <Card className="p-8 text-center text-sm text-paper-500">
-          No events yet. Ingest sources and run the intelligence pipeline to
-          cluster articles into events.
+      {isError && (
+        <Card className="border-red-500/30 bg-red-950/20 p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2 text-sm text-red-400">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>Failed to load events: {error instanceof Error ? error.message : "Unknown error"}</span>
+            </div>
+            <Button size="sm" variant="subtle" onClick={() => refetch()}>
+              Retry
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {isLoading && (
+        <div className="flex items-center gap-2 text-sm text-paper-500 py-6">
+          <RefreshCw className="h-4 w-4 animate-spin text-accent-green" />
+          <span>Loading events…</span>
+        </div>
+      )}
+
+      {!isLoading && !isError && items.length === 0 && (
+        <Card className="p-8 text-center space-y-3">
+          <p className="text-sm text-paper-400">
+            No events match your current filter. If you just ingested sources, the intelligence pipeline is clustering them into events.
+          </p>
+          <div className="flex justify-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => ingestMutation.mutate()}
+              disabled={ingestMutation.isPending}
+              className="flex items-center gap-1.5"
+            >
+              <Play className="h-3.5 w-3.5" />
+              {ingestMutation.isPending ? "Ingesting & Clustering…" : "Ingest & Cluster Active Feeds"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => refetch()}>
+              <RefreshCw className="h-3.5 w-3.5" /> Refresh Now
+            </Button>
+          </div>
         </Card>
       )}
 

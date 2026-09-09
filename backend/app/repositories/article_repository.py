@@ -143,3 +143,22 @@ class ArticleRepository:
         for article, dist in self.session.execute(stmt).all():
             results.append((article, 1.0 - float(dist)))
         return results
+
+    def recent_candidates(
+        self,
+        *,
+        limit: int = 50,
+        exclude_id: uuid.UUID | None = None,
+        published_after: datetime | None = None,
+    ) -> list[Article]:
+        """Fetch recently published or fetched articles for heuristic clustering."""
+        stmt = select(Article)
+        if exclude_id is not None:
+            stmt = stmt.where(Article.id != exclude_id)
+        if published_after is not None:
+            stmt = stmt.where(
+                (Article.published_at.is_(None))
+                | (Article.published_at >= published_after)
+            )
+        stmt = stmt.order_by(Article.created_at.desc()).limit(limit)
+        return list(self.session.scalars(stmt).all())
