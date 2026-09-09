@@ -21,9 +21,14 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import ArticleStatus
+from app.models.enums import (
+    ArticleStatus,
+    ProcessingStatus,
+    RelevanceDecision,
+)
 
-# Dimensionality reserved for future embeddings (e.g. text-embedding models).
+# Embedding dimensionality. Must match settings.embedding_dim and the pgvector
+# column. gemini-embedding-001 supports 768/1536/3072; we use 1536 (L2-normalized).
 EMBEDDING_DIM = 1536
 
 
@@ -92,9 +97,52 @@ class Article(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
 
-    # ---- Future embeddings (nullable; populated in a later phase) ----
+    # ---- Intelligence: pipeline state (Phase 2) ----
+    processing_status: Mapped[ProcessingStatus] = mapped_column(
+        Enum(ProcessingStatus, name="processing_status", native_enum=True),
+        nullable=False,
+        default=ProcessingStatus.pending,
+        server_default=ProcessingStatus.pending.value,
+        index=True,
+    )
+    processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    processing_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    processing_locked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # ---- Intelligence: relevance (Phase 2; 0-100 authoritative score) ----
+    relevance_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    relevance_decision: Mapped[RelevanceDecision | None] = mapped_column(
+        Enum(RelevanceDecision, name="relevance_decision", native_enum=True),
+        nullable=True,
+        index=True,
+    )
+    is_ethiopia_related: Mapped[bool | None] = mapped_column(nullable=True)
+    relevance_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    primary_region: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    relevance_scored_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # ---- Intelligence: analysis summary (detail lives in article_analysis) ----
+    detected_language: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    importance_score: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default="0"
+    )
+    analyzed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # ---- Embeddings (nullable until the embedding step runs) ----
     embedding: Mapped[list[float] | None] = mapped_column(
         Vector(EMBEDDING_DIM), nullable=True
+    )
+    embedding_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    embedded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     # ---- Relationships ----
@@ -106,6 +154,11 @@ class Article(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     event_links: Mapped[list[EventArticle]] = relationship(  # noqa: F821
         back_populates="article", cascade="all, delete-orphan"
+    )
+    analysis: Mapped[ArticleAnalysis | None] = relationship(  # noqa: F821
+        back_populates="article",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
 
     def __repr__(self) -> str:  # pragma: no cover
@@ -139,3 +192,58 @@ class ArticleVersion(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
     article: Mapped[Article] = relationship(back_populates="versions")
+
+
+class ArticleAnalysis(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Rich, structured analysis for an article (1:1 with `articles`).
+
+    Populated by the analysis pipeline step from a validated Gemini response
+    (see ``app.schemas.intelligence.AnalysisResult``). Entities and extracted
+    facts are stored as JSONB for flexible querying while remaining typed at the
+    application boundary.
+    """
+
+    __tablename__ = "article_analysis"
+    __table_args__ = (
+        UniqueConstraint("article_id", name="uq_article_analysis_article"),
+        {"comment": "Structured NLP/AI analysis for an article."},
+    )
+
+    article_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("articles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    language: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    language_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    subcategory: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    importance: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=50, server_default="50"
+    )
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    entities: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+    topics: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    dates: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    money: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    statistics: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    entity_names: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    raw: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+
+    article: Mapped[Article] = relationship(back_populates="analysis")

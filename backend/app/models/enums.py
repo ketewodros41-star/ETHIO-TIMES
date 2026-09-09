@@ -63,3 +63,52 @@ class AuditAction(str, enum.Enum):
     delete = "delete"
     ingest = "ingest"
     system = "system"
+
+
+class ProcessingStatus(str, enum.Enum):
+    """Intelligence pipeline state for an article.
+
+    Flow: pending -> relevance_scored -> analyzed -> embedded -> clustered.
+    Off-ramps: skipped_irrelevant (below relevance threshold), failed (will be
+    retried), dead_letter (exceeded max attempts).
+    """
+
+    pending = "pending"
+    relevance_scored = "relevance_scored"
+    analyzed = "analyzed"
+    embedded = "embedded"
+    clustered = "clustered"
+    skipped_irrelevant = "skipped_irrelevant"
+    failed = "failed"
+    dead_letter = "dead_letter"
+
+
+class RelevanceDecision(str, enum.Enum):
+    relevant = "relevant"
+    borderline = "borderline"
+    irrelevant = "irrelevant"
+
+
+class ArticleRelationType(str, enum.Enum):
+    """How an article relates to the event it is linked to."""
+
+    primary = "primary"
+    duplicate = "duplicate"
+    related = "related"
+    follow_up = "follow_up"
+    context = "context"
+
+
+class EventStatus(str, enum.Enum):
+    developing = "developing"
+    confirmed = "confirmed"
+    updated = "updated"
+    dormant = "dormant"
+    closed = "closed"
+
+
+class EventTimelineType(str, enum.Enum):
+    first_report = "first_report"
+    source_confirmation = "source_confirmation"
+    new_development = "new_development"
+    correction = "correction"
