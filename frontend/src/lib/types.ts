@@ -47,6 +47,32 @@ export type EventStatus =
   | "dormant"
   | "closed";
 
+export type EventVerificationStatus =
+  | "unverified"
+  | "developing"
+  | "partially_confirmed"
+  | "confirmed"
+  | "contradicted";
+
+export type EventVerifyStatus =
+  | "pending"
+  | "verifying"
+  | "verified"
+  | "failed"
+  | "dead_letter";
+
+export type ClaimType =
+  | "financial"
+  | "statistical"
+  | "political"
+  | "policy"
+  | "casualty"
+  | "geographic"
+  | "timeline"
+  | "announcement";
+
+export type ContradictionSeverity = "low" | "medium" | "high" | "critical";
+
 export type ArticleRelationType =
   | "primary"
   | "duplicate"
@@ -201,11 +227,52 @@ export interface NewsEvent {
   last_seen_at?: string | null;
   created_at: string;
   updated_at: string;
+  verification_score: number;
+  event_verification_status: EventVerificationStatus;
+  primary_source_available: boolean;
+  review_required: boolean;
+  review_reasons: string[];
+  auto_publish_eligible: boolean;
+  verification_processing_status: EventVerifyStatus;
+  verified_at?: string | null;
+}
+
+export interface ClaimEvidence {
+  article_id: string;
+  source_id?: string | null;
+  excerpt: string;
+  url?: string | null;
+}
+
+export interface EventClaim {
+  id: string;
+  claim_text: string;
+  claim_type: ClaimType;
+  normalized_value?: string | null;
+  entities: string[];
+  canonical_key?: string | null;
+  confidence: number;
+  is_major: boolean;
+  evidence: ClaimEvidence[];
+}
+
+export interface Contradiction {
+  id: string;
+  claim_a_id: string;
+  claim_b_id: string;
+  description: string;
+  severity: ContradictionSeverity;
+  details: Record<string, unknown>;
 }
 
 export interface NewsEventDetail extends NewsEvent {
   articles: EventArticleLink[];
   timeline: EventTimelineEntry[];
+  claims: EventClaim[];
+  contradictions: Contradiction[];
+  verification_explanation: Record<string, unknown>;
+  cited_institutions: string[];
+  discovered_primary_source_ids: string[];
 }
 
 export interface PipelineStats {
@@ -214,6 +281,9 @@ export interface PipelineStats {
   ethiopia_related: number;
   total_events: number;
   by_processing_status: Record<ProcessingStatus, number>;
+  by_event_verify_status?: Record<EventVerifyStatus, number>;
+  by_event_verification_status?: Record<EventVerificationStatus, number>;
+  review_required_events?: number;
 }
 
 export interface IngestTriggerResponse {

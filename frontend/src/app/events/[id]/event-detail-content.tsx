@@ -7,9 +7,12 @@ import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
+  ContradictionSeverityBadge,
   EventStatusBadge,
+  EventVerificationBadge,
   ProcessingBadge,
   RelationBadge,
+  VerificationScoreMeter,
 } from "@/components/status";
 import { formatDate } from "@/lib/utils";
 
@@ -30,6 +33,11 @@ export function EventDetailContent({ id }: { id: string }) {
   if (isError || !e)
     return <p className="text-sm text-signal-red">Event not found.</p>;
 
+  const explanation = e.verification_explanation ?? {};
+  const components =
+    (explanation.components as Record<string, { score?: number; detail?: unknown }> | undefined) ??
+    {};
+
   return (
     <div className="space-y-6">
       <Link
@@ -41,7 +49,15 @@ export function EventDetailContent({ id }: { id: string }) {
 
       <div>
         <div className="mb-2 flex flex-wrap items-center gap-2">
+          <EventVerificationBadge status={e.event_verification_status} />
           <EventStatusBadge status={e.status} />
+          {e.review_required && <Badge variant="gold">review required</Badge>}
+          {e.primary_source_available && (
+            <Badge variant="green">primary source available</Badge>
+          )}
+          {!e.auto_publish_eligible && (
+            <Badge variant="muted">auto-publish off</Badge>
+          )}
           {e.primary_category && <Badge variant="default">{e.primary_category}</Badge>}
           {e.primary_region && <Badge variant="muted">{e.primary_region}</Badge>}
         </div>
@@ -51,61 +67,189 @@ export function EventDetailContent({ id }: { id: string }) {
         {e.summary && <p className="mt-2 max-w-3xl text-sm text-paper-300">{e.summary}</p>}
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <Stat label="Verification" value={e.verification_score} />
         <Stat label="Articles" value={e.article_count} />
         <Stat label="Sources" value={e.source_count} />
-        <Stat label="Cluster confidence" value={`${Math.round(e.cluster_confidence * 100)}`} />
-        <Stat label="Significance" value={`${Math.round(e.significance_score)}`} />
+        <Stat label="Claims" value={e.claims.length} />
+        <Stat label="Contradictions" value={e.contradictions.length} />
       </div>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Verification</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <EventVerificationBadge status={e.event_verification_status} />
+            <VerificationScoreMeter score={e.verification_score} />
+            <span className="text-xs text-paper-500">
+              processing {e.verification_processing_status.replaceAll("_", " ")}
+              {e.verified_at ? ` · verified ${formatDate(e.verified_at)}` : ""}
+            </span>
+          </div>
+          {e.review_reasons.length > 0 && (
+            <div>
+              <p className="mb-2 text-[11px] uppercase tracking-label text-paper-500">
+                Review reasons
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {e.review_reasons.map((r) => (
+                  <Badge key={r} variant="gold">
+                    {r}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+          {e.cited_institutions.length > 0 && (
+            <div>
+              <p className="mb-2 text-[11px] uppercase tracking-label text-paper-500">
+                Cited institutions
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {e.cited_institutions.map((n) => (
+                  <Badge key={n} variant="default">
+                    {n}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+          {Object.keys(components).length > 0 && (
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+              {Object.entries(components).map(([key, val]) => (
+                <div key={key} className="rounded-card border border-ink-800 p-3">
+                  <p className="text-[11px] uppercase tracking-label text-paper-500">
+                    {key.replaceAll("_", " ")}
+                  </p>
+                  <p className="mt-1 font-mono text-lg tabular-nums text-paper-50">
+                    {typeof val.score === "number" ? Math.round(val.score) : "—"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Grouped coverage ({e.articles.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {e.articles.map((link) => (
-              <div
-                key={link.article.id}
-                className="flex items-start justify-between gap-4 border-b border-ink-800 pb-3 last:border-0"
-              >
-                <div className="min-w-0 flex-1">
+        <div className="space-y-6 lg:col-span-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Claims ({e.claims.length})</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {e.claims.length === 0 && (
+                <p className="text-sm text-paper-500">
+                  No evidenced claims yet. Verification runs after clustering.
+                </p>
+              )}
+              {e.claims.map((claim) => (
+                <div
+                  key={claim.id}
+                  className="border-b border-ink-800 pb-3 last:border-0"
+                >
                   <div className="mb-1 flex flex-wrap items-center gap-2">
-                    <RelationBadge relation={link.relation_type} />
-                    {link.article.source && (
-                      <span className="text-xs text-paper-500">
-                        {link.article.source.name}
+                    <Badge variant="default">{claim.claim_type}</Badge>
+                    {claim.is_major && <Badge variant="muted">major</Badge>}
+                    {claim.normalized_value && (
+                      <span className="font-mono text-xs text-accent-green">
+                        {claim.normalized_value}
                       </span>
                     )}
-                    {link.article.detected_language && (
-                      <Badge variant="muted">{link.article.detected_language}</Badge>
-                    )}
                   </div>
-                  <p className="text-sm text-paper-50">
-                    {link.article.title ?? "(untitled)"}
-                  </p>
-                  <div className="mt-1 flex items-center gap-3 text-xs text-paper-500">
-                    <span>{formatDate(link.article.published_at)}</span>
-                    <span>similarity {Math.round(link.similarity_score * 100)}</span>
-                    <ProcessingBadge status={link.article.processing_status} />
-                    {link.article.url && (
-                      <a
-                        href={link.article.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-accent-green hover:underline"
-                      >
-                        source <ExternalLink className="h-3 w-3" />
-                      </a>
-                    )}
+                  <p className="text-sm text-paper-50">{claim.claim_text}</p>
+                  <div className="mt-2 space-y-1">
+                    {claim.evidence.map((ev) => (
+                      <p key={`${claim.id}-${ev.article_id}`} className="text-xs text-paper-500">
+                        “{ev.excerpt}”
+                        {ev.url && (
+                          <>
+                            {" "}
+                            <a
+                              href={ev.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-accent-green hover:underline"
+                            >
+                              source <ExternalLink className="h-3 w-3" />
+                            </a>
+                          </>
+                        )}
+                      </p>
+                    ))}
                   </div>
                 </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Grouped coverage ({e.articles.length})</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {e.articles.map((link) => (
+                <div
+                  key={link.article.id}
+                  className="flex items-start justify-between gap-4 border-b border-ink-800 pb-3 last:border-0"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex flex-wrap items-center gap-2">
+                      <RelationBadge relation={link.relation_type} />
+                      {link.article.source && (
+                        <span className="text-xs text-paper-500">
+                          {link.article.source.name}
+                        </span>
+                      )}
+                      {link.article.detected_language && (
+                        <Badge variant="muted">{link.article.detected_language}</Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-paper-50">
+                      {link.article.title ?? "(untitled)"}
+                    </p>
+                    <div className="mt-1 flex items-center gap-3 text-xs text-paper-500">
+                      <span>{formatDate(link.article.published_at)}</span>
+                      <span>similarity {Math.round(link.similarity_score * 100)}</span>
+                      <ProcessingBadge status={link.article.processing_status} />
+                      {link.article.url && (
+                        <a
+                          href={link.article.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-accent-green hover:underline"
+                        >
+                          source <ExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
 
         <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Contradictions ({e.contradictions.length})</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {e.contradictions.length === 0 && (
+                <p className="text-sm text-paper-500">None detected across sources.</p>
+              )}
+              {e.contradictions.map((c) => (
+                <div key={c.id} className="space-y-1">
+                  <ContradictionSeverityBadge severity={c.severity} />
+                  <p className="text-sm text-paper-300">{c.description}</p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Timeline</CardTitle>

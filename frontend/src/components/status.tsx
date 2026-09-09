@@ -2,7 +2,9 @@ import { Badge } from "@/components/ui/badge";
 import type {
   ArticleRelationType,
   ArticleStatus,
+  ContradictionSeverity,
   EventStatus,
+  EventVerificationStatus,
   ProcessingStatus,
   RelevanceDecision,
   SourceHealthStatus,
@@ -89,6 +91,54 @@ const EVENT_STATUS_VARIANT: Record<EventStatus, "green" | "gold" | "muted" | "de
 
 export function EventStatusBadge({ status }: { status: EventStatus }) {
   return <Badge variant={EVENT_STATUS_VARIANT[status]}>{status}</Badge>;
+}
+
+const VERIFY_VARIANT: Record<
+  EventVerificationStatus,
+  "green" | "gold" | "red" | "muted" | "default"
+> = {
+  confirmed: "green",
+  partially_confirmed: "default",
+  developing: "gold",
+  unverified: "muted",
+  contradicted: "red",
+};
+
+export function EventVerificationBadge({
+  status,
+}: {
+  status: EventVerificationStatus;
+}) {
+  const label = status.replaceAll("_", " ");
+  return <Badge variant={VERIFY_VARIANT[status]}>{label}</Badge>;
+}
+
+const SEVERITY_VARIANT: Record<ContradictionSeverity, "green" | "gold" | "red" | "muted" | "default"> = {
+  low: "muted",
+  medium: "gold",
+  high: "red",
+  critical: "red",
+};
+
+export function ContradictionSeverityBadge({
+  severity,
+}: {
+  severity: ContradictionSeverity;
+}) {
+  return <Badge variant={SEVERITY_VARIANT[severity]}>{severity}</Badge>;
+}
+
+export function VerificationScoreMeter({ score }: { score: number }) {
+  const color =
+    score >= 75 ? "bg-accent-green" : score >= 50 ? "bg-accent-gold" : score >= 30 ? "bg-ink-600" : "bg-signal-red";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-ink-700">
+        <div className={cn("h-full", color)} style={{ width: `${Math.max(0, Math.min(100, score))}%` }} />
+      </div>
+      <span className="font-mono text-xs tabular-nums text-paper-500">{score}</span>
+    </div>
+  );
 }
 
 const RELATION_VARIANT: Record<ArticleRelationType, "green" | "gold" | "red" | "muted" | "default"> = {

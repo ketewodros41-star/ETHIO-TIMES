@@ -3,27 +3,45 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Layers, Users } from "lucide-react";
+import { Layers, ShieldAlert, Users } from "lucide-react";
 import { api } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { EventStatusBadge } from "@/components/status";
+import {
+  EventStatusBadge,
+  EventVerificationBadge,
+  VerificationScoreMeter,
+} from "@/components/status";
 import { relativeTime } from "@/lib/utils";
+import type { EventVerificationStatus } from "@/lib/types";
 
 const PAGE_SIZE = 25;
+
+const VERIFY_FILTERS: { value: EventVerificationStatus | ""; label: string }[] = [
+  { value: "", label: "All verification" },
+  { value: "unverified", label: "Unverified" },
+  { value: "developing", label: "Developing" },
+  { value: "partially_confirmed", label: "Partially confirmed" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "contradicted", label: "Contradicted" },
+];
 
 export function EventsContent() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  const [verification, setVerification] = useState<EventVerificationStatus | "">("");
+  const [reviewOnly, setReviewOnly] = useState(false);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["events", search, page],
+    queryKey: ["events", search, page, verification, reviewOnly],
     queryFn: () =>
       api.listEvents({
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
         search: search || undefined,
+        verification_status: verification || undefined,
+        review_required: reviewOnly ? true : undefined,
       }),
   });
 
@@ -32,16 +50,43 @@ export function EventsContent() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <Input
-          placeholder="Search events…"
-          value={search}
-          onChange={(e) => {
-            setPage(0);
-            setSearch(e.target.value);
-          }}
-          className="max-w-sm"
-        />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            placeholder="Search events…"
+            value={search}
+            onChange={(e) => {
+              setPage(0);
+              setSearch(e.target.value);
+            }}
+            className="max-w-sm"
+          />
+          <select
+            value={verification}
+            onChange={(e) => {
+              setPage(0);
+              setVerification(e.target.value as EventVerificationStatus | "");
+            }}
+            className="h-9 rounded-card border border-ink-600 bg-ink-800 px-3 text-xs text-paper-300"
+          >
+            {VERIFY_FILTERS.map((opt) => (
+              <option key={opt.label} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <label className="inline-flex items-center gap-2 text-xs text-paper-300">
+            <input
+              type="checkbox"
+              checked={reviewOnly}
+              onChange={(e) => {
+                setPage(0);
+                setReviewOnly(e.target.checked);
+              }}
+            />
+            Review required
+          </label>
+        </div>
         <span className="text-xs text-paper-500">{total} clustered events</span>
       </div>
 
@@ -60,7 +105,14 @@ export function EventsContent() {
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <EventVerificationBadge status={e.event_verification_status} />
                     <EventStatusBadge status={e.status} />
+                    {e.review_required && (
+                      <Badge variant="gold">review required</Badge>
+                    )}
+                    {e.primary_source_available && (
+                      <Badge variant="green">primary source</Badge>
+                    )}
                     {e.primary_category && (
                       <Badge variant="default">{e.primary_category}</Badge>
                     )}
@@ -83,13 +135,21 @@ export function EventsContent() {
                     <span className="inline-flex items-center gap-1">
                       <Users className="h-3 w-3" /> {e.source_count} sources
                     </span>
+                    {e.review_required && (
+                      <span className="inline-flex items-center gap-1 text-accent-gold">
+                        <ShieldAlert className="h-3 w-3" /> human review
+                      </span>
+                    )}
                     <span>updated {relativeTime(e.last_seen_at)}</span>
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
-                  <div className="font-mono text-xs text-paper-500">confidence</div>
+                  <div className="font-mono text-xs text-paper-500">verification</div>
                   <div className="font-display text-2xl tabular-nums text-paper-50">
-                    {Math.round(e.cluster_confidence * 100)}
+                    {e.verification_score}
+                  </div>
+                  <div className="mt-1 flex justify-end">
+                    <VerificationScoreMeter score={e.verification_score} />
                   </div>
                 </div>
               </div>

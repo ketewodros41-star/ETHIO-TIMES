@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { EventStatusBadge, HealthDot, RelevanceMeter } from "@/components/status";
+import { EventStatusBadge, EventVerificationBadge, HealthDot, RelevanceMeter } from "@/components/status";
 import { relativeTime } from "@/lib/utils";
 
 function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
@@ -43,7 +43,7 @@ export function OverviewContent() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <Stat
           label="Sources"
           value={sources.data?.meta.total ?? "—"}
@@ -63,6 +63,11 @@ export function OverviewContent() {
           label="Ethiopia-relevant"
           value={stats.data?.ethiopia_related ?? "—"}
           hint="passed relevance filter"
+        />
+        <Stat
+          label="Needs review"
+          value={stats.data?.review_required_events ?? "—"}
+          hint="sensitive or contradicted"
         />
       </div>
 
@@ -90,6 +95,7 @@ export function OverviewContent() {
               </span>
               <span className="flex shrink-0 items-center gap-3 text-xs text-paper-500">
                 <span>{e.article_count} arts · {e.source_count} src</span>
+                <EventVerificationBadge status={e.event_verification_status} />
                 <EventStatusBadge status={e.status} />
               </span>
             </Link>

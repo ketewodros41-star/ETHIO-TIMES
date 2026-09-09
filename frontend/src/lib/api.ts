@@ -82,6 +82,8 @@ export const api = {
     status?: string;
     category?: string;
     search?: string;
+    verification_status?: string;
+    review_required?: boolean;
   }) => request<Page<NewsEvent>>(`/events${qs(params)}`),
 
   getEvent: (id: string) => request<NewsEventDetail>(`/events/${id}`),
