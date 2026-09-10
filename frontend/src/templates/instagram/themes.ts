@@ -8,6 +8,7 @@
 
 export type ThemeId =
   | "broadcast_impact"
+  | "country_spotlight"
   | "headline_impact"
   | "verified_brief"
   | "breaking"
@@ -32,6 +33,13 @@ export const THEMES: Record<ThemeId, ThemeMeta> = {
     label: "Broadcast Impact (Habesha Style)",
     accent: "green",
     description: "Exact replica of diaspora broadcast post: full-bleed speaker photo, Anton/Impact heavy condensed uppercase headline, cyan punchline, ET hexagon monogram, and downward arrow CTA",
+    implementationStatus: "production",
+  },
+  country_spotlight: {
+    id: "country_spotlight",
+    label: "Country Spotlight (Flag Badge)",
+    accent: "green",
+    description: "Circular national flag badge behind subject, Anton poster typography, dual-color headline split, ET monogram, and downward arrow CTA",
     implementationStatus: "production",
   },
   headline_impact: {

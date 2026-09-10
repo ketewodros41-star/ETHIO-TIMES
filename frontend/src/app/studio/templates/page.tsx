@@ -18,6 +18,7 @@ import {
   THEMES, THEME_IDS,
   type InstagramFormat, type ThemeId, type PostTemplateData, type CarouselSlideData,
 } from "@/templates/instagram";
+import { POPULAR_COUNTRIES, resolveCountryCode } from "@/components/country-flag";
 import type { VisualAsset, PhotoCandidate } from "@/lib/types";
 
 const SAMPLE: PostTemplateData = {
@@ -500,6 +501,7 @@ function StudioContent() {
   const [format, setFormat] = useState<InstagramFormat>("portrait");
   const [themeId, setThemeId] = useState<ThemeId>("broadcast_impact");
   const [highlightColor, setHighlightColor] = useState<string>("#52B8ED");
+  const [selectedCountry, setSelectedCountry] = useState<string>("Ethiopia");
   const [customHeadline, setCustomHeadline] = useState<string>("");
   const [customDek, setCustomDek] = useState<string>("");
   const [customCategory, setCustomCategory] = useState<string>("");
@@ -532,6 +534,13 @@ function StudioContent() {
       setCustomHeadline(activeEvent.title);
       setCustomDek(activeEvent.summary || "");
       setCustomCategory(activeEvent.primary_category || "News");
+      // Intelligently auto-detect country from event title, region, summary
+      const textToScan = `${activeEvent.title} ${activeEvent.primary_region || ""} ${activeEvent.summary || ""}`;
+      const code = resolveCountryCode(textToScan);
+      const matched = POPULAR_COUNTRIES.find((c) => c.code === code);
+      if (matched) {
+        setSelectedCountry(matched.label);
+      }
     } else {
       setCustomHeadline("");
       setCustomDek("");
@@ -608,9 +617,10 @@ function StudioContent() {
         theme: themeId,
         accent: THEMES[themeId].accent,
         highlightColor,
+        country: selectedCountry,
         imageUrl: currentAsset?.storage_url || undefined,
       }
-    : { ...SAMPLE, theme: themeId, accent: THEMES[themeId].accent, highlightColor, imageUrl: currentAsset?.storage_url || undefined };
+    : { ...SAMPLE, theme: themeId, accent: THEMES[themeId].accent, highlightColor, country: selectedCountry, imageUrl: currentAsset?.storage_url || undefined };
 
   // Generate short, punchy copy for 5-page broadcast carousel
   const rawDek = customDek || (activeEvent?.summary ? activeEvent.summary.split(/[.!?]/)[0] + "." : previewData.dek) || "Key policy directive issued with immediate regional enforcement.";
@@ -1038,7 +1048,7 @@ function StudioContent() {
                     ))}
                   </div>
                 </div>
-                {(themeId === "broadcast_impact" || themeId === "headline_impact") && (
+                {(themeId === "broadcast_impact" || themeId === "headline_impact" || themeId === "country_spotlight") && (
                   <div>
                     <label className="block text-xs uppercase tracking-label text-paper-500 mb-2 font-mono">
                       Punchline Highlight Color
@@ -1066,6 +1076,36 @@ function StudioContent() {
                             style={{ backgroundColor: swatch.color }}
                           />
                           <span>{swatch.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {themeId === "country_spotlight" && (
+                  <div className="space-y-2 pt-1 border-t border-ink-800">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs uppercase tracking-label text-paper-400 font-mono flex items-center gap-1.5">
+                        <Globe className="h-3.5 w-3.5 text-accent-green" /> National Flag Spotlight
+                      </label>
+                      <span className="text-[11px] font-mono text-paper-400">
+                        Target: <strong className="text-accent-green">{selectedCountry}</strong>
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {POPULAR_COUNTRIES.map((c) => (
+                        <button
+                          key={c.code}
+                          type="button"
+                          onClick={() => setSelectedCountry(c.label)}
+                          className={`px-2.5 py-1 rounded-card text-xs font-mono flex items-center gap-1.5 border transition-all ${
+                            selectedCountry.toLowerCase() === c.label.toLowerCase() ||
+                            selectedCountry.toLowerCase().includes(c.label.toLowerCase())
+                              ? "border-accent-green bg-accent-green/15 text-paper-50 font-bold"
+                              : "border-ink-700 bg-ink-800 text-paper-400 hover:bg-ink-700 hover:text-paper-200"
+                          }`}
+                        >
+                          <span>{c.flag}</span>
+                          <span>{c.label}</span>
                         </button>
                       ))}
                     </div>

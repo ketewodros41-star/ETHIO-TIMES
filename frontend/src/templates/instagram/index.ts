@@ -5,6 +5,7 @@ export { StoryPost } from "./StoryPost";
 export { FORMATS, type InstagramFormat } from "./formats";
 
 export { BroadcastImpactPost } from "./BroadcastImpactPost";
+export { CountrySpotlightPost } from "./CountrySpotlightPost";
 export { HeadlineImpactPost } from "./HeadlineImpactPost";
 export { VerifiedBriefPost } from "./VerifiedBriefPost";
 export { BreakingPost } from "./BreakingPost";

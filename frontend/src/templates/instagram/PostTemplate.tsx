@@ -15,6 +15,7 @@ export type PostTemplateData = {
   style?: VisualStyle;
   theme?: ThemeId;
   highlightColor?: string;
+  country?: string;
 };
 
 /**
@@ -30,6 +31,7 @@ export type PostTemplateData = {
  */
 import { VerifiedBriefPost } from "./VerifiedBriefPost";
 import { BroadcastImpactPost } from "./BroadcastImpactPost";
+import { CountrySpotlightPost } from "./CountrySpotlightPost";
 import { HeadlineImpactPost } from "./HeadlineImpactPost";
 import { BreakingPost } from "./BreakingPost";
 import { PoliticsSensitivePost } from "./PoliticsSensitivePost";
@@ -49,6 +51,7 @@ export function PostTemplate({
   if (data.theme) {
     switch (data.theme) {
       case "broadcast_impact": return <BroadcastImpactPost format={format} data={data} highlightColor={data.highlightColor} />;
+      case "country_spotlight": return <CountrySpotlightPost format={format} data={data} highlightColor={data.highlightColor} country={data.country} />;
       case "headline_impact": return <HeadlineImpactPost format={format} data={data} highlightColor={data.highlightColor} />;
       case "verified_brief": return <VerifiedBriefPost format={format} data={data} />;
       case "breaking": return <BreakingPost format={format} data={data} flashText={data.dek} />;
