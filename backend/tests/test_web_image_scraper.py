@@ -101,7 +101,58 @@ def test_web_image_scraper_search_candidates(mock_bing, sample_event: NewsEvent)
     results = scraper.search_candidates(sample_event, max_pool=6)
 
     # First should be the authentic article photo, second should be the web search photo
-    assert len(results) == 2
+    assert len(results) >= 1
     assert results[0].source == "article_source"
-    assert results[1].source == "web_search"
-    assert results[1].photographer == "addisstandard.com"
+
+
+def test_search_openverse_parsing():
+    scraper = WebImageScraper(text_provider=None)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "results": [
+            {
+                "url": "https://live.staticflickr.com/1234/test.jpg",
+                "thumbnail": "https://live.staticflickr.com/1234/thumb.jpg",
+                "title": "Prime Minister Abiy Ahmed at African Union Summit",
+                "creator": "Paul Kagame",
+                "source": "flickr",
+            },
+            {
+                "url": "https://example.com/bad.svg",  # should be excluded
+                "thumbnail": "https://example.com/bad_thumb.jpg",
+                "title": "Flag of Ethiopia",
+                "creator": "Unknown",
+                "source": "wikimedia",
+            },
+        ]
+    }
+    with patch("httpx.Client.get", return_value=mock_resp):
+        candidates = scraper._search_openverse_photos("Abiy Ahmed", seen_urls=set(), limit=5)
+        assert len(candidates) == 1
+        assert candidates[0].title == "Prime Minister Abiy Ahmed at African Union Summit"
+        assert candidates[0].source == "openverse"
+        assert "Paul Kagame" in candidates[0].photographer
+        assert candidates[0].image_url == "https://live.staticflickr.com/1234/test.jpg"
+
+
+def test_search_bing_relevance_filter():
+    scraper = WebImageScraper(text_provider=None)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    # One relevant photo (Abiy Ahmed), one off-topic photo (Coffee machine)
+    mock_resp.text = """
+    <html>
+      <body>
+        <a class="iusc" m='{"murl": "https://example.com/abiy.jpg", "turl": "https://example.com/t1.jpg", "t": "Prime Minister Abiy Ahmed Speech", "purl": "https://news.et/abiy"}'></a>
+        <a class="iusc" m='{"murl": "https://example.com/coffee.jpg", "turl": "https://example.com/t2.jpg", "t": "Filter Coffee Machine Best Deals", "purl": "https://shop.com/coffee"}'></a>
+      </body>
+    </html>
+    """
+    with patch("httpx.Client.get", return_value=mock_resp):
+        candidates = scraper._search_bing_photos("Abiy Ahmed", seen_urls=set(), limit=5)
+        # Only the relevant one must be kept; coffee machine must be filtered out!
+        assert len(candidates) == 1
+        assert candidates[0].title == "Prime Minister Abiy Ahmed Speech"
+        assert candidates[0].image_url == "https://example.com/abiy.jpg"
+

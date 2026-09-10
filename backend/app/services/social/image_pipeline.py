@@ -462,11 +462,15 @@ class ImagePipeline:
         except Exception as exc:
             logger.warning("live_web_image_scraper_failed", error=str(exc))
 
+        # Fast exit: if live web scraper already gathered >= 12 authentic candidates (2 full pages), return immediately
+        if len(pool) >= 12:
+            return pool
+
         # Exclusion list: no SVGs, PDFs, maps, diagrams, coats of arms, flags, or logos
         non_photo_patterns = (
             ".svg", ".gif", ".pdf",
-            "map of", "map ", "karte", "carte", "plan ", "diagram", "chart",
-            "coat of arms", "emblem", "flag of", "logo", "insignia", "seal of"
+            "map of", "map ", "map_", "/map", "karte", "carte", "plan ", "diagram", "chart",
+            "coat of arms", "emblem", "flag of", "flag_", "/flag", "logo", "insignia", "seal of"
         )
 
         is_conflict_topic = any(k in topic.lower() for k in ["war", "conflict", "battle", "military", "army"])
@@ -475,7 +479,7 @@ class ImagePipeline:
         # --- Source 2: Backfill from Linked Article Photos (if not already captured) ---
         article_images = self._find_all_article_images(event)
         for url, art_title, source_label, photographer in article_images:
-            if len(pool) >= max_pool:
+            if len(pool) >= 18:
                 break
             if url not in seen_urls:
                 seen_urls.add(url)
@@ -491,21 +495,24 @@ class ImagePipeline:
                     )
                 )
 
+        if len(pool) >= 12:
+            return pool
+
         # --- Source 3: Backfill from Wikipedia Article Page Images if pool has room ---
         headers = {
             "User-Agent": "ETHIOTIMESBot/1.0 (editorial-studio@ethiotimes.org; contact: info@ethiotimes.com)"
         }
 
-        for q in facets:
-            if len(pool) >= max_pool:
+        for q in facets[:2]:
+            if len(pool) >= 12:
                 break
             w_url = (
                 f"https://en.wikipedia.org/w/api.php?action=query&generator=search"
                 f"&gsrsearch={urllib.parse.quote(q)}"
-                f"&gsrlimit=10&prop=pageimages|extracts&pithumbsize=1000&exintro=1&explaintext=1&exsentences=2&format=json"
+                f"&gsrlimit=6&prop=pageimages|extracts&pithumbsize=1000&exintro=1&explaintext=1&exsentences=2&format=json"
             )
             try:
-                with httpx.Client(timeout=6.0) as client:
+                with httpx.Client(timeout=3.0) as client:
                     res = client.get(w_url, headers=headers)
                     if res.status_code == 200:
                         pages = res.json().get("query", {}).get("pages", {})
@@ -544,17 +551,20 @@ class ImagePipeline:
             except Exception as exc:
                 logger.warning("wiki_facet_search_failed", query=q, error=str(exc))
 
-        # --- Source 3: Wikimedia Commons Direct Bitmap Archive ---
-        for q in facets[:3]:
-            if len(pool) >= max_pool:
+        if len(pool) >= 12:
+            return pool
+
+        # --- Source 4: Wikimedia Commons Direct Bitmap Archive ---
+        for q in facets[:2]:
+            if len(pool) >= 12:
                 break
             c_url = (
                 f"https://commons.wikimedia.org/w/api.php?action=query&generator=search"
                 f"&gsrsearch={urllib.parse.quote(q + ' filetype:bitmap')}"
-                f"&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url&iiurlwidth=1000&format=json"
+                f"&gsrnamespace=6&gsrlimit=6&prop=imageinfo&iiprop=url&iiurlwidth=1000&format=json"
             )
             try:
-                with httpx.Client(timeout=6.0) as client:
+                with httpx.Client(timeout=3.0) as client:
                     res = client.get(c_url, headers=headers)
                     if res.status_code == 200:
                         pages = res.json().get("query", {}).get("pages", {})

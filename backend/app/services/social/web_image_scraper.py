@@ -45,8 +45,8 @@ _WIKI_HEADERS = {
 
 _EXCLUDED_EXTENSIONS = (".svg", ".gif", ".pdf", ".ico", ".eps")
 _EXCLUDED_TITLE_KEYWORDS = (
-    "coat of arms", "flag of", "emblem", "insignia", "seal of",
-    "map of", "diagram", "vector illustration", "clipart", "logo vector"
+    "coat of arms", "flag of", "flag_", "emblem", "insignia", "seal of",
+    "map of", "map_", "karte", "carte", "diagram", "vector illustration", "clipart", "logo vector"
 )
 
 
@@ -104,11 +104,53 @@ class WebImageScraper:
                     pool.append(cand)
 
         # -------------------------------------------------------------
-        # Tier 4: Google Custom Search API (If configured)
+        # Tier 4: Openverse Global Editorial Engine (Flickr/CC Photojournalism)
+        # -------------------------------------------------------------
+        for q in queries[:2]:
+            if len(pool) >= 18:
+                break
+            ov_results = self._search_openverse_photos(q, seen_urls, limit=6)
+            for cand in ov_results:
+                if len(pool) >= max_pool:
+                    break
+                if cand.image_url not in seen_urls:
+                    seen_urls.add(cand.image_url)
+                    pool.append(cand)
+
+        # -------------------------------------------------------------
+        # Tier 5: Wikimedia Commons Topic Bitmap Archives
+        # -------------------------------------------------------------
+        for q in queries[:2]:
+            if len(pool) >= 18:
+                break
+            wm_results = self._search_wikimedia_topic_photos(q, seen_urls, limit=5)
+            for cand in wm_results:
+                if len(pool) >= max_pool:
+                    break
+                if cand.image_url not in seen_urls:
+                    seen_urls.add(cand.image_url)
+                    pool.append(cand)
+
+        # -------------------------------------------------------------
+        # Tier 6: Live Web Image Search (Bing with Relevance Validation)
+        # -------------------------------------------------------------
+        for q in queries[:2]:
+            if len(pool) >= 18:
+                break
+            web_results = self._search_bing_photos(q, seen_urls, limit=6)
+            for cand in web_results:
+                if len(pool) >= max_pool:
+                    break
+                if cand.image_url not in seen_urls:
+                    seen_urls.add(cand.image_url)
+                    pool.append(cand)
+
+        # -------------------------------------------------------------
+        # Tier 7: Google Custom Search API (If configured)
         # -------------------------------------------------------------
         google_key = getattr(settings, "google_search_api_key", None)
         google_cx = getattr(settings, "google_search_cx", None)
-        if google_key and google_cx and queries:
+        if google_key and google_cx and len(pool) < 18 and queries:
             g_results = self._search_google_cse(queries[0], google_key, google_cx, seen_urls, limit=8)
             for cand in g_results:
                 if len(pool) >= max_pool:
@@ -118,21 +160,7 @@ class WebImageScraper:
                     pool.append(cand)
 
         # -------------------------------------------------------------
-        # Tier 5: Live Web Image Search (Bing Photos)
-        # -------------------------------------------------------------
-        for q in queries:
-            if len(pool) >= max_pool:
-                break
-            web_results = self._search_bing_photos(q, seen_urls, limit=8)
-            for cand in web_results:
-                if len(pool) >= max_pool:
-                    break
-                if cand.image_url not in seen_urls:
-                    seen_urls.add(cand.image_url)
-                    pool.append(cand)
-
-        # -------------------------------------------------------------
-        # Tier 6: Firecrawl (If configured)
+        # Tier 8: Firecrawl (If configured)
         # -------------------------------------------------------------
         firecrawl_key = getattr(settings, "firecrawl_api_key", None)
         if firecrawl_key and len(pool) < max_pool and queries:
@@ -311,7 +339,11 @@ class WebImageScraper:
         except Exception as exc:
             logger.warning("commons_person_search_failed", person=person_name, error=str(exc))
 
-        # 2. Wikipedia page images for person
+        # 2. Openverse search for authentic press photos of person (Flickr summits, state visits)
+        ov_person = self._search_openverse_photos(person_name, seen_urls, limit=6)
+        candidates.extend(ov_person)
+
+        # 3. Wikipedia page images for person
         w_url = (
             f"https://en.wikipedia.org/w/api.php?action=query&generator=search"
             f"&gsrsearch={urllib.parse.quote(person_name)}"
@@ -345,6 +377,100 @@ class WebImageScraper:
                             )
         except Exception as exc:
             logger.warning("wiki_person_search_failed", person=person_name, error=str(exc))
+
+        return candidates
+
+    def _search_openverse_photos(
+        self,
+        query: str,
+        seen_urls: set[str],
+        limit: int = 8,
+    ) -> list[PhotoCandidate]:
+        """Query Openverse REST API (>700M Creative Commons editorial & press photos)."""
+        candidates: list[PhotoCandidate] = []
+        encoded_q = urllib.parse.quote(query)
+        api_url = f"https://api.openverse.org/v1/images/?q={encoded_q}&page_size={min(limit, 20)}"
+
+        try:
+            with httpx.Client(timeout=8.0, headers=_WIKI_HEADERS) as client:
+                res = client.get(api_url)
+                if res.status_code == 200:
+                    results = res.json().get("results", [])
+                    for item in results:
+                        img_url = item.get("url")
+                        thumb_url = item.get("thumbnail") or img_url
+                        title = item.get("title") or query
+                        creator = item.get("creator") or item.get("source") or "Openverse"
+                        source_name = item.get("source") or "openverse"
+
+                        if not img_url or img_url in seen_urls:
+                            continue
+                        if any(img_url.lower().endswith(ext) for ext in _EXCLUDED_EXTENSIONS):
+                            continue
+                        if any(bad in title.lower() for bad in _EXCLUDED_TITLE_KEYWORDS):
+                            continue
+
+                        seen_urls.add(img_url)
+                        candidates.append(
+                            PhotoCandidate(
+                                id=f"ov-{abs(hash(img_url)) % 10000000}",
+                                title=title[:90],
+                                thumb_url=thumb_url,
+                                image_url=img_url,
+                                source="openverse",
+                                photographer=f"{creator} ({source_name})",
+                                description=f"Authentic editorial photo via Openverse ({source_name})",
+                            )
+                        )
+        except Exception as exc:
+            logger.warning("openverse_search_failed", query=query, error=str(exc))
+
+        return candidates
+
+    def _search_wikimedia_topic_photos(
+        self,
+        query: str,
+        seen_urls: set[str],
+        limit: int = 6,
+    ) -> list[PhotoCandidate]:
+        """Query Wikimedia Commons for high-resolution bitmap photos matching topic query."""
+        candidates: list[PhotoCandidate] = []
+        c_url = (
+            f"https://commons.wikimedia.org/w/api.php?action=query&generator=search"
+            f"&gsrsearch={urllib.parse.quote(query + ' filetype:bitmap')}"
+            f"&gsrnamespace=6&gsrlimit={limit}&prop=imageinfo&iiprop=url&iiurlwidth=1000&format=json"
+        )
+        try:
+            with httpx.Client(timeout=8.0, headers=_WIKI_HEADERS) as client:
+                res = client.get(c_url)
+                if res.status_code == 200:
+                    pages = res.json().get("query", {}).get("pages", {})
+                    for pid, p in pages.items():
+                        ii = p.get("imageinfo", [{}])[0]
+                        thumb = ii.get("thumburl") or ii.get("url")
+                        orig = ii.get("url") or thumb
+                        title = p.get("title", "").replace("File:", "").replace("_", " ")
+                        if not thumb or thumb in seen_urls:
+                            continue
+                        if any(x in thumb.lower() for x in _EXCLUDED_EXTENSIONS):
+                            continue
+                        if any(bad in title.lower() for bad in _EXCLUDED_TITLE_KEYWORDS):
+                            continue
+
+                        seen_urls.add(thumb)
+                        candidates.append(
+                            PhotoCandidate(
+                                id=f"commons-topic-{pid}",
+                                title=title[:90],
+                                thumb_url=thumb,
+                                image_url=orig,
+                                source="wikimedia",
+                                photographer="Wikimedia Commons",
+                                description=f"Wikimedia photo: {title[:90]}",
+                            )
+                        )
+        except Exception as exc:
+            logger.warning("wikimedia_topic_search_failed", query=query, error=str(exc))
 
         return candidates
 
@@ -403,10 +529,16 @@ class WebImageScraper:
         seen_urls: set[str],
         limit: int = 8,
     ) -> list[PhotoCandidate]:
-        """Scrape Bing image search with photo filter for live internet photos."""
+        """Scrape Bing image search with photo filter and strict query relevance verification."""
         candidates: list[PhotoCandidate] = []
         encoded_q = urllib.parse.quote(query)
         search_url = f"https://www.bing.com/images/search?q={encoded_q}&qft=+filterui:photo-photo&form=IRFLTR&first=1"
+
+        # Build query tokens for strict relevance checking
+        query_tokens = [
+            w.lower() for w in re.split(r"\W+", query)
+            if len(w) >= 3 and w.lower() not in {"and", "the", "for", "with", "from", "news", "ethiopia"}
+        ]
 
         try:
             with httpx.Client(timeout=8.0, headers=_BROWSER_HEADERS, follow_redirects=True) as client:
@@ -433,6 +565,7 @@ class WebImageScraper:
                     img_url = meta.get("murl")
                     thumb_url = meta.get("turl") or img_url
                     title = meta.get("t") or query
+                    purl = meta.get("purl") or ""
 
                     if not img_url or img_url in seen_urls:
                         continue
@@ -440,6 +573,12 @@ class WebImageScraper:
                         continue
                     if any(bad in title.lower() for bad in _EXCLUDED_TITLE_KEYWORDS):
                         continue
+
+                    # Strict relevance verification: title or source URL must relate to the story
+                    if query_tokens:
+                        combined_text = f"{title} {purl}".lower()
+                        if not any(token in combined_text for token in query_tokens):
+                            continue
 
                     seen_urls.add(img_url)
                     source_domain = urllib.parse.urlparse(img_url).netloc or "Web"
