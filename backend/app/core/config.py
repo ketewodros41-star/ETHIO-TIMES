@@ -126,6 +126,13 @@ class Settings(BaseSettings):
     max_image_retries: int = Field(default=2)
     image_quality_threshold: int = Field(default=75)
     image_candidates_per_event: int = Field(default=2)
+    image_provider_preference: str = Field(default="flux")  # "flux" | "together" | "openrouter"
+
+    # ---- External Model Providers ----
+    openrouter_api_key: str | None = Field(default=None)
+    together_api_key: str | None = Field(default=None)
+    agent_router_key: str | None = Field(default=None, alias="AGENT_ROUTER")
+    agent_router_model: str = Field(default="deepseek-v4-flash")
 
     # ---- Editorial (Phase 5) ----
     caption_max_chars: int = Field(default=2200)
