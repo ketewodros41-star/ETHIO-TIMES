@@ -419,6 +419,8 @@ export interface PhotoBrowseResponse {
   has_next: boolean;
   has_prev: boolean;
   topic: string;
+  detected_country?: string | null;
+  detected_country_code?: string | null;
   detected_person?: string | null;
   detected_persons?: string[];
   detected_locations?: string[];

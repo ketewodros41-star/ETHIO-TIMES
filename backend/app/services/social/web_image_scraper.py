@@ -66,6 +66,9 @@ _EXCLUDED_TITLE_KEYWORDS = (
 class StoryVisualEntities:
     """Decomposed story entities for structured, multi-tier photo searching."""
     topic: str
+    country: str = "Ethiopia"
+    country_code: str = "ET"
+    default_city: str = "Addis Ababa"
     main_person: str | None = None
     persons: list[str] = field(default_factory=list)
     locations: list[str] = field(default_factory=list)
@@ -76,7 +79,7 @@ class StoryVisualEntities:
 
 
 class WebImageScraper:
-    """Multi-source free web image scraper tailored for Ethiopian news stories."""
+    """Multi-source free web image scraper tailored for news stories."""
 
     def __init__(self, text_provider: AIProvider | None = None) -> None:
         self.text_provider = text_provider
@@ -108,13 +111,14 @@ class WebImageScraper:
                 tier1_leads.append(cand)
 
         # -------------------------------------------------------------
-        # Entity & Story Analysis (LLM + Comprehensive Ethiopian Knowledge Base)
+        # Entity & Story Analysis (LLM + Multi-Country Context Knowledge Base)
         # -------------------------------------------------------------
         entities = self.analyze_story_entities(event, custom_query=custom_query)
 
         logger.info(
             "web_image_search_plan",
             event_id=str(event.id),
+            country=entities.country,
             topic=entities.topic,
             main_person=entities.main_person,
             persons=entities.persons,
@@ -153,16 +157,26 @@ class WebImageScraper:
         # -------------------------------------------------------------
         # Tier 3: City, Region & Landmark Atmosphere
         # -------------------------------------------------------------
-        target_locs = entities.locations or ([event.primary_region] if event.primary_region else ["Addis Ababa"])
+        target_locs = entities.locations or [entities.default_city]
         for loc in target_locs[:2]:
-            loc_cands = self._search_city_photos(loc, seen_urls, limit=6)
+            loc_cands = self._search_city_photos(
+                loc,
+                seen_urls,
+                limit=6,
+                country_context=entities.country,
+            )
             tier3_locations.extend(loc_cands)
 
         # -------------------------------------------------------------
         # Tier 4: Institutions & Broader Domain Concepts
         # -------------------------------------------------------------
         for inst in entities.institutions[:2]:
-            inst_cands = self._search_institution_photos(inst, seen_urls, limit=4)
+            inst_cands = self._search_institution_photos(
+                inst,
+                seen_urls,
+                limit=4,
+                country_context=entities.country,
+            )
             tier4_institutions_and_concepts.extend(inst_cands)
 
         # Backfill with general web search if total pool is small (< 18)
@@ -251,6 +265,207 @@ class WebImageScraper:
             )
         return candidates
 
+    def _detect_country_and_context(self, event: NewsEvent) -> dict:
+        """Detect the primary geographic & national context for the news event."""
+        text = f"{event.title or ''} {event.summary or ''}".lower()
+        region = (event.primary_region or "").lower()
+
+        scores: dict[str, int] = {
+            "US": 0,
+            "ET": 0,
+            "KE": 0,
+            "SD": 0,
+            "SO": 0,
+            "YE": 0,
+            "GB": 0,
+            "EG": 0,
+            "CN": 0,
+            "ZA": 0,
+        }
+
+        # 1. US indicators
+        us_strong = [
+            "pentagon", "white house", "us capitol", "u.s. capitol", "us congress", "u.s. congress",
+            "federal reserve", "wall street", "biden", "trump", "kamala", "blinken", "lloyd austin",
+            "centcom", "us military", "u.s. military", "us department of defense", "us strike",
+            "american strike", "us air force", "us navy", "american president", "us election"
+        ]
+        us_med = ["united states", "america", "american", "washington", "new york", "california", "texas", "us dollar"]
+        for k in us_strong:
+            if k in text:
+                scores["US"] += 4
+        for k in us_med:
+            if k in text:
+                scores["US"] += 2
+        for short in ("u.s.", "usa", "us"):
+            if re.search(rf"\b{re.escape(short)}\b", text):
+                scores["US"] += 2
+
+        # 2. Ethiopia indicators
+        et_strong = [
+            "ዐቢይ", "አብይ", "abiy", "temesgen", "daniel bekele", "mamo mihretu", "gerd", "cbe", "nbe",
+            "ethiopian airlines", "amhara", "oromia", "tigray", "addis ababa", "ethio telecom",
+            "federal supreme court of ethiopia", "commercial bank of ethiopia", "renaissance dam"
+        ]
+        et_med = ["ethiopia", "ethiopian", "birr", "ena", "habesha"]
+        for k in et_strong:
+            if k in text:
+                scores["ET"] += 4
+        for k in et_med:
+            if k in text:
+                # If "ethiopian migrants" or "ethiopian civilians" is mentioned as collateral victims in foreign strikes, discount weight
+                if re.search(r"ethiopian\s+(migrants|victims|civilians|passengers|refugees|nationals)", text):
+                    scores["ET"] += 1
+                else:
+                    scores["ET"] += 2
+
+        # 3. Yemen indicators
+        ye_strong = ["yemen", "yemeni", "sanaa", "houthi", "houthis", "aden", "red sea shipping"]
+        for k in ye_strong:
+            if k in text:
+                scores["YE"] += 3
+
+        # 4. Kenya indicators
+        ke_strong = ["kenya", "kenyan", "nairobi", "ruto", "william ruto", "mombasa"]
+        for k in ke_strong:
+            if k in text:
+                scores["KE"] += 3
+
+        # 5. Sudan indicators
+        sd_strong = ["sudan", "sudanese", "khartoum", "burhan", "hemeti", "rapid support forces", "port sudan"]
+        for k in sd_strong:
+            if k in text:
+                scores["SD"] += 3
+
+        # 6. Somalia indicators
+        so_strong = ["somalia", "somali", "mogadishu", "hassan sheikh", "somaliland", "hargeisa"]
+        for k in so_strong:
+            if k in text:
+                scores["SO"] += 3
+
+        # 7. UK indicators
+        gb_strong = ["united kingdom", "britain", "british", "london", "downing street", "westminster", "starmer", "sunak"]
+        for k in gb_strong:
+            if k in text:
+                scores["GB"] += 3
+
+        # 8. Egypt indicators
+        eg_strong = ["egypt", "egyptian", "cairo", "sisi", "el-sisi", "suez canal", "alexandria"]
+        for k in eg_strong:
+            if k in text:
+                scores["EG"] += 3
+
+        # 9. China indicators
+        cn_strong = ["china", "chinese", "beijing", "xi jinping", "shanghai"]
+        for k in cn_strong:
+            if k in text:
+                scores["CN"] += 3
+
+        # 10. South Africa indicators
+        za_strong = ["south africa", "south african", "johannesburg", "cape town", "pretoria", "ramaphosa"]
+        for k in za_strong:
+            if k in text:
+                scores["ZA"] += 3
+
+        # Check explicit region if provided
+        if "ethiopia" in region:
+            scores["ET"] += 3
+        elif any(w in region for w in ["united states", "america", "usa", "us"]):
+            scores["US"] += 3
+        elif "kenya" in region:
+            scores["KE"] += 3
+        elif "sudan" in region:
+            scores["SD"] += 3
+        elif "somalia" in region:
+            scores["SO"] += 3
+        elif "yemen" in region:
+            scores["YE"] += 3
+        elif "uk" in region or "britain" in region:
+            scores["GB"] += 3
+
+        # Decide top country
+        top_code = "ET"
+        top_score = scores["ET"]
+        for code, s in scores.items():
+            if s > top_score:
+                top_code = code
+                top_score = s
+
+        profiles = {
+            "US": {
+                "country": "United States",
+                "country_code": "US",
+                "default_city": "Washington, D.C.",
+                "default_institutions": ["The Pentagon", "White House", "United States Capitol"],
+                "default_concepts": ["The Pentagon building", "US Department of Defense", "Washington D.C."],
+            },
+            "ET": {
+                "country": "Ethiopia",
+                "country_code": "ET",
+                "default_city": "Addis Ababa",
+                "default_institutions": ["Commercial Bank of Ethiopia", "Ethiopian Airlines", "National Bank of Ethiopia"],
+                "default_concepts": ["Addis Ababa Ethiopia", "Contemporary Ethiopia"],
+            },
+            "YE": {
+                "country": "Yemen",
+                "country_code": "YE",
+                "default_city": "Sanaa",
+                "default_institutions": ["Sanaa Old City"],
+                "default_concepts": ["Sanaa Yemen", "Yemen landscape"],
+            },
+            "KE": {
+                "country": "Kenya",
+                "country_code": "KE",
+                "default_city": "Nairobi",
+                "default_institutions": ["State House Kenya", "Parliament of Kenya"],
+                "default_concepts": ["Nairobi skyline", "Nairobi Kenya"],
+            },
+            "SD": {
+                "country": "Sudan",
+                "country_code": "SD",
+                "default_city": "Khartoum",
+                "default_institutions": ["Port Sudan", "Khartoum Nile"],
+                "default_concepts": ["Khartoum Sudan", "Sudan Red Sea"],
+            },
+            "SO": {
+                "country": "Somalia",
+                "country_code": "SO",
+                "default_city": "Mogadishu",
+                "default_institutions": ["Villa Somalia", "Mogadishu port"],
+                "default_concepts": ["Mogadishu Somalia", "Mogadishu coast"],
+            },
+            "GB": {
+                "country": "United Kingdom",
+                "country_code": "GB",
+                "default_city": "London",
+                "default_institutions": ["10 Downing Street", "Palace of Westminster"],
+                "default_concepts": ["London skyline", "Westminster London"],
+            },
+            "EG": {
+                "country": "Egypt",
+                "country_code": "EG",
+                "default_city": "Cairo",
+                "default_institutions": ["Cairo Nile", "Suez Canal"],
+                "default_concepts": ["Cairo Egypt", "Cairo skyline"],
+            },
+            "CN": {
+                "country": "China",
+                "country_code": "CN",
+                "default_city": "Beijing",
+                "default_institutions": ["Great Hall of the People"],
+                "default_concepts": ["Beijing China", "Shanghai skyline"],
+            },
+            "ZA": {
+                "country": "South Africa",
+                "country_code": "ZA",
+                "default_city": "Johannesburg",
+                "default_institutions": ["Union Buildings Pretoria"],
+                "default_concepts": ["Johannesburg skyline", "Cape Town Table Mountain"],
+            },
+        }
+
+        return profiles.get(top_code, profiles["ET"])
+
     def analyze_story_entities(
         self, event: NewsEvent, custom_query: str | None = None
     ) -> StoryVisualEntities:
@@ -260,7 +475,12 @@ class WebImageScraper:
             return self._analysis_cache[cache_key]
 
         text = f"{event.title or ''} {event.summary or ''}".lower()
-        topic: str = "Ethiopian News"
+        ctx = self._detect_country_and_context(event)
+        country = ctx["country"]
+        country_code = ctx["country_code"]
+        default_city = ctx["default_city"]
+
+        topic: str = f"{country} News"
         main_person: str | None = None
         persons: list[str] = []
         locations: list[str] = []
@@ -275,14 +495,31 @@ class WebImageScraper:
         if custom_query and custom_query.strip():
             cq = custom_query.strip()
             topic = cq
-            queries = [cq, f"{cq} Ethiopia", f"Contemporary {cq}"]
-            chips = [cq, "Ethiopia"]
+            is_et_query = any(w in cq.lower() for w in ["ethiopia", "addis", "hawassa", "mekelle", "gondar", "amhara", "oromia", "tigray"])
+            is_us_query = any(w in cq.lower() for w in ["pentagon", "white house", "washington", "biden", "trump", "america", "united states", "congress"])
+
+            if is_us_query or (country_code == "US" and not is_et_query):
+                queries = [cq, f"{cq} United States", f"{cq} building" if any(b in cq.lower() for b in ["pentagon", "capitol", "house", "department"]) else f"{cq} official"]
+                chips = [cq, "United States", "Washington D.C."]
+                locs = [cq] if any(w in cq.lower() for w in ["washington", "york", "pentagon"]) else ["Washington, D.C."]
+            elif is_et_query or (country_code == "ET" and not is_us_query):
+                queries = [cq, f"{cq} Ethiopia", f"Contemporary {cq}"]
+                chips = [cq, "Ethiopia"]
+                locs = [cq] if any(w in cq.lower() for w in ["addis", "hawassa", "mekelle", "gondar"]) else ["Addis Ababa"]
+            else:
+                queries = [cq, f"{cq} {country}", f"{cq} news"]
+                chips = [cq, country]
+                locs = [cq]
+
             entities = StoryVisualEntities(
                 topic=topic,
+                country=country,
+                country_code=country_code,
+                default_city=default_city,
                 main_person=None,
                 persons=[],
-                locations=[cq] if any(w in cq.lower() for w in ["addis", "hawassa", "mekelle", "gondar"]) else [],
-                institutions=[],
+                locations=locs,
+                institutions=[cq] if any(w in cq.lower() for w in ["pentagon", "bank", "ministry", "house", "capitol", "department"]) else [],
                 concepts=[cq],
                 search_queries=queries,
                 suggested_chips=chips,
@@ -291,10 +528,11 @@ class WebImageScraper:
             return entities
 
         # -------------------------------------------------------------
-        # 2. Comprehensive Ethiopian Knowledge Base (Deterministic & Fast)
+        # 2. Multi-Country Knowledge Base (Deterministic & Fast)
         # -------------------------------------------------------------
-        # 2a. Prominent Leaders & Figures
+        # 2a. Prominent Leaders & Figures (Ethiopian + International)
         person_map = [
+            # Ethiopian figures
             (["ዐቢይ", "አብይ", "ጠቅላይ ሚኒስትር", "abiy", "prime minister"], "Abiy Ahmed"),
             (["ዳንኤል በቀለ", "ዳንኤል", "daniel bekele", "ehrc", "ሰብዓዊ መብት"], "Daniel Bekele"),
             (["ማሞ ምህረቱ", "ማሞ", "mamo mihretu", "ብሔራዊ ባንክ", "national bank"], "Mamo Mihretu"),
@@ -312,9 +550,34 @@ class WebImageScraper:
             (["ኃይሌ ገብረስላሴ", "ሀይሌ", "haile gebrselassie"], "Haile Gebrselassie"),
             (["ቴዲ አፍሮ", "ቴዎድሮስ ካሳሁን", "teddy afro"], "Teddy Afro"),
             (["ዳንጎቴ", "dangote"], "Aliko Dangote"),
+            # International figures
+            (["joe biden", "biden", "president biden"], "Joe Biden"),
+            (["donald trump", "trump"], "Donald Trump"),
+            (["kamala harris", "kamala"], "Kamala Harris"),
+            (["antony blinken", "blinken", "secretary blinken"], "Antony Blinken"),
+            (["lloyd austin", "austin", "defense secretary"], "Lloyd Austin"),
+            (["jerome powell", "powell", "fed chair"], "Jerome Powell"),
+            (["jd vance", "vance"], "JD Vance"),
+            (["william ruto", "ruto"], "William Ruto"),
+            (["abdel fattah al-burhan", "burhan", "al-burhan"], "Abdel Fattah al-Burhan"),
+            (["hassan sheikh mohamud", "hassan sheikh"], "Hassan Sheikh Mohamud"),
+            (["keir starmer", "starmer"], "Keir Starmer"),
+            (["rishi sunak", "sunak"], "Rishi Sunak"),
+            (["emmanuel macron", "macron"], "Emmanuel Macron"),
+            (["benjamin netanyahu", "netanyahu"], "Benjamin Netanyahu"),
+            (["antónio guterres", "guterres"], "António Guterres"),
         ]
         for keywords, name in person_map:
-            if any(k in text for k in keywords):
+            matched = False
+            for k in keywords:
+                if len(k) <= 6 and k.isascii():
+                    if re.search(rf"\b{re.escape(k)}\b", text):
+                        matched = True
+                        break
+                elif k in text:
+                    matched = True
+                    break
+            if matched:
                 if name not in persons:
                     persons.append(name)
                 if not main_person:
@@ -322,6 +585,7 @@ class WebImageScraper:
 
         # 2b. Cities & Regional Centers
         location_map = [
+            # Ethiopian cities
             (["አዲስ አበባ", "addis ababa", "bole", "meskel square", "piazza", "arada"], "Addis Ababa"),
             (["ሀዋሳ", "ሐዋሳ", "hawassa", "awassa", "sidama"], "Hawassa"),
             (["መቀሌ", "መቐለ", "mekelle", "mekele", "tigray"], "Mekelle"),
@@ -339,6 +603,22 @@ class WebImageScraper:
             (["ሞጆ", "modjo", "dry port"], "Modjo"),
             (["ላሊበላ", "lalibela"], "Lalibela"),
             (["አክሱም", "axum"], "Axum"),
+            # International & US locations
+            (["the pentagon", "pentagon"], "The Pentagon"),
+            (["washington", "washington d.c.", "washington dc", "d.c."], "Washington, D.C."),
+            (["new york", "nyc", "manhattan"], "New York City"),
+            (["california", "los angeles"], "California"),
+            (["texas", "houston", "austin"], "Texas"),
+            (["yemen", "sanaa", "aden", "hodeidah"], "Yemen"),
+            (["nairobi", "kenya", "mombasa"], "Nairobi"),
+            (["khartoum", "sudan", "port sudan"], "Khartoum"),
+            (["mogadishu", "somalia", "hargeisa", "somaliland"], "Mogadishu"),
+            (["london", "united kingdom", "westminster"], "London"),
+            (["cairo", "egypt"], "Cairo"),
+            (["beijing", "china"], "Beijing"),
+            (["johannesburg", "south africa", "pretoria", "cape town"], "Johannesburg"),
+            (["gaza", "rafah"], "Gaza"),
+            (["beirut", "lebanon"], "Beirut"),
         ]
         for keywords, loc_name in location_map:
             if any(k in text for k in keywords):
@@ -347,6 +627,7 @@ class WebImageScraper:
 
         # 2c. Institutions & Organizations
         institution_map = [
+            # Ethiopian institutions
             (["ብሔራዊ ባንክ", "nbe", "national bank of ethiopia"], "National Bank of Ethiopia"),
             (["የኢትዮጵያ ንግድ ባንክ", "ንግድ ባንክ", "cbe", "commercial bank of ethiopia"], "Commercial Bank of Ethiopia"),
             (["የኢትዮጵያ አየር መንገድ", "አየር መንገድ", "ethiopian airlines"], "Ethiopian Airlines"),
@@ -356,6 +637,15 @@ class WebImageScraper:
             (["የህዝብ ተወካዮች ምክር ቤት", "ምክር ቤት", "parliament"], "Ethiopian Parliament"),
             (["ታላቁ የህዳሴ ግድብ", "ህዳሴ ግድብ", "ህዳሴ", "gerd", "renaissance dam"], "Grand Ethiopian Renaissance Dam"),
             (["የአፍሪካ ህብረት", "አፍሪካ ህብረት", "african union"], "African Union"),
+            # International & US institutions
+            (["the pentagon", "pentagon", "department of defense", "defense department", "dod"], "The Pentagon"),
+            (["white house"], "White House"),
+            (["capitol", "us capitol", "congress", "us congress", "senate", "house of representatives"], "United States Capitol"),
+            (["federal reserve", "fed"], "Federal Reserve"),
+            (["supreme court of the united states", "us supreme court"], "Supreme Court of the United States"),
+            (["wall street", "new york stock exchange", "nyse"], "Wall Street"),
+            (["centcom", "us military", "u.s. military", "us central command"], "United States Armed Forces"),
+            (["united nations", "un security council", "unsc"], "United Nations"),
         ]
         for keywords, inst_name in institution_map:
             if any(k in text for k in keywords):
@@ -364,12 +654,19 @@ class WebImageScraper:
 
         # 2d. Concrete Photographic Concepts
         concept_map = [
+            # Ethiopian concepts
             (["ይቅርታ", "እስረኛ", "እስር", "pardon", "prisoner", "prison", "ፍርድ"], ["Ethiopian court justice", "Ethiopia prison"]),
             (["ባንክ", "ብር", "ገንዘብ", "devaluation", "currency", "birr", "forex", "exchange rate"], ["Ethiopian Birr banknotes", "Commercial Bank of Ethiopia"]),
             (["ቡና", "እርሻ", "coffee", "agriculture", "farming", "crop", "wheat"], ["Ethiopian coffee harvest", "Ethiopia agriculture farming"]),
             (["በረራ", "አውሮፕላን", "flight", "aviation", "airline", "aircraft"], ["Ethiopian Airlines aircraft", "Bole International Airport"]),
             (["ሰላም", "ስምምነት", "peace", "treaty", "diplomacy", "talks"], ["African Union Addis Ababa", "Ethiopian diplomacy"]),
             (["ትምህርት", "ዩኒቨርሲቲ", "university", "education", "school"], ["Addis Ababa University", "Ethiopia education"]),
+            # US & International concepts
+            (["pentagon", "strike", "airstrike", "drone strike", "civilian deaths", "military operation", "centcom"], ["The Pentagon building", "US Department of Defense press briefing", "Military aircraft"]),
+            (["us election", "presidential election", "campaign", "ballot", "republican", "democrat"], ["United States presidential election", "United States Capitol"]),
+            (["wall street", "stock market", "inflation", "interest rates", "federal reserve"], ["Wall Street New York", "Federal Reserve Board building"]),
+            (["united nations", "un security council", "resolution", "ceasefire", "peacekeeping"], ["United Nations headquarters", "UN Security Council chamber"]),
+            (["yemen", "houthi", "red sea", "shipping", "gulf of aden"], ["Yemen Sanaa", "Red Sea shipping"]),
         ]
         for keywords, conc_list in concept_map:
             if any(k in text for k in keywords):
@@ -383,20 +680,22 @@ class WebImageScraper:
         if self.text_provider and self.text_provider.is_available():
             try:
                 prompt = (
-                    "You are a photo desk director for a newsroom in Ethiopia.\n"
-                    "Extract concrete, photographic search entities.\n"
-                    "Editorial rules: Search engines fail on news headlines. "
-                    "Extract concrete nouns, people's names, cities/locations, and institutions that have actual photos available.\n\n"
+                    "You are a visual photo editor for an international newsdesk.\n"
+                    "Analyze this news story and identify the PRIMARY country, key photographic entities, and concrete visual queries.\n"
+                    "CRITICAL RULE: If the story is about the United States, Yemen, Kenya, Sudan, Europe, or other international affairs, "
+                    "do NOT inject Ethiopian landmarks (e.g. do NOT suggest Addis Ababa, Meskel Square, or Ethiopian institutions unless they are a primary focus).\n\n"
                     f"Headline: {event.title}\n"
-                    f"Summary: {(event.summary or '')[:450]}\n"
-                    f"Category: {event.primary_category or 'General'}, Region: {event.primary_region or 'Ethiopia'}\n\n"
+                    f"Summary: {(event.summary or '')[:500]}\n"
+                    f"Category: {event.primary_category or 'General'}, Region: {event.primary_region or 'International'}\n\n"
                     "Output JSON ONLY:\n"
                     "{\n"
+                    '  "country": "Primary country name (e.g. United States, Ethiopia, Kenya, Yemen, United Kingdom)",\n'
+                    '  "country_code": "2-letter ISO code (e.g. US, ET, KE, YE, GB)",\n'
                     '  "topic": "Concise 2-4 word editorial topic",\n'
                     '  "searchable_concepts": ["2-3 word photographic noun query 1", "query 2"],\n'
                     '  "persons": ["Full English name of key figures or officials mentioned"],\n'
-                    '  "locations": ["City, capital, or landmark mentioned"],\n'
-                    '  "institutions": ["Organization, ministry, or bank"],\n'
+                    '  "locations": ["City, capital, or landmark mentioned in story context"],\n'
+                    '  "institutions": ["Organization, government department, headquarters, or agency"],\n'
                     '  "suggested_chips": ["Chip 1", "Chip 2", "Chip 3", "Chip 4"]\n'
                     "}"
                 )
@@ -405,6 +704,12 @@ class WebImageScraper:
                 match = re.search(r"\{.*\}", res.text, re.DOTALL)
                 if match:
                     parsed = json.loads(match.group(0))
+                    llm_c = str(parsed.get("country") or "").strip()
+                    llm_cc = str(parsed.get("country_code") or "").strip().upper()
+                    if llm_c and llm_c.lower() not in ("null", "none"):
+                        country = llm_c
+                        if llm_cc and len(llm_cc) == 2:
+                            country_code = llm_cc
                     t = str(parsed.get("topic") or "").strip()
                     if t:
                         topic = t
@@ -438,53 +743,60 @@ class WebImageScraper:
 
         # Defaults if empty
         if not locations:
-            locations = [event.primary_region] if event.primary_region else ["Addis Ababa"]
+            locations = [event.primary_region] if (event.primary_region and event.primary_region.lower() != "international") else [default_city]
         if not concepts:
-            concepts = [f"{locations[0]} Ethiopia", "Contemporary Ethiopia"]
-        if not topic or topic == "Ethiopian News":
+            concepts = list(ctx.get("default_concepts") or [f"{locations[0]} {country}"])
+        if not institutions and ctx.get("default_institutions"):
+            institutions = list(ctx["default_institutions"][:2])
+
+        if not topic or topic in ("Ethiopian News", f"{country} News"):
             if persons:
                 topic = f"{persons[0]} & Leadership"
             elif institutions:
                 topic = institutions[0]
             elif concepts:
                 topic = concepts[0]
-            else:
+            elif locations:
                 topic = f"{locations[0]} News"
+            else:
+                topic = f"{country} News"
 
         # Build search queries if not already populated from LLM
         if not queries:
             queries = []
             if persons:
-                queries.append(f"{persons[0]} Ethiopia")
+                queries.append(f"{persons[0]}")
             if institutions:
                 queries.append(f"{institutions[0]}")
             if concepts:
                 queries.append(concepts[0])
-            queries.append(f"{locations[0]} Ethiopia")
+            queries.append(f"{locations[0]} {country}" if country_code != "ET" else f"{locations[0]} Ethiopia")
 
         # Build suggested chips
         if not chips:
-            if persons:
-                chips.append(persons[0])
-            if locations:
-                chips.append(locations[0])
-            if institutions:
-                chips.append(institutions[0])
-            if concepts:
-                chips.append(concepts[0])
+            chips.append(country)
+            for group in (persons, locations, institutions, concepts):
+                for item in group:
+                    if item and item not in chips:
+                        chips.append(item)
+                        break
 
         entities = StoryVisualEntities(
             topic=topic,
+            country=country,
+            country_code=country_code,
+            default_city=default_city,
             main_person=main_person or (persons[0] if persons else None),
             persons=persons,
             locations=locations,
             institutions=institutions,
             concepts=concepts,
             search_queries=queries,
-            suggested_chips=chips[:5],
+            suggested_chips=chips[:6],
         )
         self._analysis_cache[cache_key] = entities
         return entities
+
 
     def analyze_story(
         self, event: NewsEvent, custom_query: str | None = None
@@ -568,6 +880,7 @@ class WebImageScraper:
         city_name: str,
         seen_urls: set[str],
         limit: int = 6,
+        country_context: str | None = None,
     ) -> list[PhotoCandidate]:
         """Search Wikimedia Commons and Openverse specifically for high-res cityscapes and landmarks."""
         candidates: list[PhotoCandidate] = []
@@ -577,7 +890,8 @@ class WebImageScraper:
             candidates.append(wiki_direct)
 
         # 2. Wikimedia Commons cityscape search
-        queries = [f"{city_name} skyline", f"{city_name} city Ethiopia", f"{city_name} landmark"]
+        ctx = country_context if (country_context and country_context.lower() not in ("unknown", "global")) else "Ethiopia"
+        queries = [f"{city_name} skyline", f"{city_name} {ctx}", f"{city_name} landmark"]
         for q in queries[:2]:
             if len(candidates) >= limit:
                 break
@@ -589,7 +903,7 @@ class WebImageScraper:
 
         # 3. Openverse search
         if len(candidates) < limit:
-            ov_res = self._search_openverse_photos(f"{city_name} Ethiopia", seen_urls, limit=4)
+            ov_res = self._search_openverse_photos(f"{city_name} {ctx}", seen_urls, limit=4)
             for cand in ov_res:
                 cand.entity_type = "location"
                 cand.entity_name = city_name
@@ -602,6 +916,7 @@ class WebImageScraper:
         inst_name: str,
         seen_urls: set[str],
         limit: int = 6,
+        country_context: str | None = None,
     ) -> list[PhotoCandidate]:
         """Search Wikipedia and Wikimedia Commons for institution headquarters and facilities."""
         candidates: list[PhotoCandidate] = []
@@ -616,6 +931,15 @@ class WebImageScraper:
             cand.entity_type = "institution"
             cand.entity_name = inst_name
             candidates.append(cand)
+
+        # 3. Openverse search
+        if len(candidates) < limit:
+            ctx = f" {country_context}" if country_context and country_context.lower() not in ("unknown", "global") else ""
+            ov_res = self._search_openverse_photos(f"{inst_name}{ctx}", seen_urls, limit=3)
+            for cand in ov_res:
+                cand.entity_type = "institution"
+                cand.entity_name = inst_name
+                candidates.append(cand)
 
         return candidates[:limit]
 

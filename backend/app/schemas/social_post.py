@@ -125,11 +125,14 @@ class PhotoBrowseResponse(BaseModel):
     has_next: bool
     has_prev: bool
     topic: str
+    detected_country: str | None = None
+    detected_country_code: str | None = None
     detected_person: str | None = None
     detected_persons: list[str] = Field(default_factory=list)
     detected_locations: list[str] = Field(default_factory=list)
     detected_institutions: list[str] = Field(default_factory=list)
     search_queries: list[str] = Field(default_factory=list)
     suggested_chips: list[str] = Field(default_factory=list)
+
 
 

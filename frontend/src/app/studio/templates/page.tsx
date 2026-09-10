@@ -189,6 +189,8 @@ function PhotoSearchDialog({
   const [hasNext, setHasNext] = useState(false);
   const [hasPrev, setHasPrev] = useState(false);
   const [topic, setTopic] = useState("");
+  const [detectedCountry, setDetectedCountry] = useState<string | null>(null);
+  const [detectedCountryCode, setDetectedCountryCode] = useState<string | null>(null);
   const [detectedPerson, setDetectedPerson] = useState<string | null>(null);
   const [detectedPersons, setDetectedPersons] = useState<string[]>([]);
   const [detectedLocations, setDetectedLocations] = useState<string[]>([]);
@@ -214,6 +216,8 @@ function PhotoSearchDialog({
       setHasNext(res.has_next);
       setHasPrev(res.has_prev);
       if (res.topic) setTopic(res.topic);
+      if (res.detected_country) setDetectedCountry(res.detected_country);
+      if (res.detected_country_code) setDetectedCountryCode(res.detected_country_code);
       if (res.detected_person) setDetectedPerson(res.detected_person);
       if (res.detected_persons) setDetectedPersons(res.detected_persons);
       if (res.detected_locations) setDetectedLocations(res.detected_locations);
@@ -308,6 +312,12 @@ function PhotoSearchDialog({
             <strong className="text-accent-green font-medium">
               {topic ? `"${topic}"` : "Extracting article topic & key entities..."}
             </strong>
+            {detectedCountry && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-blue-900/60 text-blue-200 border border-blue-700/50">
+                <Globe className="h-2.5 w-2.5 shrink-0" />
+                <span>{detectedCountry}</span>
+              </span>
+            )}
             {detectedPersons.length > 0 && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-purple-900/60 text-purple-200 border border-purple-700/50">
                 <User className="h-2.5 w-2.5 shrink-0" />

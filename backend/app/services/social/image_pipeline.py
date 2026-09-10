@@ -306,11 +306,15 @@ class ImagePipeline:
                 cached_institutions = cached_entry[6] if len(cached_entry) > 6 else []
                 cached_queries = cached_entry[7] if len(cached_entry) > 7 else []
                 cached_chips = cached_entry[8] if len(cached_entry) > 8 else []
+                cached_country = cached_entry[9] if len(cached_entry) > 9 else None
+                cached_country_code = cached_entry[10] if len(cached_entry) > 10 else None
                 return self._paginate_pool(
                     cached_pool,
                     cached_topic,
                     page,
                     page_size,
+                    detected_country=cached_country,
+                    detected_country_code=cached_country_code,
                     detected_person=cached_person,
                     detected_persons=cached_persons,
                     detected_locations=cached_locations,
@@ -324,6 +328,8 @@ class ImagePipeline:
         scraper = WebImageScraper(self.director.provider)
         entities = scraper.analyze_story_entities(event, custom_query=query)
         topic = entities.topic
+        detected_country = entities.country
+        detected_country_code = entities.country_code
         detected_person = entities.main_person
         detected_persons = entities.persons
         detected_locations = entities.locations
@@ -345,7 +351,8 @@ class ImagePipeline:
         # 3. Store in cache
         _PHOTO_POOL_CACHE[cache_key] = (
             now, pool, topic, detected_person, detected_persons,
-            detected_locations, detected_institutions, search_queries, suggested_chips
+            detected_locations, detected_institutions, search_queries, suggested_chips,
+            detected_country, detected_country_code,
         )
 
         return self._paginate_pool(
@@ -353,6 +360,8 @@ class ImagePipeline:
             topic,
             page,
             page_size,
+            detected_country=detected_country,
+            detected_country_code=detected_country_code,
             detected_person=detected_person,
             detected_persons=detected_persons,
             detected_locations=detected_locations,
@@ -367,6 +376,8 @@ class ImagePipeline:
         topic: str,
         page: int,
         page_size: int,
+        detected_country: str | None = None,
+        detected_country_code: str | None = None,
         detected_person: str | None = None,
         detected_persons: list[str] | None = None,
         detected_locations: list[str] | None = None,
@@ -389,6 +400,8 @@ class ImagePipeline:
             has_next=current_page < total_pages,
             has_prev=current_page > 1,
             topic=topic,
+            detected_country=detected_country,
+            detected_country_code=detected_country_code,
             detected_person=detected_person,
             detected_persons=detected_persons or [],
             detected_locations=detected_locations or [],
