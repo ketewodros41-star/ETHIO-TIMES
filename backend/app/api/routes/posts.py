@@ -3,10 +3,15 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+import socket
+from pathlib import Path
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.core.logging import get_logger
 from app.models.enums import SocialPostStatus
 from app.repositories.social_post_repository import SocialPostRepository
 from app.repositories.visual_asset_repository import VisualAssetRepository
@@ -21,14 +26,54 @@ from app.schemas.social_post import (
     VisualAssetRead,
 )
 
+logger = get_logger(__name__)
 router = APIRouter(prefix="/posts", tags=["posts"])
 
 
+def _is_redis_available() -> bool:
+    try:
+        s = socket.socket()
+        s.settimeout(0.15)
+        s.connect(("localhost", 6379))
+        s.close()
+        return True
+    except Exception:
+        return False
+
+
+def _dispatch_task(task, *args, background_tasks: BackgroundTasks | None = None, **kwargs) -> str:
+    task_id = str(uuid.uuid4())
+    if _is_redis_available():
+        try:
+            res = task.delay(*args, **kwargs)
+            return res.id
+        except Exception:
+            pass
+    if background_tasks:
+        background_tasks.add_task(task.apply, args=args, kwargs=kwargs, task_id=task_id)
+    else:
+        try:
+            task.apply(args=args, kwargs=kwargs, task_id=task_id)
+        except Exception:
+            logger.exception("task_local_run_failed", task=getattr(task, "name", str(task)))
+    return task_id
+
+
 @router.post("/compose", response_model=ComposeTaskResponse, status_code=status.HTTP_202_ACCEPTED)
-def compose_post_endpoint(body: SocialPostCompose, session: Session = Depends(get_db)) -> ComposeTaskResponse:
+def compose_post_endpoint(
+    body: SocialPostCompose,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_db),
+) -> ComposeTaskResponse:
     from app.workers.tasks import compose_post
-    task = compose_post.delay(str(body.event_id), body.format.value, body.theme)
-    return ComposeTaskResponse(task_id=task.id, post_id=None, message="compose queued")
+    task_id = _dispatch_task(
+        compose_post,
+        str(body.event_id),
+        body.format.value,
+        body.theme,
+        background_tasks=background_tasks,
+    )
+    return ComposeTaskResponse(task_id=task_id, post_id=None, message="compose queued")
 
 
 @router.get("", response_model=Page[SocialPostRead])
@@ -64,10 +109,18 @@ def list_assets(
 
 
 @router.post("/assets/generate", response_model=ComposeTaskResponse, status_code=202)
-def trigger_generate_asset(event_id: uuid.UUID, session: Session = Depends(get_db)) -> ComposeTaskResponse:
+def trigger_generate_asset(
+    event_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_db),
+) -> ComposeTaskResponse:
     from app.workers.tasks import generate_visual_asset
-    task = generate_visual_asset.delay(str(event_id))
-    return ComposeTaskResponse(task_id=task.id, post_id=None, message="image generation queued")
+    task_id = _dispatch_task(
+        generate_visual_asset,
+        str(event_id),
+        background_tasks=background_tasks,
+    )
+    return ComposeTaskResponse(task_id=task_id, post_id=None, message="image generation queued")
 
 
 @router.post("/assets/{asset_id}/select", response_model=VisualAssetRead)
@@ -80,6 +133,30 @@ def select_asset(asset_id: uuid.UUID, session: Session = Depends(get_db)) -> Vis
     session.commit()
     session.refresh(asset)
     return VisualAssetRead.model_validate(asset)
+
+
+@router.get("/assets/{asset_id}/image")
+def get_asset_image(asset_id: uuid.UUID, session: Session = Depends(get_db)) -> FileResponse:
+    repo = VisualAssetRepository(session)
+    asset = repo.get(asset_id)
+    if asset is None or not asset.storage_path:
+        raise HTTPException(status_code=404, detail="Asset image not found")
+    path = Path(asset.storage_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Asset image file not found")
+    return FileResponse(path, media_type="image/png")
+
+
+@router.get("/{post_id}/image")
+def get_post_image(post_id: uuid.UUID, session: Session = Depends(get_db)) -> FileResponse:
+    repo = SocialPostRepository(session)
+    post = repo.get(post_id)
+    if post is None or not post.media_path:
+        raise HTTPException(status_code=404, detail="Post image not found")
+    path = Path(post.media_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Post image file not found")
+    return FileResponse(path, media_type="image/png")
 
 
 @router.get("/{post_id}", response_model=SocialPostRead)
@@ -112,13 +189,21 @@ def check_eligibility(post_id: uuid.UUID, session: Session = Depends(get_db)) ->
 
 
 @router.post("/{post_id}/render", response_model=ComposeTaskResponse, status_code=202)
-def trigger_render(post_id: uuid.UUID, session: Session = Depends(get_db)) -> ComposeTaskResponse:
+def trigger_render(
+    post_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_db),
+) -> ComposeTaskResponse:
     from app.workers.tasks import render_post
     repo = SocialPostRepository(session)
     if repo.get(post_id) is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    task = render_post.delay(str(post_id))
-    return ComposeTaskResponse(task_id=task.id, post_id=post_id, message="render queued")
+    task_id = _dispatch_task(
+        render_post,
+        str(post_id),
+        background_tasks=background_tasks,
+    )
+    return ComposeTaskResponse(task_id=task_id, post_id=post_id, message="render queued")
 
 
 @router.post("/{post_id}/schedule", response_model=SocialPostRead)
@@ -135,13 +220,22 @@ def schedule_post(post_id: uuid.UUID, body: SocialPostSchedule, session: Session
 
 
 @router.post("/{post_id}/publish", response_model=ComposeTaskResponse, status_code=202)
-def trigger_publish(post_id: uuid.UUID, session: Session = Depends(get_db)) -> ComposeTaskResponse:
+def trigger_publish(
+    post_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_db),
+) -> ComposeTaskResponse:
+    """Enqueue publish. Hard gates enforced in PublishService/worker."""
     from app.workers.tasks import publish_post
     repo = SocialPostRepository(session)
     if repo.get(post_id) is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    task = publish_post.delay(str(post_id))
-    return ComposeTaskResponse(task_id=task.id, post_id=post_id, message="publish queued")
+    task_id = _dispatch_task(
+        publish_post,
+        str(post_id),
+        background_tasks=background_tasks,
+    )
+    return ComposeTaskResponse(task_id=task_id, post_id=post_id, message="publish queued")
 
 
 @router.patch("/{post_id}", response_model=SocialPostRead)

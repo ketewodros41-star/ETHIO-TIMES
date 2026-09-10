@@ -435,7 +435,8 @@ def render_post(self, post_id: str) -> dict:
         try:
             path = render_svc.render_post(post)
             repo = SocialPostRepository(session)
-            repo.update_media(post.id, str(path), None)
+            media_url = f"/api/v1/posts/{post.id}/image"
+            repo.update_media(post.id, str(path), media_url)
             repo.update_status(post.id, SocialPostStatus.rendered)
             session.commit()
             return {"post_id": post_id, "media_path": str(path)}

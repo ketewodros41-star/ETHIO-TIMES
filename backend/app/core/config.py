@@ -53,11 +53,14 @@ class Settings(BaseSettings):
         default="ETHIOTIMES-Bot/1.0 (+https://ethiotimes.example)"
     )
 
-    # ---- AI providers (Gemini) ----
+    # ---- AI providers (Gemini & NVIDIA) ----
     gemini_api_key: str | None = Field(default=None)
     gemini_text_model: str = Field(default="gemini-2.5-flash")
     gemini_image_model: str = Field(default="imagen-3.0")
     gemini_embedding_model: str = Field(default="gemini-embedding-001")
+    nvidia_api_key: str | None = Field(default=None)
+    nvidia_text_model: str = Field(default="meta/llama-3.2-11b-vision-instruct")
+    nvidia_base_url: str = Field(default="https://integrate.api.nvidia.com/v1")
     # gemini-embedding-001 defaults to 3072 dims; 1536 is a recommended MRL
     # truncation that matches the Phase-1 vector column. Truncated dims are NOT
     # auto-normalized by this model, so we L2-normalize in the provider.

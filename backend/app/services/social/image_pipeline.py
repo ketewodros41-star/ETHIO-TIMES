@@ -1,6 +1,7 @@
 """Visual intelligence pipeline (Phase 5, spec §§25-32)."""
 from __future__ import annotations
 
+from pathlib import Path
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
@@ -64,6 +65,18 @@ class ImagePipeline:
                 is_selected=False,
             )
             self.asset_repo.create(asset)
+
+            # Persist image file if available
+            media_dir = Path(settings.media_root) / "assets"
+            media_dir.mkdir(parents=True, exist_ok=True)
+            storage_path = media_dir / f"{asset.id}.png"
+            if res.image_bytes:
+                storage_path.write_bytes(res.image_bytes)
+                asset.storage_path = str(storage_path)
+                asset.storage_url = f"/api/v1/posts/assets/{asset.id}/image"
+            elif res.image_url:
+                asset.storage_url = res.image_url
+
             all_assets.append(asset)
             
             if report.overall_score > best_score:
