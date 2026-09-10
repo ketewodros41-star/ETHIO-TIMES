@@ -19,6 +19,7 @@ from app.schemas.common import Page, PageMeta
 from app.schemas.social_post import (
     ComposeTaskResponse,
     EligibilityCheck,
+    PhotoBrowseResponse,
     PhotoCandidate,
     SelectCandidateRequest,
     SocialPostCompose,
@@ -125,12 +126,13 @@ def trigger_generate_asset(
     return ComposeTaskResponse(task_id=task_id, post_id=None, message="image generation queued")
 
 
-@router.get("/assets/browse-photos", response_model=list[PhotoCandidate])
+@router.get("/assets/browse-photos", response_model=PhotoBrowseResponse)
 def browse_photos_endpoint(
     event_id: uuid.UUID,
     query: str | None = None,
+    page: int = Query(1, ge=1),
     session: Session = Depends(get_db),
-) -> list[PhotoCandidate]:
+) -> PhotoBrowseResponse:
     """Search internet for 6 real photo alternatives based on the news story topic without saving to DB."""
     from app.integrations.ai.registry import get_text_provider, get_image_provider
     from app.repositories.event_repository import EventRepository
@@ -146,7 +148,7 @@ def browse_photos_endpoint(
         text_provider=get_text_provider(),
         image_provider=get_image_provider(),
     )
-    return pipeline.browse_photos(event, query=query)
+    return pipeline.browse_photos(event, query=query, page=page)
 
 
 @router.post("/assets/select-candidate", response_model=VisualAssetRead)

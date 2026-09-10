@@ -113,3 +113,14 @@ class SelectCandidateRequest(BaseModel):
     title: str = "Editorial Photo"
     photographer: str = "Wikimedia Commons"
     source: str = "wikimedia"
+
+
+class PhotoBrowseResponse(BaseModel):
+    items: list[PhotoCandidate]
+    page: int
+    total_pages: int
+    total_items: int
+    has_next: bool
+    has_prev: bool
+    topic: str
+

@@ -14,7 +14,7 @@ from app.models.enums import VisualAssetStatus
 from app.models.news_event import NewsEvent
 from app.models.social_post import VisualAsset
 from app.repositories.visual_asset_repository import VisualAssetRepository
-from app.schemas.social_post import PhotoCandidate, SelectCandidateRequest
+from app.schemas.social_post import PhotoCandidate, PhotoBrowseResponse, SelectCandidateRequest
 from app.services.social.editorial_engine import EditorialBrief
 from app.services.social.image_critic import ImageCritic
 from app.services.social.prompt_engine import PromptEngine
@@ -126,9 +126,9 @@ class ImagePipeline:
         # If article photo not available or download failed, search Wikipedia for a real photo
         if not image_bytes:
             logger.info("article_photo_unavailable_trying_wikimedia", event_id=str(event.id))
-            candidates = self.browse_photos(event)
-            if candidates:
-                c0 = candidates[0]
+            browse_res = self.browse_photos(event)
+            if browse_res.items:
+                c0 = browse_res.items[0]
                 req = SelectCandidateRequest(
                     event_id=event.id,
                     image_url=c0.image_url,
@@ -142,6 +142,7 @@ class ImagePipeline:
                     all_assets=[asset],
                     attempts=1,
                 )
+
 
             # If even Wikimedia has no match, fall back to contextual AI generation
             logger.info("fallback_to_ai_generation", event_id=str(event.id))
@@ -180,61 +181,72 @@ class ImagePipeline:
         )
 
     # ------------------------------------------------------------------
-    # Public entry: Topic-based Internet Photo Browsing (6 Alternatives)
+    # Public entry: Topic-based Internet Photo Browsing with Pagination
     # ------------------------------------------------------------------
-    def browse_photos(self, event: NewsEvent, query: str | None = None) -> list[PhotoCandidate]:
+    def browse_photos(
+        self,
+        event: NewsEvent,
+        query: str | None = None,
+        page: int = 1,
+        page_size: int = 6,
+    ) -> PhotoBrowseResponse:
         """Search the internet for real photo alternatives based on the news topic.
 
-        Returns exactly up to 6 alternatives.
-        Candidate 1 is the real article photo if available.
-        Remaining candidates are high-res editorial photos from Wikimedia / Pexels.
-        DOES NOT save or persist to the database or filesystem.
+        Features:
+        - Expanded multi-source search (all article photos + Wikipedia + Wikimedia Commons + Pexels).
+        - Multi-facet queries ensuring genuine topic relevance (no unrelated homonyms or food dishes).
+        - Excludes maps, plans, diagrams, flags, seals, and non-photo graphics.
+        - In-memory pooling & caching for instant pagination (Next 6 / Previous).
+        - Does NOT save or persist unselected assets to the database or filesystem.
         """
-        topic = self._resolve_topic_query(event, query)
-        candidates: list[PhotoCandidate] = []
-        seen_urls: set[str] = set()
+        import time
 
-        # 1. Candidate #1: Real article photo if linked
-        article_url = self._find_article_image_url(event)
-        if article_url and article_url.startswith("http"):
-            is_telegram = "t.me" in article_url or "telegram" in article_url.lower()
-            source_label = "telegram" if is_telegram else "article"
-            photographer = "Telegram Source" if is_telegram else "Article Source"
-            candidates.append(
-                PhotoCandidate(
-                    id="article-source-photo",
-                    title=event.title[:80],
-                    thumb_url=article_url,
-                    image_url=article_url,
-                    source=source_label,
-                    photographer=photographer,
-                    description="Original photo published with this news article",
-                )
-            )
-            seen_urls.add(article_url)
+        global _PHOTO_POOL_CACHE
+        if "_PHOTO_POOL_CACHE" not in globals():
+            _PHOTO_POOL_CACHE = {}
 
-        # 2. Query Wikimedia Commons / Wikipedia for topic photos
-        wiki_candidates = self._fetch_wiki_candidates(topic, seen_urls)
-        candidates.extend(wiki_candidates)
+        cache_key = f"{event.id}:{query.strip().lower() if query else ''}"
+        now = time.time()
 
-        # 3. If fewer than 6, query a secondary fallback topic to reach 6
-        if len(candidates) < 6:
-            fallback_topic = (
-                f"{event.primary_region} Ethiopia"
-                if event.primary_region and event.primary_region.lower() not in topic.lower()
-                else "Addis Ababa Ethiopia"
-            )
-            if fallback_topic != topic:
-                extra_wiki = self._fetch_wiki_candidates(fallback_topic, seen_urls)
-                candidates.extend(extra_wiki)
+        if cache_key in _PHOTO_POOL_CACHE:
+            cached_time, cached_pool, cached_topic = _PHOTO_POOL_CACHE[cache_key]
+            if now - cached_time < 300.0:  # 5 minute TTL
+                return self._paginate_pool(cached_pool, cached_topic, page, page_size)
 
-        # 4. If Pexels is configured, also fetch Pexels candidates
-        pexels_key = getattr(settings, "pexels_api_key", None)
-        if pexels_key and len(candidates) < 6:
-            pexels_candidates = self._fetch_pexels_candidates(topic, pexels_key, seen_urls)
-            candidates.extend(pexels_candidates)
+        # 1. Resolve topic, search facets, and strict relevance keywords
+        topic, facets, keywords = self._extract_topic_facets(event, query)
 
-        return candidates[:6]
+        # 2. Gather candidates from all available sources
+        pool = self._gather_candidate_pool(event, topic, facets, keywords, max_pool=30)
+
+        # 3. Store in cache
+        _PHOTO_POOL_CACHE[cache_key] = (now, pool, topic)
+
+        return self._paginate_pool(pool, topic, page, page_size)
+
+    def _paginate_pool(
+        self,
+        pool: list[PhotoCandidate],
+        topic: str,
+        page: int,
+        page_size: int,
+    ) -> PhotoBrowseResponse:
+        """Slice candidate pool into 6-item pages."""
+        total_items = len(pool)
+        total_pages = max(1, (total_items + page_size - 1) // page_size)
+        current_page = min(max(1, page), total_pages)
+        start = (current_page - 1) * page_size
+        items = pool[start:start + page_size]
+
+        return PhotoBrowseResponse(
+            items=items,
+            page=current_page,
+            total_pages=total_pages,
+            total_items=total_items,
+            has_next=current_page < total_pages,
+            has_prev=current_page > 1,
+            topic=topic,
+        )
 
     def import_candidate(self, event: NewsEvent, req: SelectCandidateRequest) -> VisualAsset:
         """Download ONLY the single candidate chosen by the user and import into Photo Studio."""
@@ -266,158 +278,352 @@ class ImagePipeline:
         logger.info("imported_visual_candidate", asset_id=str(asset.id), event_id=str(event.id), source=req.source)
         return asset
 
-    def _resolve_topic_query(self, event: NewsEvent, custom_query: str | None = None) -> str:
-        """Resolve a concise 2-4 word English topic search query for Wikipedia / Pexels."""
+    def _extract_topic_facets(
+        self, event: NewsEvent, custom_query: str | None = None
+    ) -> tuple[str, list[str], set[str]]:
+        """Extract multi-facet search queries and strict topic keywords for accurate matching."""
+        import re
+
         if custom_query and custom_query.strip():
             q = custom_query.strip()
-            if "ethiopia" not in q.lower():
-                return f"{q} Ethiopia"
-            return q
+            topic = q
+            facets = [
+                q,
+                f"{q} Ethiopia" if "ethiopia" not in q.lower() else q,
+                f"Contemporary {q}",
+            ]
+            keywords = {w.lower() for w in re.split(r"\W+", q) if len(w) > 2} | {"ethiopia"}
+            return topic, facets, keywords
 
-        # 1. Try AgentRouter text provider if available
-        if self.director.provider and self.director.provider.is_available():
-            try:
-                from app.integrations.ai.base import TextGenerationRequest
-                prompt = (
-                    f"Given this Ethiopian news story:\n"
-                    f"Headline: {event.title}\n"
-                    f"Summary: {event.summary or ''}\n\n"
-                    "Extract a 2 to 4 word English search topic to find relevant editorial photos on Wikipedia (e.g. 'Mojo dry port Ethiopia', 'GERD dam Ethiopia', 'Addis Ababa light rail', 'Ethiopia coffee harvest').\n"
-                    "Output ONLY the search keywords without quotes or punctuation."
-                )
-                res = self.director.provider.generate_text(
-                    TextGenerationRequest(prompt=prompt, max_tokens=1024, temperature=0.1)
-                )
-                topic = res.text.strip().replace('"', '').replace("'", "")
-                topic = topic.split("\n")[0].strip()
-                if len(topic) >= 3 and len(topic) <= 60:
-                    if "ethiopia" not in topic.lower():
-                        topic = f"{topic} Ethiopia"
-                    logger.info("resolved_topic_query_llm", topic=topic, event_id=str(event.id))
-                    return topic
-            except Exception as exc:
-                logger.warning("resolve_topic_llm_failed_fallback", error=str(exc))
+        text = f"{event.title or ''} {event.summary or ''} {event.primary_category or ''} {event.primary_region or ''}".lower()
 
-        # 2. Heuristic fallback based on keywords & entities
-        text = f"{event.title or ''} {event.summary or ''}".lower()
-        if any(k in text for k in ["ሞጆ", "modjo", "mojo", "ሎጂስቲክስ", "ደረቅ ወደብ"]):
-            return "Mojo dry port Ethiopia"
-        if any(k in text for k in ["ህዳሴ", "ግድብ", "ዓባይ", "abbay", "gerd", "nile"]):
-            return "Grand Ethiopian Renaissance Dam Ethiopia"
-        if any(k in text for k in ["ቴሌ", "ቴሌኮም", "telecom"]):
-            return "Ethio telecom Ethiopia"
-        if any(k in text for k in ["አየር መንገድ", "airlines", "flight"]):
-            return "Ethiopian Airlines"
-        if any(k in text for k in ["ዋጋ ግሽበት", "inflation", "ምንዛሪ", "exchange rate", "ብር"]):
-            return "Commercial Bank of Ethiopia"
-        if any(k in text for k in ["እሳት", "አደጋ", "fire"]):
-            return "Addis Ababa fire disaster Ethiopia"
-        if any(k in text for k in ["ትግራይ", "tigray", "መቐለ", "mekelle"]):
-            return "Tigray Ethiopia"
-        if any(k in text for k in ["አማራ", "amhara", "ጎንደር", "gondar", "ባህር ዳር", "bahir dar"]):
-            return "Amhara Ethiopia"
-        if any(k in text for k in ["ኦሮሚያ", "oromia", "አዳማ", "adama"]):
-            return "Oromia Ethiopia"
-        if any(k in text for k in ["ድሬዳዋ", "dire dawa"]):
-            return "Dire Dawa Ethiopia"
-        if any(k in text for k in ["ሀዋሳ", "ሐዋሳ", "hawassa"]):
-            return "Hawassa Ethiopia"
-        if any(k in text for k in ["ሶማሌ", "somali", "ጅጅጋ", "jijiga"]):
-            return "Somali Region Ethiopia"
-        if any(k in text for k in ["አፋር", "afar", "ሰመራ", "semera"]):
-            return "Afar Ethiopia"
+        # 1. Mojo / Modjo / Logistics / Port / Railway
+        if any(k in text for k in ["ሞጆ", "modjo", "mojo", "ሎጂስቲክስ", "ደረቅ ወደብ", "port", "logistics"]):
+            topic = "Mojo Logistics & Dry Port"
+            facets = [
+                "Mojo dry port Ethiopia",
+                "Ethiopian Railway Corporation freight",
+                "Addis Ababa Djibouti railway",
+                "Transport in Ethiopia logistics",
+                "Modjo Oromia Ethiopia",
+            ]
+            keywords = {
+                "mojo", "modjo", "port", "railway", "freight", "transport", "cargo",
+                "djibouti", "ethiopia", "oromia", "adama", "train", "logistics", "shipping"
+            }
+            return topic, facets, keywords
 
-        if event.primary_region:
-            return f"{event.primary_region} Ethiopia"
-        if event.primary_category and event.primary_category.lower() not in ["general", "news"]:
-            return f"{event.primary_category} Ethiopia"
+        # 2. Fire / Emergency / Disaster / Rescue
+        if any(k in text for k in ["እሳት", "አደጋ", "fire", "emergency", "disaster", "rescue"]):
+            topic = "Fire & Emergency Services"
+            facets = [
+                "Firefighting in Ethiopia",
+                "Addis Ababa Fire and Emergency",
+                "Emergency services in Ethiopia",
+                "Addis Ababa emergency",
+                "Disaster management Ethiopia",
+            ]
+            keywords = {
+                "fire", "emergency", "rescue", "firefighter", "disaster", "addis",
+                "ethiopia", "hazard", "safety", "commission", "truck"
+            }
+            return topic, facets, keywords
 
-        return "Addis Ababa Ethiopia"
+        # 3. Inflation / Economy / Bank / Birr / Finance
+        if any(k in text for k in ["ዋጋ ግሽበት", "inflation", "ምንዛሪ", "exchange rate", "ብር", "ባንክ", "ንግድ ባንክ", "ኢኮኖሚ", "economy", "bank"]):
+            topic = "Ethiopian Economy & Banking"
+            facets = [
+                "Commercial Bank of Ethiopia",
+                "National Bank of Ethiopia",
+                "Economy of Ethiopia",
+                "Ethiopian birr",
+                "Banking in Ethiopia",
+                "Addis Ababa financial district",
+            ]
+            keywords = {
+                "bank", "economy", "birr", "currency", "finance", "commercial",
+                "economic", "trade", "market", "central", "banking", "financial"
+            }
+            return topic, facets, keywords
 
-    def _fetch_wiki_candidates(self, query: str, seen_urls: set[str]) -> list[PhotoCandidate]:
-        """Fetch editorial photo candidates from Wikipedia."""
+        # 4. GERD / Blue Nile / Abbay Dam
+        if any(k in text for k in ["ህዳሴ", "ግድብ", "ዓባይ", "abbay", "gerd", "nile", "dam"]):
+            topic = "Grand Ethiopian Renaissance Dam"
+            facets = [
+                "Grand Ethiopian Renaissance Dam",
+                "Blue Nile Falls Ethiopia",
+                "Abbay River Ethiopia",
+                "Benishangul-Gumuz Region",
+                "Hydroelectric power in Ethiopia",
+            ]
+            keywords = {
+                "dam", "nile", "gerd", "renaissance", "abbay", "water", "reservoir",
+                "ethiopia", "hydroelectric", "blue nile", "river"
+            }
+            return topic, facets, keywords
+
+        # 5. Ethiopian Airlines / Aviation / Airport
+        if any(k in text for k in ["አየር መንገድ", "airline", "airlines", "flight", "airport", "ቦሌ"]):
+            topic = "Ethiopian Airlines & Aviation"
+            facets = [
+                "Ethiopian Airlines",
+                "Addis Ababa Bole International Airport",
+                "Ethiopian Airlines fleet",
+                "Aviation in Ethiopia",
+            ]
+            keywords = {
+                "airline", "airlines", "airplane", "aircraft", "airport", "bole",
+                "ethiopian", "aviation", "flight", "runway"
+            }
+            return topic, facets, keywords
+
+        # 6. Ethio Telecom / Technology
+        if any(k in text for k in ["ቴሌ", "ቴሌኮም", "telecom", "telecommunications"]):
+            topic = "Ethio Telecom & Technology"
+            facets = [
+                "Ethio telecom",
+                "Telecommunications in Ethiopia",
+                "Safaricom Telecommunications Ethiopia",
+                "Technology in Ethiopia",
+            ]
+            keywords = {
+                "telecom", "telecommunications", "mobile", "phone", "network",
+                "ethiopia", "internet", "technology"
+            }
+            return topic, facets, keywords
+
+        # 7. Regional News / Specific Regional Capitals
+        region_topics = {
+            "tigray": ("Tigray Region", ["Tigray Ethiopia", "Mekelle city Ethiopia", "Tigray highlands"]),
+            "amhara": ("Amhara Region", ["Amhara Ethiopia", "Gondar Ethiopia", "Bahir Dar Lake Tana"]),
+            "oromia": ("Oromia Region", ["Oromia Ethiopia", "Adama city Ethiopia", "Bishoftu Ethiopia"]),
+            "somali": ("Somali Region", ["Somali Region Ethiopia", "Jijiga Ethiopia", "Ogaden Ethiopia"]),
+            "afar": ("Afar Region", ["Afar Region Ethiopia", "Semera Ethiopia", "Danakil Ethiopia"]),
+            "sidama": ("Sidama Region", ["Sidama Region Ethiopia", "Hawassa Lake Hawassa", "Hawassa Ethiopia"]),
+            "dire dawa": ("Dire Dawa", ["Dire Dawa Ethiopia", "Dire Dawa city", "Eastern Ethiopia"]),
+        }
+        for rk, (rtopic, rfacets) in region_topics.items():
+            if rk in text:
+                keywords = {rk, "ethiopia", "city", "region", "capital", "contemporary"}
+                return rtopic, rfacets, keywords
+
+        # Default: clean English words from title or region
+        clean_words = [w for w in re.split(r"\W+", event.title or "") if len(w) > 3 and not re.search(r"[\u1200-\u137F]", w)]
+        subj = " ".join(clean_words[:3]) if clean_words else (event.primary_region or "Addis Ababa")
+        topic = f"{subj} Ethiopia"
+        facets = [
+            f"{subj} Ethiopia",
+            f"{event.primary_region} Ethiopia" if event.primary_region else "Addis Ababa Ethiopia",
+            "Contemporary Ethiopia",
+        ]
+        keywords = {"ethiopia", "addis", "ababa", (event.primary_region or "").lower()}
+        return topic, facets, keywords
+
+    def _gather_candidate_pool(
+        self,
+        event: NewsEvent,
+        topic: str,
+        facets: list[str],
+        keywords: set[str],
+        max_pool: int = 30,
+    ) -> list[PhotoCandidate]:
+        """Aggregate photos from all available sources with strict topic filtering."""
         import urllib.parse
-        url = (
-            f"https://en.wikipedia.org/w/api.php?action=query&generator=search"
-            f"&gsrsearch={urllib.parse.quote(query)}&gsrlimit=12"
-            f"&prop=pageimages|extracts&pithumbsize=1000&exintro=1&explaintext=1&exsentences=2&format=json"
+        seen_urls: set[str] = set()
+        pool: list[PhotoCandidate] = []
+
+        # Exclusion list: no SVGs, PDFs, maps, diagrams, coats of arms, flags, or logos
+        non_photo_patterns = (
+            ".svg", ".gif", ".pdf",
+            "map of", "map ", "karte", "carte", "plan ", "diagram", "chart",
+            "coat of arms", "emblem", "flag of", "logo", "insignia", "seal of"
         )
+
+        is_conflict_topic = any(k in topic.lower() for k in ["war", "conflict", "battle", "military", "army"])
+        generic_negative_terms = (" war", "battle of", "massacre", "famine in", "corpse", "casualty")
+
+        # --- Source 1: All Linked Article Photos (Telegram / RSS / Web) ---
+        article_images = self._find_all_article_images(event)
+        for url, art_title, source_label, photographer in article_images:
+            if url not in seen_urls:
+                seen_urls.add(url)
+                pool.append(
+                    PhotoCandidate(
+                        id=f"article-{len(pool)}",
+                        title=art_title[:80],
+                        thumb_url=url,
+                        image_url=url,
+                        source=source_label,
+                        photographer=photographer,
+                        description="Original photo published with this news article",
+                    )
+                )
+
+        # --- Source 2: Wikipedia Article Page Images across facets ---
         headers = {
             "User-Agent": "ETHIOTIMESBot/1.0 (editorial-studio@ethiotimes.org; contact: info@ethiotimes.com)"
         }
-        candidates: list[PhotoCandidate] = []
-        try:
-            with httpx.Client(timeout=12.0) as client:
-                res = client.get(url, headers=headers)
-                if res.status_code != 200:
-                    return []
-                data = res.json()
-                pages = data.get("query", {}).get("pages", {})
-        except Exception as exc:
-            logger.warning("wiki_candidate_fetch_failed", query=query, error=str(exc))
-            return []
 
-        for pid, p in pages.items():
-            thumb = p.get("thumbnail", {}).get("source")
-            if not thumb or thumb in seen_urls:
-                continue
-            thumb_lower = thumb.lower()
-            if ".svg" in thumb_lower or ".gif" in thumb_lower:
-                continue
-
-            title = p.get("title", "Ethiopian Photo")
-            extract = p.get("extract", "")
-
-            combined = (title + " " + extract).lower()
-            if "ethiopia" not in combined and "addis" not in combined and "amharic" not in combined and "oromo" not in combined and "tigray" not in combined:
-                continue
-
-            seen_urls.add(thumb)
-            candidates.append(
-                PhotoCandidate(
-                    id=f"wiki-{pid}",
-                    title=title,
-                    thumb_url=thumb,
-                    image_url=thumb,
-                    source="wikimedia",
-                    photographer="Wikimedia Commons",
-                    description=extract[:140] if extract else None,
-                )
+        for q in facets:
+            if len(pool) >= max_pool:
+                break
+            w_url = (
+                f"https://en.wikipedia.org/w/api.php?action=query&generator=search"
+                f"&gsrsearch={urllib.parse.quote(q)}"
+                f"&gsrlimit=10&prop=pageimages|extracts&pithumbsize=1000&exintro=1&explaintext=1&exsentences=2&format=json"
             )
-        return candidates
+            try:
+                with httpx.Client(timeout=6.0) as client:
+                    res = client.get(w_url, headers=headers)
+                    if res.status_code == 200:
+                        pages = res.json().get("query", {}).get("pages", {})
+                        for pid, p in pages.items():
+                            thumb = p.get("thumbnail", {}).get("source")
+                            if not thumb or thumb in seen_urls:
+                                continue
+                            if any(x in thumb.lower() for x in non_photo_patterns):
+                                continue
 
-    def _fetch_pexels_candidates(self, query: str, api_key: str, seen_urls: set[str]) -> list[PhotoCandidate]:
-        """Fetch photo candidates from Pexels."""
-        candidates: list[PhotoCandidate] = []
-        try:
-            with httpx.Client(timeout=10.0) as client:
-                res = client.get(
-                    "https://api.pexels.com/v1/search",
-                    headers={"Authorization": api_key},
-                    params={"query": query, "per_page": 6, "orientation": "portrait"},
-                )
-                if res.status_code == 200:
-                    data = res.json()
-                    for photo in data.get("photos", []):
-                        img_url = photo.get("src", {}).get("portrait") or photo.get("src", {}).get("large")
-                        if not img_url or img_url in seen_urls:
-                            continue
-                        seen_urls.add(img_url)
-                        photographer = photo.get("photographer", "Pexels")
-                        candidates.append(
-                            PhotoCandidate(
-                                id=f"pexels-{photo.get('id')}",
-                                title=f"Photo by {photographer}",
-                                thumb_url=photo.get("src", {}).get("medium") or img_url,
-                                image_url=img_url,
-                                source="pexels",
-                                photographer=photographer,
-                                description=f"Editorial photo via Pexels for '{query}'",
+                            title_item = p.get("title", "")
+                            if any(x in title_item.lower() for x in non_photo_patterns):
+                                continue
+                            if not is_conflict_topic and any(term in title_item.lower() for term in generic_negative_terms):
+                                continue
+
+                            extract = p.get("extract", "")
+                            combined = f"{title_item} {extract}".lower()
+
+                            # Strict relevance filter: must match at least one topic keyword
+                            if not any(kw in combined for kw in keywords):
+                                continue
+
+                            seen_urls.add(thumb)
+                            pool.append(
+                                PhotoCandidate(
+                                    id=f"wiki-{pid}",
+                                    title=title_item,
+                                    thumb_url=thumb,
+                                    image_url=thumb,
+                                    source="wikimedia",
+                                    photographer="Wikipedia Editorial",
+                                    description=extract[:120] if extract else None,
+                                )
                             )
-                        )
+            except Exception as exc:
+                logger.warning("wiki_facet_search_failed", query=q, error=str(exc))
+
+        # --- Source 3: Wikimedia Commons Direct Bitmap Archive ---
+        for q in facets[:3]:
+            if len(pool) >= max_pool:
+                break
+            c_url = (
+                f"https://commons.wikimedia.org/w/api.php?action=query&generator=search"
+                f"&gsrsearch={urllib.parse.quote(q + ' filetype:bitmap')}"
+                f"&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url&iiurlwidth=1000&format=json"
+            )
+            try:
+                with httpx.Client(timeout=6.0) as client:
+                    res = client.get(c_url, headers=headers)
+                    if res.status_code == 200:
+                        pages = res.json().get("query", {}).get("pages", {})
+                        for pid, p in pages.items():
+                            ii = p.get("imageinfo", [{}])[0]
+                            thumb = ii.get("thumburl") or ii.get("url")
+                            if not thumb or thumb in seen_urls:
+                                continue
+                            if any(x in thumb.lower() for x in non_photo_patterns):
+                                continue
+
+                            title_clean = p.get("title", "").replace("File:", "").replace("_", " ")
+                            title_lower = title_clean.lower()
+                            if any(x in title_lower for x in non_photo_patterns):
+                                continue
+                            if not is_conflict_topic and any(term in title_lower for term in generic_negative_terms):
+                                continue
+                            if keywords and not any(kw in title_lower for kw in keywords):
+                                continue
+
+                            seen_urls.add(thumb)
+                            pool.append(
+                                PhotoCandidate(
+                                    id=f"commons-{pid}",
+                                    title=title_clean[:70],
+                                    thumb_url=thumb,
+                                    image_url=ii.get("url") or thumb,
+                                    source="wikimedia",
+                                    photographer="Wikimedia Commons",
+                                    description=f"Wikimedia Archive: {title_clean[:70]}",
+                                )
+                            )
+            except Exception as exc:
+                logger.warning("commons_facet_search_failed", query=q, error=str(exc))
+
+        # --- Source 4: Pexels API (if configured) ---
+        pexels_key = getattr(settings, "pexels_api_key", None)
+        if pexels_key and len(pool) < max_pool:
+            pexels_candidates = self._fetch_pexels_candidates(topic, pexels_key, seen_urls)
+            pool.extend(pexels_candidates)
+
+        return pool
+
+    def _find_all_article_images(self, event: NewsEvent) -> list[tuple[str, str, str, str]]:
+        """Return list of (image_url, title, source_label, photographer) from all linked articles."""
+        from app.models.article import Article
+        from app.models.news_event import EventArticle
+        results = []
+        seen = set()
+        try:
+            # 1. From event.article_links relationship
+            if hasattr(event, "article_links") and event.article_links:
+                for link in event.article_links:
+                    art = getattr(link, "article", None)
+                    if art and art.image_url and art.image_url.strip().startswith("http"):
+                        url = art.image_url.strip()
+                        if url not in seen:
+                            seen.add(url)
+                            is_tg = "t.me" in url or "telegram" in url.lower() or (art.source and "telegram" in (art.source.name or "").lower())
+                            source_label = "telegram" if is_tg else "article"
+                            photographer = "Telegram Channel" if is_tg else (art.source.name if art.source else "Article Source")
+                            results.append((url, art.title or event.title, source_label, photographer))
+
+            # 2. From direct query
+            articles = (
+                self.session.query(Article)
+                .join(EventArticle, EventArticle.article_id == Article.id)
+                .filter(EventArticle.event_id == event.id)
+                .all()
+            )
+            for art in articles:
+                if art.image_url and art.image_url.strip().startswith("http"):
+                    url = art.image_url.strip()
+                    if url not in seen:
+                        seen.add(url)
+                        is_tg = "t.me" in url or "telegram" in url.lower() or (art.source and "telegram" in (art.source.name or "").lower())
+                        source_label = "telegram" if is_tg else "article"
+                        photographer = "Telegram Channel" if is_tg else (art.source.name if art.source else "Article Source")
+                        results.append((url, art.title or event.title, source_label, photographer))
         except Exception as exc:
-            logger.warning("pexels_candidate_fetch_failed", error=str(exc))
-        return candidates
+            logger.warning("find_all_article_images_failed", error=str(exc))
+        return results
+
+    # Legacy support
+    def search_pexels(self, event: NewsEvent, query: str | None = None) -> list[VisualAsset]:
+        browse_res = self.browse_photos(event, query=query)
+        assets = []
+        for c in browse_res.items:
+            req = SelectCandidateRequest(
+                event_id=event.id,
+                image_url=c.image_url,
+                title=c.title,
+                photographer=c.photographer,
+                source=c.source,
+            )
+            assets.append(self.import_candidate(event, req))
+        return assets
+
+    def search_wikimedia(self, event: NewsEvent, query: str | None = None) -> list[VisualAsset]:
+        return self.search_pexels(event, query=query)
+
 
     # Legacy support
     def search_pexels(self, event: NewsEvent, query: str | None = None) -> list[VisualAsset]:

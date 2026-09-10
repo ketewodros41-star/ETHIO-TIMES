@@ -408,3 +408,13 @@ export interface SelectCandidateRequest {
   photographer: string;
   source: string;
 }
+
+export interface PhotoBrowseResponse {
+  items: PhotoCandidate[];
+  page: number;
+  total_pages: number;
+  total_items: number;
+  has_next: boolean;
+  has_prev: boolean;
+  topic: string;
+}

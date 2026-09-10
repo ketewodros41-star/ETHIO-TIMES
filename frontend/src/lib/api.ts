@@ -150,8 +150,8 @@ export const postsApi = {
     request<import('./types').ComposeTaskResponse>(`/posts/assets/generate${qs({ event_id })}`, { method: "POST" }),
   fetchArticlePhoto: (event_id: string) =>
     request<import('./types').ComposeTaskResponse>(`/posts/assets/fetch-article-photo${qs({ event_id })}`, { method: "POST" }),
-  browsePhotos: (eventId: string, query?: string) =>
-    request<import('./types').PhotoCandidate[]>(`/posts/assets/browse-photos${qs({ event_id: eventId, ...(query ? { query } : {}) })}`),
+  browsePhotos: (eventId: string, query?: string, page: number = 1) =>
+    request<import('./types').PhotoBrowseResponse>(`/posts/assets/browse-photos${qs({ event_id: eventId, page, ...(query ? { query } : {}) })}`),
   selectCandidate: (body: import('./types').SelectCandidateRequest) =>
     request<import('./types').VisualAsset>('/posts/assets/select-candidate', {
       method: "POST",

@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ImageIcon, Sparkles, RefreshCw, Check, Palette, CheckCircle2,
-  Search, Camera, Bot, Globe, X, Newspaper, Trash2,
+  Search, Camera, Bot, Globe, X, Newspaper, Trash2, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import {
   FORMATS, PortraitPost, SquarePost, StoryPost, CarouselCard,
@@ -71,18 +71,31 @@ function PhotoSearchDialog({ eventId, onClose, onSelect }: {
   onSelect: (assetId: string) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const [hasNext, setHasNext] = useState(false);
+  const [hasPrev, setHasPrev] = useState(false);
+  const [topic, setTopic] = useState("");
   const [searching, setSearching] = useState(false);
   const [importingId, setImportingId] = useState<string | null>(null);
   const [results, setResults] = useState<PhotoCandidate[]>([]);
   const [searched, setSearched] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleSearch = async () => {
+  const handleSearch = async (targetPage: number = 1, customQuery?: string) => {
     setSearching(true);
     setErrorMsg(null);
+    const q = customQuery !== undefined ? customQuery : query;
     try {
-      const candidates = await postsApi.browsePhotos(eventId, query || undefined);
-      setResults(candidates);
+      const res = await postsApi.browsePhotos(eventId, q.trim() || undefined, targetPage);
+      setResults(res.items);
+      setPage(res.page);
+      setTotalPages(res.total_pages);
+      setTotalItems(res.total_items);
+      setHasNext(res.has_next);
+      setHasPrev(res.has_prev);
+      if (res.topic) setTopic(res.topic);
       setSearched(true);
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : "Failed to load photos");
@@ -112,7 +125,7 @@ function PhotoSearchDialog({ eventId, onClose, onSelect }: {
     }
   };
 
-  useEffect(() => { handleSearch(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { handleSearch(1); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
@@ -124,12 +137,20 @@ function PhotoSearchDialog({ eventId, onClose, onSelect }: {
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-base text-paper-100">Topic-Based Internet Photo Browsing</span>
                 <Badge variant="green" className="text-[10px] font-mono">
-                  6 Alternatives
+                  6 Alternatives / Page
                 </Badge>
-
+                {totalItems > 0 && (
+                  <Badge variant="muted" className="text-[10px] font-mono text-paper-400">
+                    {totalItems} Available
+                  </Badge>
+                )}
               </div>
               <p className="text-xs text-paper-400 mt-0.5">
-                Browse web photos matching this story. Click any image to import it into your Photo Studio.
+                {topic ? (
+                  <span>Browsing topic: <strong className="text-accent-green font-medium">&ldquo;{topic}&rdquo;</strong>. Click any image to import to Studio.</span>
+                ) : (
+                  "Browse web photos matching this story. Click any image to import it into your Photo Studio."
+                )}
               </p>
             </div>
           </div>
@@ -144,11 +165,11 @@ function PhotoSearchDialog({ eventId, onClose, onSelect }: {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+              onKeyDown={(e) => e.key === "Enter" && handleSearch(1, query)}
               placeholder="Refine topic keywords (e.g. 'Mojo logistics', 'Addis Ababa', 'Ethiopian Airlines')..."
               className="flex-1 h-9 rounded-card border border-ink-600 bg-ink-800 px-3 text-sm text-paper-100 focus:border-accent-green focus:outline-none placeholder:text-paper-600"
             />
-            <Button size="sm" disabled={searching || !!importingId} onClick={handleSearch}
+            <Button size="sm" disabled={searching || !!importingId} onClick={() => handleSearch(1, query)}
               className="h-9 px-4 bg-accent-green text-ink-950 font-semibold hover:bg-accent-green/90 flex items-center gap-1.5">
               {searching ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
               {searching ? "Searching..." : "Search"}
@@ -185,7 +206,9 @@ function PhotoSearchDialog({ eventId, onClose, onSelect }: {
           {!searching && results.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs text-paper-400 font-mono">
-                <span>Showing {results.length} internet photo alternatives:</span>
+                <span>
+                  Showing {results.length} of {totalItems} alternatives (Page {page} of {totalPages}):
+                </span>
                 <span className="text-[11px] text-accent-green font-semibold">Select 1 photo to import to Studio</span>
               </div>
               <div className="grid grid-cols-3 gap-3.5">
@@ -258,13 +281,41 @@ function PhotoSearchDialog({ eventId, onClose, onSelect }: {
           )}
         </div>
 
-        <div className="px-6 py-3 border-t border-ink-800 bg-ink-950/50 flex items-center justify-between">
-          <p className="text-[11px] text-paper-500">
-            Selected photo will be saved as a high-resolution asset in your Photo Studio.
-          </p>
-          <Button variant="outline" size="sm" onClick={onClose} disabled={!!importingId} className="h-8 text-xs border-ink-600">
-            Cancel
-          </Button>
+        <div className="px-6 py-3.5 border-t border-ink-800 bg-ink-950/70 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={searching || !hasPrev || !!importingId}
+              onClick={() => handleSearch(page - 1)}
+              className="h-8 px-3 text-xs border-ink-600 text-paper-200 hover:text-white flex items-center gap-1.5 disabled:opacity-40"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Previous
+            </Button>
+            <span className="text-xs text-paper-300 font-mono px-2 py-1 rounded bg-ink-900 border border-ink-700">
+              Page {page} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={searching || !hasNext || !!importingId}
+              onClick={() => handleSearch(page + 1)}
+              className="h-8 px-3 text-xs border-accent-green/60 text-accent-green hover:bg-accent-green/10 flex items-center gap-1.5 font-semibold disabled:opacity-40"
+            >
+              Next 6 Photos
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <p className="text-[11px] text-paper-500 hidden sm:block">
+              Selected photo will be saved as a high-resolution asset in your Photo Studio.
+            </p>
+            <Button variant="outline" size="sm" onClick={onClose} disabled={!!importingId} className="h-8 text-xs border-ink-600">
+              Cancel
+            </Button>
+          </div>
         </div>
       </div>
     </div>
