@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ImageIcon, Sparkles, RefreshCw, Check, Palette, CheckCircle2,
-  Search, Camera, Bot, Globe, X, Newspaper,
+  Search, Camera, Bot, Globe, X, Newspaper, Trash2,
 } from "lucide-react";
 import {
   FORMATS, PortraitPost, SquarePost, StoryPost, CarouselCard,
@@ -98,7 +98,7 @@ function PhotoSearchDialog({ eventId, onClose, onSelect }: {
           <div className="flex items-center gap-2">
             <Globe className="h-4 w-4 text-blue-400" />
             <span className="font-semibold text-sm text-paper-100">Find Real Photos</span>
-            <Badge variant="muted" className="text-[10px] font-mono">via Pexels</Badge>
+            <Badge variant="muted" className="text-[10px] font-mono">Pexels & Wikimedia</Badge>
           </div>
           <button onClick={onClose} className="text-paper-500 hover:text-paper-200">
             <X className="h-4 w-4" />
@@ -249,6 +249,17 @@ function StudioContent() {
     onSuccess: (updatedAsset) => {
       setSelectedAssetId(updatedAsset.id);
       queryClient.invalidateQueries({ queryKey: ["event_visual_assets", selectedEventId] });
+    },
+  });
+
+  const deleteAssetMutation = useMutation({
+    mutationFn: (assetId: string) => postsApi.deleteAsset(assetId),
+    onSuccess: (_, deletedId) => {
+      if (selectedAssetId === deletedId) {
+        setSelectedAssetId(null);
+      }
+      queryClient.invalidateQueries({ queryKey: ["event_visual_assets", selectedEventId] });
+      refetchAssets();
     },
   });
 
@@ -430,7 +441,7 @@ function StudioContent() {
                     >
                       <Globe className="h-4 w-4 text-blue-400 shrink-0" />
                       <div>
-                        <div className="text-xs font-semibold text-paper-100">Browse Pexels</div>
+                        <div className="text-xs font-semibold text-paper-100">Browse Real Photos</div>
                         <div className="text-[9px] text-paper-500">6 editorial alternatives</div>
                       </div>
                     </button>
@@ -477,6 +488,19 @@ function StudioContent() {
                                   <Check className="h-3 w-3 stroke-[3]" />
                                 </div>
                               )}
+                              <button
+                                type="button"
+                                title="Delete image"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm("Delete this visual asset?")) {
+                                    deleteAssetMutation.mutate(asset.id);
+                                  }
+                                }}
+                                className="absolute top-1.5 left-1.5 rounded-full bg-ink-950/80 hover:bg-red-900/90 p-1 text-paper-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
                             </div>
                             <div className="p-2 space-y-1">
                               <div className="flex items-center justify-between gap-1">

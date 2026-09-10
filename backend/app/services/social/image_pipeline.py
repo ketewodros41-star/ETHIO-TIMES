@@ -118,34 +118,27 @@ class ImagePipeline:
     # Public entry: real article photo
     # ------------------------------------------------------------------
     def run_real_photo(self, event: NewsEvent) -> ImagePipelineResult:
-        """Try to fetch a real photo from the event's linked articles."""
+        """Try to fetch a real photo from the event's linked articles, or Wikimedia."""
         image_url = self._find_article_image_url(event)
-        if not image_url:
-            logger.info("no_article_image_url", event_id=str(event.id))
-            # Fall back to AI generation with a minimal brief
-            from app.services.social.editorial_engine import EditorialBrief
-            brief = EditorialBrief(
-                headline=event.title,
-                short_summary=event.summary or "",
-                key_facts=[],
-                hashtags=[],
-                caption="",
-                theme="verified_brief",
-            )
-            return self.run(event, brief)
+        image_bytes = self._download_image(image_url) if image_url else None
 
-        image_bytes = self._download_image(image_url)
+        # If article photo not available or download failed, search Wikipedia for a real photo
         if not image_bytes:
-            logger.warning("article_image_download_failed", url=image_url)
-            from app.services.social.editorial_engine import EditorialBrief
-            brief = EditorialBrief(
-                headline=event.title,
-                short_summary=event.summary or "",
-                key_facts=[],
-                hashtags=[],
-                caption="",
-                theme="verified_brief",
-            )
+            logger.info("article_photo_unavailable_trying_wikimedia", event_id=str(event.id))
+            wiki_assets = self.search_wikimedia(event)
+            if wiki_assets:
+                self.asset_repo.mark_selected(wiki_assets[0].id)
+                return ImagePipelineResult(
+                    selected_asset=wiki_assets[0],
+                    all_assets=wiki_assets,
+                    attempts=1,
+                )
+
+            # If even Wikimedia has no match, fall back to contextual AI generation
+            logger.info("fallback_to_ai_generation", event_id=str(event.id))
+            from app.services.social.editorial_engine import EditorialEngine
+            editorial = EditorialEngine(self.director.provider)
+            brief = editorial.compose(event)
             return self.run(event, brief)
 
         # Save as a real_photo VisualAsset
@@ -178,61 +171,117 @@ class ImagePipeline:
         )
 
     # ------------------------------------------------------------------
-    # Public entry: Pexels photo search
+    # Public entry: Pexels & Wikimedia photo search
     # ------------------------------------------------------------------
     def search_pexels(self, event: NewsEvent, query: str | None = None) -> list[VisualAsset]:
-        """Search Pexels for editorial photos matching the story. Returns list of assets."""
-        pexels_key = getattr(settings, "pexels_api_key", None)
-        if not pexels_key:
-            logger.warning("pexels_not_configured")
-            return []
-
-        # Build a smart search query from event context
+        """Search Pexels for editorial photos matching the story. Falls back to Wikimedia."""
         if not query:
             query = self._build_pexels_query(event)
 
+        pexels_key = getattr(settings, "pexels_api_key", None)
+        if pexels_key:
+            try:
+                with httpx.Client(timeout=15.0) as client:
+                    res = client.get(
+                        "https://api.pexels.com/v1/search",
+                        headers={"Authorization": pexels_key},
+                        params={"query": query, "per_page": 6, "orientation": "portrait"},
+                    )
+                    if res.status_code == 200:
+                        data = res.json()
+                        photos = data.get("photos", [])
+                        if photos:
+                            assets = []
+                            for photo in photos[:6]:
+                                img_url = photo.get("src", {}).get("portrait") or photo.get("src", {}).get("large")
+                                if not img_url:
+                                    continue
+                                img_bytes = self._download_image(img_url)
+                                if not img_bytes:
+                                    continue
+                                photographer = photo.get("photographer", "Pexels")
+                                asset = VisualAsset(
+                                    event_id=event.id,
+                                    prompt=f"Pexels search: {query}",
+                                    visual_strategy={"strategy": "pexels_photo", "pexels_id": photo.get("id")},
+                                    provider="pexels",
+                                    model=f"Pexels/{photographer}",
+                                    style="Real Editorial Photo",
+                                    quality_score=80,
+                                    quality_report={
+                                        "image_source": "pexels",
+                                        "pexels_id": photo.get("id"),
+                                        "photographer": photographer,
+                                        "pexels_url": photo.get("url"),
+                                        "query": query,
+                                        "issues": [],
+                                        "recommendation": "approve",
+                                    },
+                                    status=VisualAssetStatus.generated,
+                                    is_selected=False,
+                                )
+                                self.asset_repo.create(asset)
+                                asset = self._persist_image(asset, img_bytes, None)
+                                assets.append(asset)
+                            if assets:
+                                return assets
+            except Exception as exc:
+                logger.warning("pexels_request_failed_fallback_to_wikimedia", error=str(exc))
+
+        # Fallback to Wikimedia Commons / Wikipedia real photo search (no API key required)
+        return self.search_wikimedia(event, query=query)
+
+    def search_wikimedia(self, event: NewsEvent, query: str | None = None) -> list[VisualAsset]:
+        """Search Wikipedia / Wikimedia Commons for real, high-resolution editorial photos. 100% free."""
+        import urllib.parse
+        if not query:
+            # Build query from region or title keywords
+            query = event.primary_region or (event.title or "Ethiopia").split()[0]
+            if "ethiopia" not in query.lower():
+                query = f"{query} Ethiopia"
+
+        url = (
+            f"https://en.wikipedia.org/w/api.php?action=query&generator=search"
+            f"&gsrsearch={urllib.parse.quote(query)}&gsrlimit=6&prop=pageimages&pithumbsize=1200&format=json"
+        )
+        headers = {"User-Agent": "ETHIOTIMESBot/1.0 (editorial-studio@ethiotimes.org)"}
+
         try:
-            with httpx.Client(timeout=15.0) as client:
-                res = client.get(
-                    "https://api.pexels.com/v1/search",
-                    headers={"Authorization": pexels_key},
-                    params={"query": query, "per_page": 6, "orientation": "portrait"},
-                )
+            with httpx.Client(timeout=12.0) as client:
+                res = client.get(url, headers=headers)
                 if res.status_code != 200:
-                    logger.warning("pexels_error", status=res.status_code)
                     return []
-
                 data = res.json()
-                photos = data.get("photos", [])
-
+                pages = data.get("query", {}).get("pages", {})
         except Exception as exc:
-            logger.warning("pexels_request_failed", error=str(exc))
+            logger.warning("wikimedia_search_failed", error=str(exc))
             return []
 
-        assets = []
-        for photo in photos[:6]:
-            image_url = photo.get("src", {}).get("portrait") or photo.get("src", {}).get("large")
-            if not image_url:
+        assets: list[VisualAsset] = []
+        for pid, p in pages.items():
+            thumb = p.get("thumbnail", {})
+            img_url = thumb.get("source")
+            if not img_url:
                 continue
 
-            image_bytes = self._download_image(image_url)
-            if not image_bytes:
+            img_bytes = self._download_image(img_url)
+            if not img_bytes:
                 continue
 
-            photographer = photo.get("photographer", "Pexels")
+            title = p.get("title", "Ethiopian Photo")
             asset = VisualAsset(
                 event_id=event.id,
-                prompt=f"Pexels search: {query}",
-                visual_strategy={"strategy": "pexels_photo", "pexels_id": photo.get("id")},
-                provider="pexels",
-                model=f"Pexels/{photographer}",
-                style="Real Editorial Photo",
-                quality_score=80,
+                prompt=f"Wikimedia Commons photo: {title}",
+                visual_strategy={"strategy": "wikimedia_photo", "page_id": pid},
+                provider="wikimedia",
+                model="Wikimedia Commons",
+                style="Real Photograph",
+                quality_score=85,
                 quality_report={
-                    "image_source": "pexels",
-                    "pexels_id": photo.get("id"),
-                    "photographer": photographer,
-                    "pexels_url": photo.get("url"),
+                    "image_source": "wikimedia",
+                    "photographer": "Wikimedia Commons",
+                    "title": title,
+                    "source_url": img_url,
                     "query": query,
                     "issues": [],
                     "recommendation": "approve",
@@ -241,7 +290,7 @@ class ImagePipeline:
                 is_selected=False,
             )
             self.asset_repo.create(asset)
-            asset = self._persist_image(asset, image_bytes, None)
+            asset = self._persist_image(asset, img_bytes, None)
             assets.append(asset)
 
         return assets
@@ -251,13 +300,28 @@ class ImagePipeline:
     # ------------------------------------------------------------------
     def _find_article_image_url(self, event: NewsEvent) -> str | None:
         """Get the first non-null image_url from the event's linked articles."""
+        from app.models.article import Article
+        from app.models.news_event import EventArticle
         try:
-            for link in event.article_links:
-                article = link.article
-                if article and article.image_url:
-                    url = article.image_url.strip()
-                    if url.startswith("http"):
-                        return url
+            # 1. Check in-memory relationships if loaded
+            if hasattr(event, "article_links") and event.article_links:
+                for link in event.article_links:
+                    article = getattr(link, "article", None)
+                    if article and article.image_url:
+                        url = article.image_url.strip()
+                        if url.startswith("http"):
+                            return url
+
+            # 2. Directly query EventArticle -> Article
+            articles = (
+                self.session.query(Article)
+                .join(EventArticle, EventArticle.article_id == Article.id)
+                .filter(EventArticle.event_id == event.id)
+                .all()
+            )
+            for article in articles:
+                if article.image_url and article.image_url.strip().startswith("http"):
+                    return article.image_url.strip()
         except Exception as exc:
             logger.warning("find_article_image_failed", error=str(exc))
         return None
@@ -265,9 +329,9 @@ class ImagePipeline:
     def _download_image(self, url: str) -> bytes | None:
         """Download an image and return bytes if it looks valid (>5KB)."""
         try:
-            with httpx.Client(timeout=10.0, follow_redirects=True) as client:
-                res = client.get(url, headers={"User-Agent": "ETHIOTIMES/1.0 editorial-studio"})
-                if res.status_code == 200 and len(res.content) > 5000:
+            with httpx.Client(timeout=12.0, follow_redirects=True) as client:
+                res = client.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ETHIOTIMES/1.0"})
+                if res.status_code == 200 and len(res.content) > 3000:
                     return res.content
         except Exception as exc:
             logger.warning("image_download_failed", url=url, error=str(exc))

@@ -49,13 +49,14 @@ export function EventsContent() {
   const [breakingOnly, setBreakingOnly] = useState(false);
   const [reviewOnly, setReviewOnly] = useState(false);
   const [sort, setSort] = useState<"last_seen" | "trend_score">("trend_score");
+  const [scope, setScope] = useState<"ethiopia" | "neighboring" | "all">("ethiopia");
 
   const { hasNew, newCount, dismiss, refresh } = useNewEventsPoller(() => {
     qc.invalidateQueries({ queryKey: ["events"] });
   });
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
-    queryKey: ["events", search, page, verification, trend, breakingOnly, reviewOnly, sort],
+    queryKey: ["events", search, page, verification, trend, breakingOnly, reviewOnly, sort, scope],
     queryFn: () =>
       api.listEvents({
         limit: PAGE_SIZE,
@@ -66,6 +67,7 @@ export function EventsContent() {
         review_required: reviewOnly ? true : undefined,
         breaking: breakingOnly ? true : undefined,
         sort,
+        scope,
       }),
     refetchInterval: 60000,
   });
@@ -97,6 +99,49 @@ export function EventsContent() {
           </div>
         </div>
       )}
+
+      {/* Regional Scope Toggle */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-1 border-b border-ink-800">
+        <div className="flex items-center gap-1.5 p-1 rounded-card bg-ink-850 border border-ink-700 w-fit">
+          <button
+            type="button"
+            onClick={() => { setScope("ethiopia"); setPage(0); }}
+            className={`px-3 py-1.5 rounded-card text-xs font-medium transition-all ${
+              scope === "ethiopia"
+                ? "bg-accent-green text-ink-950 font-semibold shadow-sm"
+                : "text-paper-400 hover:text-paper-100"
+            }`}
+          >
+            🇪🇹 Ethiopia & Diaspora
+          </button>
+          <button
+            type="button"
+            onClick={() => { setScope("neighboring"); setPage(0); }}
+            className={`px-3 py-1.5 rounded-card text-xs font-medium transition-all ${
+              scope === "neighboring"
+                ? "bg-accent-green text-ink-950 font-semibold shadow-sm"
+                : "text-paper-400 hover:text-paper-100"
+            }`}
+          >
+            🌍 Horn of Africa & Neighbors
+          </button>
+          <button
+            type="button"
+            onClick={() => { setScope("all"); setPage(0); }}
+            className={`px-3 py-1.5 rounded-card text-xs font-medium transition-all ${
+              scope === "all"
+                ? "bg-accent-green text-ink-950 font-semibold shadow-sm"
+                : "text-paper-400 hover:text-paper-100"
+            }`}
+          >
+            🌐 All Coverage
+          </button>
+        </div>
+        <span className="text-xs text-paper-500 font-mono">
+          {total} events in view
+        </span>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <Input

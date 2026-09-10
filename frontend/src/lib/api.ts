@@ -89,6 +89,7 @@ export const api = {
     trend_status?: string;
     breaking?: boolean;
     sort?: "last_seen" | "trend_score";
+    scope?: "ethiopia" | "neighboring" | "all";
   }) => request<Page<NewsEvent>>(`/events${qs(params)}`),
 
   getEvent: (id: string) => request<NewsEventDetail>(`/events/${id}`),
@@ -155,6 +156,8 @@ export const postsApi = {
     request<import('./types').VisualAsset[]>(`/posts/assets${qs({ event_id })}`),
   selectAsset: (asset_id: string) =>
     request<import('./types').VisualAsset>(`/posts/assets/${asset_id}/select`, { method: "POST" }),
+  deleteAsset: (asset_id: string) =>
+    request<void>(`/posts/assets/${asset_id}`, { method: "DELETE" }),
 };
 
 export const eventsApi = {

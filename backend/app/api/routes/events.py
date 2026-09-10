@@ -30,6 +30,7 @@ def list_events(
     trend_status: TrendStatus | None = Query(None),
     breaking: bool | None = Query(None),
     sort: Literal["last_seen", "trend_score"] = Query("last_seen"),
+    scope: Literal["ethiopia", "neighboring", "all"] = Query("ethiopia"),
 ) -> Page[EventRead]:
     repo = EventRepository(session)
     items, total = repo.list(
@@ -43,6 +44,7 @@ def list_events(
         trend_status=trend_status,
         breaking=breaking,
         sort=sort,
+        scope=scope,
     )
     return Page[EventRead](
         items=[EventRead.model_validate(e) for e in items],

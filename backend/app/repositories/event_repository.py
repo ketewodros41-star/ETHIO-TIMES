@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
@@ -12,6 +12,16 @@ from app.models.article import Article
 from app.models.enums import EventStatus, EventVerificationStatus, EventVerifyStatus, TrendStatus
 from app.models.news_event import EventArticle, EventTimeline, NewsEvent
 from app.models.verification import EventClaim
+
+_ETHIOPIA_TERMS = [
+    "ethiopia", "ethiopian", "abiy", "addis", "amhara", "oromo", "oromia",
+    "tigray", "somali region", "afar", "sidama", "fano", "tplf", "birr",
+    "gerd", "abbay", "habesha", "diaspora"
+]
+_NEIGHBORING_TERMS = [
+    "eritrea", "somalia", "somaliland", "djibouti", "sudan", "south sudan", "kenya",
+    "horn of africa", "red sea", "assab", "mogadishu", "nairobi", "khartoum", "asmara"
+]
 
 
 class EventRepository:
@@ -88,9 +98,33 @@ class EventRepository:
         trend_status: TrendStatus | None = None,
         breaking: bool | None = None,
         sort: str = "last_seen",
+        scope: str | None = "ethiopia",
     ) -> tuple[list[NewsEvent], int]:
         stmt = select(NewsEvent)
         count_stmt = select(func.count()).select_from(NewsEvent)
+
+        if scope == "ethiopia":
+            eth_conds = [
+                func.lower(NewsEvent.title).like(f"%{t}%") for t in _ETHIOPIA_TERMS
+            ] + [
+                func.lower(NewsEvent.summary).like(f"%{t}%") for t in _ETHIOPIA_TERMS
+            ] + [
+                NewsEvent.primary_region.is_not(None)
+            ]
+            stmt = stmt.where(or_(*eth_conds))
+            count_stmt = count_stmt.where(or_(*eth_conds))
+        elif scope == "neighboring":
+            all_terms = list(set(_ETHIOPIA_TERMS + _NEIGHBORING_TERMS))
+            neigh_conds = [
+                func.lower(NewsEvent.title).like(f"%{t}%") for t in all_terms
+            ] + [
+                func.lower(NewsEvent.summary).like(f"%{t}%") for t in all_terms
+            ] + [
+                NewsEvent.primary_region.is_not(None)
+            ]
+            stmt = stmt.where(or_(*neigh_conds))
+            count_stmt = count_stmt.where(or_(*neigh_conds))
+
         if status is not None:
             stmt = stmt.where(NewsEvent.status == status)
             count_stmt = count_stmt.where(NewsEvent.status == status)

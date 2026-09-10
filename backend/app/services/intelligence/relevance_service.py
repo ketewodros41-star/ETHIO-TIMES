@@ -55,6 +55,7 @@ class RelevanceService:
         title: str | None,
         summary: str | None,
         content: str | None,
+        source: object | None = None,
     ) -> RelevanceOutcome:
         if self.provider.is_available():
             try:
@@ -67,17 +68,46 @@ class RelevanceService:
                     )
                 )
                 result = RelevanceResult.model_validate(data)
+
+                # Source-level boost for verified Ethiopian outlets
+                if source is not None:
+                    country = (getattr(source, "country", "") or "").upper()
+                    rel_score = float(getattr(source, "ethiopia_relevance_score", 0.0) or 0.0)
+                    if (country == "ET" or rel_score >= 0.8) and result.score < settings.relevance_threshold:
+                        raw_score, keywords = score_relevance(title, summary, content)
+                        if keywords:
+                            result.score = max(result.score, 85)
+                            result.is_ethiopia_related = True
+                            result.reason = f"Verified Ethiopian source ({getattr(source, 'name', 'source')}) with keyword match: {', '.join(keywords)}"
+
                 return RelevanceOutcome(result, decide(result.score), used_fallback=False)
             except (ProviderError, ValidationError) as exc:
                 logger.warning("relevance_gemini_failed_fallback", error=str(exc))
 
-        return self._fallback(title, summary, content)
+        return self._fallback(title, summary, content, source=source)
 
     def _fallback(
-        self, title: str | None, summary: str | None, content: str | None
+        self,
+        title: str | None,
+        summary: str | None,
+        content: str | None,
+        source: object | None = None,
     ) -> RelevanceOutcome:
         raw_score, keywords = score_relevance(title, summary, content)
         score = int(round(raw_score * 100))
+
+        # Check source-level heuristics for Ethiopian sources
+        if source is not None:
+            country = (getattr(source, "country", "") or "").upper()
+            rel_score = float(getattr(source, "ethiopia_relevance_score", 0.0) or 0.0)
+            if (country == "ET" or rel_score >= 0.8) and score < settings.relevance_threshold:
+                text_combined = f"{title or ''} {summary or ''} {content or ''}"
+                has_geez = any("\u1200" <= ch <= "\u137f" for ch in text_combined)
+                if keywords or has_geez:
+                    score = max(score, 85)
+                    source_name = getattr(source, "name", "Ethiopian source")
+                    keywords.append(f"source:{source_name}")
+
         result = RelevanceResult(
             is_ethiopia_related=score >= settings.relevance_threshold,
             score=score,

@@ -113,8 +113,15 @@ class IntelligencePipeline:
 
     # -- steps -------------------------------------------------------------- #
     def _step_relevance(self, article: Article, result: PipelineResult) -> None:
+        source = article.source
+        if source is None and article.source_id:
+            from app.models.news_source import NewsSource
+            source = self.session.get(NewsSource, article.source_id)
         outcome = self.relevance.assess(
-            title=article.title, summary=article.summary, content=article.content
+            title=article.title,
+            summary=article.summary,
+            content=article.content,
+            source=source,
         )
         r = outcome.result
         article.relevance_score = r.score

@@ -178,6 +178,25 @@ def select_asset(asset_id: uuid.UUID, session: Session = Depends(get_db)) -> Vis
     return VisualAssetRead.model_validate(asset)
 
 
+@router.delete("/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+def delete_asset(asset_id: uuid.UUID, session: Session = Depends(get_db)) -> Response:
+    """Delete a visual asset from DB and remove its file from disk."""
+    repo = VisualAssetRepository(session)
+    asset = repo.get(asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    if asset.storage_path:
+        p = Path(asset.storage_path)
+        if p.exists():
+            try:
+                p.unlink()
+            except OSError:
+                pass
+    repo.delete(asset_id)
+    session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/assets/{asset_id}/image")
 def get_asset_image(asset_id: uuid.UUID, session: Session = Depends(get_db)) -> FileResponse:
     repo = VisualAssetRepository(session)

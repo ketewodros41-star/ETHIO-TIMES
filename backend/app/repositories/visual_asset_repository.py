@@ -60,3 +60,11 @@ class VisualAssetRepository:
             asset.quality_report = quality_report
             asset.status = status
             self.session.add(asset)
+
+    def delete(self, asset_id: uuid.UUID) -> bool:
+        asset = self.get(asset_id)
+        if not asset:
+            return False
+        self.session.delete(asset)
+        self.session.flush()
+        return True
