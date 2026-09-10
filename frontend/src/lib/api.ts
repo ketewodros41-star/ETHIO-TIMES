@@ -127,6 +127,12 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  pruneStaleData: (jobs_max_age_days: number = 7, articles_max_age_days: number = 60) =>
+    request<{ deleted_jobs: number; deleted_articles: number; message: string }>(
+      `/pipeline/prune-stale${qs({ jobs_max_age_days, articles_max_age_days })}`,
+      { method: "POST" }
+    ),
+
   pipelineStats: () => request<PipelineStats>("/pipeline/stats"),
 };
 

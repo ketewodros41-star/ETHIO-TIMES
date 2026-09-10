@@ -36,6 +36,11 @@ export function useNewEventsPoller(
     let mounted = true;
 
     const poll = async () => {
+      // Don't poll if document is backgrounded or tab is inactive
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+
       try {
         const data = await eventsApi.latestTimestamp();
         if (!mounted) return;
@@ -60,19 +65,28 @@ export function useNewEventsPoller(
           setNewCount(countDiff > 0 ? countDiff : 1);
         }
       } catch {
-        // Silently ignore polling errors � network blips shouldn't break the UI
+        // Silently ignore polling errors - network blips shouldn't break the UI
       }
     };
 
     // Initial poll to set baseline
     poll();
 
-    // Poll every 15 seconds
-    const interval = setInterval(poll, 15_000);
+    // Poll every 30 seconds while tab is active
+    const interval = setInterval(poll, 30_000);
+
+    // Immediately poll when returning from another tab
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        poll();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
       mounted = false;
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

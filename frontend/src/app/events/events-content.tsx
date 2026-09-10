@@ -69,7 +69,8 @@ export function EventsContent() {
         sort,
         scope,
       }),
-    refetchInterval: 60000,
+    refetchInterval: 120_000,
+    refetchIntervalInBackground: false,
   });
 
   const ingestMutation = useMutation({
@@ -216,6 +217,10 @@ export function EventsContent() {
           </label>
         </div>
         <div className="flex items-center gap-2">
+          <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-mono text-paper-400 bg-ink-850 border border-ink-700 px-2.5 py-1 rounded-full mr-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent-green animate-pulse" />
+            Live Sync: 2m
+          </span>
           <span className="text-xs text-paper-500 mr-1">{total} clustered events</span>
           <Button
             variant="outline"

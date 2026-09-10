@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Play, Plus, Check } from "lucide-react";
+import { RefreshCw, Play, Plus, Check, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,8 @@ export function SourcesContent() {
   const { data, isLoading } = useQuery({
     queryKey: ["sources", search],
     queryFn: () => api.listSources({ limit: 200, search: search || undefined }),
+    refetchInterval: 120_000,
+    refetchIntervalInBackground: false,
   });
 
   function refreshAll() {
@@ -121,6 +124,10 @@ export function SourcesContent() {
           className="max-w-xs"
         />
         <div className="flex items-center gap-2">
+          <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-mono text-paper-400 bg-ink-850 border border-ink-700 px-2.5 py-1 rounded-full mr-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent-green animate-pulse" />
+            Live Sync: 2m
+          </span>
           <Button
             variant="outline"
             size="sm"
@@ -278,10 +285,12 @@ export function SourcesContent() {
             {items.map((s: Source) => (
               <TR key={s.id}>
                 <TD>
-                  <div className="flex flex-col">
-                    <span className="text-paper-50">{s.name}</span>
-                    <span className="font-mono text-[11px] text-paper-500">{s.slug}</span>
-                  </div>
+                  <Link href={`/sources/${s.id}`} className="flex flex-col group">
+                    <span className="text-paper-50 group-hover:text-accent-green font-medium transition-colors">
+                      {s.name}
+                    </span>
+                    <span className="font-mono text-[11px] text-paper-500 group-hover:text-paper-400">{s.slug}</span>
+                  </Link>
                 </TD>
                 <TD>
                   <span className="text-xs text-paper-300">
@@ -322,12 +331,28 @@ export function SourcesContent() {
                   {relativeTime(s.last_checked_at)}
                 </TD>
                 <TD className="font-mono text-xs tabular-nums text-paper-300">
-                  <span className={s.total_articles_ingested > 0 ? "font-semibold text-paper-100" : "text-paper-500"}>
-                    {s.total_articles_ingested}
-                  </span>
+                  <Link
+                    href={`/sources/${s.id}`}
+                    className="group inline-flex items-center gap-1 hover:underline"
+                    title={`View all articles from ${s.name}`}
+                  >
+                    <span className={s.total_articles_ingested > 0 ? "font-semibold text-paper-100 group-hover:text-accent-green" : "text-paper-500"}>
+                      {s.total_articles_ingested}
+                    </span>
+                    <ExternalLink className="h-2.5 w-2.5 opacity-0 group-hover:opacity-100 text-accent-green transition-opacity" />
+                  </Link>
                 </TD>
                 <TD className="text-right">
                   <div className="inline-flex items-center gap-2 justify-end">
+                    <Link href={`/sources/${s.id}`}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs text-paper-300 hover:text-paper-50"
+                      >
+                        View Feed
+                      </Button>
+                    </Link>
                     {Boolean(ingestedMap[s.id] && Date.now() - (ingestedMap[s.id] || 0) < 60000) && (
                       <Badge variant="green" className="flex items-center gap-1 text-[11px] animate-pulse">
                         <Check className="h-3 w-3" /> Ingested
@@ -338,7 +363,7 @@ export function SourcesContent() {
                       size="sm"
                       disabled={!s.is_active || (ingestingId === s.id || ingestingId === "all")}
                       onClick={() => ingestOne.mutate(s.id)}
-                      className="min-w-[80px]"
+                      className="min-w-[70px] h-8"
                     >
                       {ingestingId === s.id || ingestingId === "all" ? (
                         <span className="flex items-center gap-1 text-accent-green">

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, ExternalLink, RefreshCw } from "lucide-react";
+import { AlertCircle, ExternalLink, Radio, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,20 @@ export function ArticlesContent() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
 
+  const { data: sourcesData } = useQuery({
+    queryKey: ["sources"],
+    queryFn: () => api.listSources({ limit: 200 }),
+    staleTime: 60000,
+  });
+
+  const sourceMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of sourcesData?.items ?? []) {
+      map.set(s.id, s.name);
+    }
+    return map;
+  }, [sourcesData]);
+
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["articles", search, page],
     queryFn: () =>
@@ -29,7 +44,8 @@ export function ArticlesContent() {
         offset: page * PAGE_SIZE,
         search: search || undefined,
       }),
-    refetchInterval: 10000,
+    refetchInterval: 120_000,
+    refetchIntervalInBackground: false,
   });
 
   const items = data?.items ?? [];
@@ -49,6 +65,10 @@ export function ArticlesContent() {
           className="max-w-sm"
         />
         <div className="flex items-center gap-3">
+          <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-mono text-paper-400 bg-ink-850 border border-ink-700 px-2.5 py-1 rounded-full">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent-green animate-pulse" />
+            Live Sync: 2m
+          </span>
           <span className="text-xs text-paper-500">{total} articles</span>
           <Button
             variant="outline"
@@ -116,6 +136,16 @@ export function ArticlesContent() {
                   <p className="mt-1 line-clamp-2 text-sm text-paper-300">{a.summary}</p>
                 )}
                 <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-paper-500">
+                  {a.source_id && (
+                    <Link
+                      href={`/sources/${a.source_id}`}
+                      className="inline-flex items-center gap-1.5 text-accent-gold hover:text-paper-100 hover:underline font-medium transition-colors"
+                      title="View all news from this publisher"
+                    >
+                      <Radio className="h-3 w-3 text-accent-gold" />
+                      <span>{sourceMap.get(a.source_id) ?? "Publisher"}</span>
+                    </Link>
+                  )}
                   <span>{formatDate(a.published_at ?? a.created_at)}</span>
                   {a.author && <span>· {a.author}</span>}
                   {a.url && (

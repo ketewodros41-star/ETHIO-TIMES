@@ -116,20 +116,36 @@ class IngestionService:
 
     def _build_article(self, source: NewsSource, item: FetchedItem) -> Article:
         score, keywords = score_relevance(item.title, item.summary, item.content)
+
+        # Supabase Free Tier optimization:
+        # 1. Truncate body text to 3,000 chars (plenty for NLP extraction & summary; original URL kept)
+        # 2. Avoid duplicating full text across raw_content and raw_summary
+        # 3. Strip bloat from raw_payload
+        clean_content = (item.content or "").strip()
+        truncated_content = clean_content[:3000] if clean_content else None
+        clean_summary = (item.summary or "").strip()
+        truncated_summary = clean_summary[:1000] if clean_summary else None
+
+        clean_payload = {
+            k: v
+            for k, v in (item.raw_payload or {}).items()
+            if k in {"id", "link", "channel", "tags", "has_photo"}
+        }
+
         return Article(
             source_id=source.id,
             canonical_url=item.canonical_url,
             url=item.url,
             guid=item.guid,
             content_hash=content_hash(item.title, item.summary, item.content),
-            raw_title=item.title,
-            raw_summary=item.summary,
-            raw_content=item.content,
-            raw_payload=item.raw_payload or {},
-            title=item.title,
-            summary=item.summary,
-            content=item.content,
-            author=item.author,
+            raw_title=item.title[:500] if item.title else None,
+            raw_summary=None,
+            raw_content=None,
+            raw_payload=clean_payload,
+            title=item.title[:500] if item.title else None,
+            summary=truncated_summary,
+            content=truncated_content,
+            author=item.author[:255] if item.author else None,
             language=item.language or source.language,
             categories=item.categories or [],
             image_url=item.image_url,
