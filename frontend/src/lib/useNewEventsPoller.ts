@@ -60,7 +60,7 @@ export function useNewEventsPoller(
           setNewCount(countDiff);
         }
       } catch {
-        // Silently ignore polling errors — network blips shouldn't break the UI
+        // Silently ignore polling errors ï¿½ network blips shouldn't break the UI
       }
     };
 
