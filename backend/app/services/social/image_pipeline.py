@@ -210,20 +210,52 @@ class ImagePipeline:
         now = time.time()
 
         if cache_key in _PHOTO_POOL_CACHE:
-            cached_time, cached_pool, cached_topic = _PHOTO_POOL_CACHE[cache_key]
+            cached_entry = _PHOTO_POOL_CACHE[cache_key]
+            cached_time = cached_entry[0]
             if now - cached_time < 300.0:  # 5 minute TTL
-                return self._paginate_pool(cached_pool, cached_topic, page, page_size)
+                cached_pool = cached_entry[1]
+                cached_topic = cached_entry[2]
+                cached_person = cached_entry[3] if len(cached_entry) > 3 else None
+                cached_queries = cached_entry[4] if len(cached_entry) > 4 else []
+                cached_chips = cached_entry[5] if len(cached_entry) > 5 else []
+                return self._paginate_pool(
+                    cached_pool,
+                    cached_topic,
+                    page,
+                    page_size,
+                    detected_person=cached_person,
+                    search_queries=cached_queries,
+                    suggested_chips=cached_chips,
+                )
 
-        # 1. Resolve topic, search facets, and strict relevance keywords
-        topic, facets, keywords = self._extract_topic_facets(event, query)
+        # 1. AI Story Understanding: extract topic, central person, search queries, and suggested chips
+        from app.services.social.web_image_scraper import WebImageScraper
+        scraper = WebImageScraper(self.director.provider)
+        topic, detected_person, search_queries, suggested_chips = scraper.analyze_story(event, custom_query=query)
 
         # 2. Gather candidates from all available sources
-        pool = self._gather_candidate_pool(event, topic, facets, keywords, max_pool=30, user_query=query)
+        pool = self._gather_candidate_pool(
+            event,
+            topic=topic,
+            facets=search_queries,
+            keywords=set(),
+            max_pool=30,
+            user_query=query,
+            scraper=scraper,
+        )
 
         # 3. Store in cache
-        _PHOTO_POOL_CACHE[cache_key] = (now, pool, topic)
+        _PHOTO_POOL_CACHE[cache_key] = (now, pool, topic, detected_person, search_queries, suggested_chips)
 
-        return self._paginate_pool(pool, topic, page, page_size)
+        return self._paginate_pool(
+            pool,
+            topic,
+            page,
+            page_size,
+            detected_person=detected_person,
+            search_queries=search_queries,
+            suggested_chips=suggested_chips,
+        )
 
     def _paginate_pool(
         self,
@@ -231,6 +263,9 @@ class ImagePipeline:
         topic: str,
         page: int,
         page_size: int,
+        detected_person: str | None = None,
+        search_queries: list[str] | None = None,
+        suggested_chips: list[str] | None = None,
     ) -> PhotoBrowseResponse:
         """Slice candidate pool into 6-item pages."""
         total_items = len(pool)
@@ -247,6 +282,9 @@ class ImagePipeline:
             has_next=current_page < total_pages,
             has_prev=current_page > 1,
             topic=topic,
+            detected_person=detected_person,
+            search_queries=search_queries or [],
+            suggested_chips=suggested_chips or [],
         )
 
     def import_candidate(self, event: NewsEvent, req: SelectCandidateRequest) -> VisualAsset:
@@ -444,6 +482,7 @@ class ImagePipeline:
         keywords: set[str],
         max_pool: int = 30,
         user_query: str | None = None,
+        scraper: Any = None,
     ) -> list[PhotoCandidate]:
         """Aggregate photos from all available sources with strict topic filtering."""
         import urllib.parse
@@ -452,8 +491,9 @@ class ImagePipeline:
 
         # --- Source 1: Live Web Image Scraper (Direct Article Media + Person Search + Live Web Photos + Firecrawl) ---
         try:
-            scraper = WebImageScraper(self.director.provider)
-            # Pass user_query only if explicitly provided; otherwise scraper performs entity/person extraction
+            if scraper is None:
+                from app.services.social.web_image_scraper import WebImageScraper
+                scraper = WebImageScraper(self.director.provider)
             live_candidates = scraper.search_candidates(event, custom_query=user_query, max_pool=max_pool)
             for cand in live_candidates:
                 if cand.image_url not in seen_urls:

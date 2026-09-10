@@ -55,6 +55,7 @@ class WebImageScraper:
 
     def __init__(self, text_provider: AIProvider | None = None) -> None:
         self.text_provider = text_provider
+        self._analysis_cache: dict[str, tuple[str, str | None, list[str], list[str]]] = {}
 
     def search_candidates(
         self,
@@ -78,34 +79,12 @@ class WebImageScraper:
         # -------------------------------------------------------------
         # Tier 2: Entity & Person Analysis (LLM or Heuristic)
         # -------------------------------------------------------------
-        if custom_query and custom_query.strip():
-            cq = custom_query.strip()
-            cq_lower = cq.lower()
-            main_person = None
-            for keywords, name in [
-                (("ዐቢይ", "አብይ", "ጠቅላይ ሚኒስትር", "abiy", "prime minister"), "Abiy Ahmed"),
-                (("ሽመልስ", "shimelis"), "Shimelis Abdisa"),
-                (("ታየ አጽቀ", "taye atske"), "Taye Atske Selassie"),
-                (("ሳህለወርቅ", "sahle-work"), "Sahle-Work Zewde"),
-                (("አዳነች አቤቤ", "adanech"), "Adanech Abebe"),
-                (("ሃይለማሪያም", "hailemariam"), "Hailemariam Desalegn"),
-                (("ቴዲ አፍሮ", "teddy afro"), "Teddy Afro"),
-                (("ደመቀ መኮንን", "demeke mekonnen"), "Demeke Mekonnen"),
-            ]:
-                if any(k in cq_lower for k in keywords):
-                    main_person = name
-                    break
-
-            if main_person:
-                queries = [f"{main_person} Ethiopia", f"{main_person} news"]
-            else:
-                queries = [cq, f"{cq} Ethiopia news"]
-        else:
-            main_person, queries = self._analyze_entities_and_queries(event)
+        topic, main_person, queries, suggested_chips = self.analyze_story(event, custom_query=custom_query)
 
         logger.info(
             "web_image_search_plan",
             event_id=str(event.id),
+            topic=topic,
             main_person=main_person,
             queries=queries,
         )
@@ -209,21 +188,62 @@ class WebImageScraper:
             )
         return candidates
 
-    def _analyze_entities_and_queries(self, event: NewsEvent) -> tuple[str | None, list[str]]:
-        """Identify main person (e.g. Abiy Ahmed) and 2-3 specific English photo search queries."""
-        # 1. Try LLM entity extraction via AgentRouter
+    def analyze_story(
+        self, event: NewsEvent, custom_query: str | None = None
+    ) -> tuple[str, str | None, list[str], list[str]]:
+        """Deeply understand news story: returns (topic, main_person, photo_queries, suggested_chips)."""
+        if custom_query and custom_query.strip():
+            cq = custom_query.strip()
+            cq_lower = cq.lower()
+            main_person = None
+            for keywords, name in [
+                (("ዐቢይ", "አብይ", "ጠቅላይ ሚኒስትር", "abiy", "prime minister"), "Abiy Ahmed"),
+                (("ሽመልስ", "shimelis"), "Shimelis Abdisa"),
+                (("ታየ አጽቀ", "taye atske"), "Taye Atske Selassie"),
+                (("ሳህለወርቅ", "sahle-work"), "Sahle-Work Zewde"),
+                (("አዳነች አቤቤ", "adanech"), "Adanech Abebe"),
+                (("ሃይለማሪያም", "hailemariam"), "Hailemariam Desalegn"),
+                (("ቴዲ አፍሮ", "teddy afro"), "Teddy Afro"),
+                (("ደመቀ መኮንን", "demeke mekonnen"), "Demeke Mekonnen"),
+                (("ዳንጎቴ", "dangote"), "Aliko Dangote"),
+            ]:
+                if any(k in cq_lower for k in keywords):
+                    main_person = name
+                    break
+
+            if main_person:
+                queries = [f"{main_person} Ethiopia", f"{main_person} news", f"{main_person} official portrait"]
+                chips = [main_person, "Ethiopia leadership", "News photo"]
+            else:
+                queries = [cq, f"{cq} Ethiopia news", f"Contemporary {cq}"]
+                chips = [cq, f"{cq} news", "Ethiopia"]
+            return cq, main_person, queries, chips
+
+        # Story understanding for event without custom query
+        cache_key = str(event.id)
+        if cache_key in self._analysis_cache:
+            return self._analysis_cache[cache_key]
+
+        topic: str | None = None
+        main_person: str | None = None
+        queries: list[str] = []
+        chips: list[str] = []
+
+        # 1. LLM entity & topic extraction via AgentRouter / Gemini
         if self.text_provider and self.text_provider.is_available():
             try:
                 prompt = (
                     "You are a photo desk editor for a newsroom in Ethiopia.\n"
                     f"Headline: {event.title}\n"
-                    f"Summary: {(event.summary or '')[:350]}\n"
-                    "Extract the main individual person (if the story is about a specific leader, minister, president, "
-                    "or public figure) and 3 photographic search queries in English.\n"
+                    f"Summary: {(event.summary or '')[:450]}\n"
+                    f"Category: {event.primary_category or 'General'}, Region: {event.primary_region or 'Ethiopia'}\n\n"
+                    "Extract the main topic, central person (if any), 3 photo search queries in English, and 3 suggested filter chips.\n"
                     "Output JSON only:\n"
                     "{\n"
+                    '  "topic": "Concise English editorial topic",\n'
                     '  "main_person": "Full English Name or null",\n'
-                    '  "queries": ["query 1", "query 2", "query 3"]\n'
+                    '  "queries": ["query 1", "query 2", "query 3"],\n'
+                    '  "suggested_chips": ["chip 1", "chip 2", "chip 3"]\n'
                     "}"
                 )
                 req = TextGenerationRequest(prompt=prompt)
@@ -231,75 +251,129 @@ class WebImageScraper:
                 match = re.search(r"\{.*\}", res.text, re.DOTALL)
                 if match:
                     parsed = json.loads(match.group(0))
-                    person = parsed.get("main_person")
-                    if person and person.strip().lower() in ("null", "none"):
-                        person = None
-                    queries = parsed.get("queries") or []
-                    if isinstance(queries, list) and queries:
-                        clean_q = [str(q).strip() for q in queries if str(q).strip()][:3]
-                        if person:
-                            return person.strip(), clean_q
-                        if clean_q:
-                            return None, clean_q
+                    t = str(parsed.get("topic") or "").strip()
+                    p = parsed.get("main_person")
+                    if p and str(p).strip().lower() in ("null", "none", ""):
+                        p = None
+                    raw_q = parsed.get("queries") or parsed.get("photo_queries") or parsed.get("search_queries") or []
+                    clean_q = [str(q).strip() for q in raw_q if str(q).strip()][:3]
+                    raw_c = parsed.get("suggested_chips") or parsed.get("chips") or []
+                    clean_c = [str(c).strip() for c in raw_c if str(c).strip()][:4]
+                    if t:
+                        topic = t
+                    if p:
+                        main_person = str(p).strip()
+                    if clean_q:
+                        queries = clean_q
+                    if clean_c:
+                        chips = clean_c
             except Exception as exc:
-                logger.warning("llm_entity_query_failed", error=str(exc))
+                logger.warning("llm_story_analysis_failed", error=str(exc))
 
-        # 2. Heuristic person detection
+        # 2. Heuristic person detection if not identified by LLM
         text = f"{event.title or ''} {event.summary or ''}".lower()
-        person_map = {
-            ("ዐቢይ", "አብይ", "ጠቅላይ ሚኒስትር", "abiy", "prime minister"): "Abiy Ahmed",
-            ("ሽመልስ", "shimelis"): "Shimelis Abdisa",
-            ("ታየ አጽቀ", "taye atske"): "Taye Atske Selassie",
-            ("ሳህለወርቅ", "sahle-work"): "Sahle-Work Zewde",
-            ("አዳነች አቤቤ", "adanech"): "Adanech Abebe",
-            ("ሃይለማሪያም", "hailemariam"): "Hailemariam Desalegn",
-            ("ቴዲ አፍሮ", "teddy afro"): "Teddy Afro",
-            ("ደመቀ መኮንን", "demeke mekonnen"): "Demeke Mekonnen",
-        }
-        main_person = None
-        for keywords, name in person_map.items():
-            if any(k in text for k in keywords):
-                main_person = name
-                break
+        if not main_person:
+            person_map = {
+                ("ዐቢይ", "አብይ", "ጠቅላይ ሚኒስትር", "abiy", "prime minister"): "Abiy Ahmed",
+                ("ሽመልስ", "shimelis"): "Shimelis Abdisa",
+                ("ታየ አጽቀ", "taye atske"): "Taye Atske Selassie",
+                ("ሳህለወርቅ", "sahle-work"): "Sahle-Work Zewde",
+                ("አዳነች አቤቤ", "adanech"): "Adanech Abebe",
+                ("ሃይለማሪያም", "hailemariam"): "Hailemariam Desalegn",
+                ("ቴዲ አፍሮ", "teddy afro"): "Teddy Afro",
+                ("ደመቀ መኮንን", "demeke mekonnen"): "Demeke Mekonnen",
+                ("ዳንጎቴ", "dangote"): "Aliko Dangote",
+            }
+            for keywords, name in person_map.items():
+                if any(k in text for k in keywords):
+                    main_person = name
+                    break
 
-        # 3. Heuristic topic fallback
-        amharic_entities = {
-            "ንግድ ባንክ": "Commercial Bank of Ethiopia",
-            "ብሔራዊ ባንክ": "National Bank of Ethiopia",
-            "ሞጆ": "Modjo dry port Ethiopia logistics",
-            "አየር መንገድ": "Ethiopian Airlines Addis Ababa",
-            "ቴሌኮም": "Ethio telecom Addis Ababa",
-            "ህዳሴ ግድብ": "Grand Ethiopian Renaissance Dam GERD",
-            "እሳት": "Addis Ababa fire emergency rescue",
-            "ዋጋ ግሽበት": "Ethiopian market economy currency",
-        }
-        queries = []
-        if main_person:
+        # 3. Topic & query fallback if not identified by LLM
+        if main_person and not queries:
             queries = [
                 f"{main_person} Ethiopia",
                 f"{main_person} official portrait",
                 f"Prime Minister {main_person}",
             ]
-        else:
-            for amh_k, en_v in amharic_entities.items():
-                if amh_k in text:
-                    queries = [en_v, f"{en_v} contemporary"]
+            if not topic:
+                topic = f"Prime Minister {main_person}" if main_person == "Abiy Ahmed" else f"{main_person} Leadership"
+
+        if not topic:
+            amharic_entities = {
+                ("ንግድ ባንክ", "cbe", "commercial bank"): ("Commercial Bank of Ethiopia", "Commercial Bank of Ethiopia headquarters"),
+                ("ብሔራዊ ባንክ", "nbe", "national bank"): ("National Bank of Ethiopia", "National Bank of Ethiopia"),
+                ("ሞጆ", "modjo", "mojo"): ("Modjo Logistics & Dry Port", "Modjo dry port Ethiopia logistics"),
+                ("አየር መንገድ", "airlines", "airline", "flight"): ("Ethiopian Airlines & Aviation", "Ethiopian Airlines Addis Ababa"),
+                ("ቴሌኮም", "telecom", "safari"): ("Ethio Telecom & Technology", "Ethio telecom Addis Ababa"),
+                ("ህዳሴ ግድብ", "ህዳሴ", "ዓባይ", "gerd", "dam"): ("Grand Ethiopian Renaissance Dam", "Grand Ethiopian Renaissance Dam GERD"),
+                ("እሳት", "አደጋ", "fire", "rescue"): ("Fire & Emergency Services", "Addis Ababa fire emergency rescue"),
+                ("ዋጋ ግሽበት", "inflation", "ብር", "birr"): ("Ethiopian Economy & Currency", "Ethiopian market economy currency"),
+            }
+            for keywords, (top_name, default_query) in amharic_entities.items():
+                if any(k in text for k in keywords):
+                    topic = top_name
+                    if not queries:
+                        queries = [default_query, f"{top_name} contemporary", f"{top_name} news"]
                     break
 
-        if not queries:
+        # 4. Regional fallback if still no topic
+        if not topic:
+            region_topics = {
+                "tigray": ("Tigray Region", ["Tigray Ethiopia", "Mekelle city Ethiopia"]),
+                "amhara": ("Amhara Region", ["Amhara Ethiopia", "Bahir Dar Lake Tana"]),
+                "oromia": ("Oromia Region", ["Oromia Ethiopia", "Adama city Ethiopia"]),
+                "somali": ("Somali Region", ["Somali Region Ethiopia", "Jijiga Ethiopia"]),
+                "afar": ("Afar Region", ["Afar Region Ethiopia", "Danakil Ethiopia"]),
+                "sidama": ("Sidama Region", ["Sidama Region Ethiopia", "Hawassa Ethiopia"]),
+                "dire dawa": ("Dire Dawa", ["Dire Dawa Ethiopia", "Dire Dawa city"]),
+            }
+            for rk, (rtopic, rfacets) in region_topics.items():
+                if rk in text:
+                    topic = rtopic
+                    if not queries:
+                        queries = rfacets
+                    break
+
+        # 5. Default topic from title or region
+        if not topic:
             clean_words = [
                 w for w in re.split(r"\W+", event.title or "")
                 if len(w) > 3 and not re.search(r"[\u1200-\u137F]", w)
             ]
             if clean_words:
-                core = " ".join(clean_words[:4])
-                queries = [f"{core} Ethiopia", f"{core} Addis Ababa"]
+                subj = " ".join(clean_words[:4])
+                topic = f"{subj}"
+                if not queries:
+                    queries = [f"{subj} Ethiopia", f"{subj} news", f"{subj} Addis Ababa"]
             else:
-                queries = [
-                    f"{event.primary_region or 'Addis Ababa'} Ethiopia",
-                    f"Ethiopia {event.primary_category or 'economy'}",
-                ]
+                topic = f"{event.primary_region or 'Addis Ababa'} News"
+                if not queries:
+                    queries = [f"{event.primary_region or 'Addis Ababa'} Ethiopia", f"Ethiopia {event.primary_category or 'economy'}"]
 
+        if not queries:
+            if main_person:
+                queries = [f"{main_person} Ethiopia", f"{main_person} official portrait", f"Prime Minister {main_person}"]
+            else:
+                queries = [f"{topic} Ethiopia", f"{topic} news"]
+
+        if not chips:
+            chips = []
+            if main_person:
+                chips.append(main_person)
+            chips.append(topic.split()[0] if topic else "Ethiopia")
+            if event.primary_region and event.primary_region not in chips:
+                chips.append(event.primary_region)
+            if event.primary_category and event.primary_category.title() not in chips:
+                chips.append(event.primary_category.title())
+
+        result = (topic, main_person, queries, chips)
+        self._analysis_cache[cache_key] = result
+        return result
+
+    def _analyze_entities_and_queries(self, event: NewsEvent) -> tuple[str | None, list[str]]:
+        """Backward-compatible helper returning (main_person, queries)."""
+        _topic, main_person, queries, _chips = self.analyze_story(event)
         return main_person, queries
 
     def _search_person_photos(

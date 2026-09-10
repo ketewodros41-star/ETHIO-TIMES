@@ -156,3 +156,14 @@ def test_search_bing_relevance_filter():
         assert candidates[0].title == "Prime Minister Abiy Ahmed Speech"
         assert candidates[0].image_url == "https://example.com/abiy.jpg"
 
+
+def test_web_image_scraper_analyze_story(sample_event: NewsEvent):
+    scraper = WebImageScraper(text_provider=None)
+    topic, person, queries, chips = scraper.analyze_story(sample_event)
+    assert "Commercial Bank" in topic
+    assert person is None
+    assert len(queries) >= 1
+    assert any("Commercial Bank" in q for q in queries)
+    assert len(chips) >= 1
+
+

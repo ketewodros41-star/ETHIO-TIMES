@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ImageIcon, Sparkles, RefreshCw, Check, Palette, CheckCircle2,
-  Search, Camera, Bot, Globe, X, Newspaper, Trash2, ChevronLeft, ChevronRight,
+  Search, Camera, Bot, Globe, X, Newspaper, Trash2, ChevronLeft, ChevronRight, User,
 } from "lucide-react";
 import {
   FORMATS, PortraitPost, SquarePost, StoryPost, CarouselCard,
@@ -65,8 +65,16 @@ function AssetSourceBadge({ asset }: { asset: VisualAsset }) {
   );
 }
 
-function PhotoSearchDialog({ eventId, onClose, onSelect }: {
+function PhotoSearchDialog({
+  eventId,
+  eventTitle,
+  eventCategory,
+  onClose,
+  onSelect,
+}: {
   eventId: string;
+  eventTitle?: string;
+  eventCategory?: string | null;
   onClose: () => void;
   onSelect: (assetId: string) => void;
 }) {
@@ -77,6 +85,8 @@ function PhotoSearchDialog({ eventId, onClose, onSelect }: {
   const [hasNext, setHasNext] = useState(false);
   const [hasPrev, setHasPrev] = useState(false);
   const [topic, setTopic] = useState("");
+  const [detectedPerson, setDetectedPerson] = useState<string | null>(null);
+  const [suggestedChips, setSuggestedChips] = useState<string[]>([]);
   const [searching, setSearching] = useState(false);
   const [importingId, setImportingId] = useState<string | null>(null);
   const [results, setResults] = useState<PhotoCandidate[]>([]);
@@ -96,6 +106,8 @@ function PhotoSearchDialog({ eventId, onClose, onSelect }: {
       setHasNext(res.has_next);
       setHasPrev(res.has_prev);
       if (res.topic) setTopic(res.topic);
+      if (res.detected_person) setDetectedPerson(res.detected_person);
+      if (res.suggested_chips && res.suggested_chips.length > 0) setSuggestedChips(res.suggested_chips);
       setSearched(true);
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : "Failed to load photos");
@@ -145,11 +157,11 @@ function PhotoSearchDialog({ eventId, onClose, onSelect }: {
                   </Badge>
                 )}
               </div>
-              <p className="text-xs text-paper-400 mt-0.5">
-                {topic ? (
-                  <span>Browsing topic: <strong className="text-accent-green font-medium">&ldquo;{topic}&rdquo;</strong>. Click any image to import to Studio.</span>
+              <p className="text-xs text-paper-400 mt-0.5 truncate max-w-lg">
+                {eventTitle ? (
+                  <span>Story: <strong className="text-paper-200 font-medium">&ldquo;{eventTitle}&rdquo;</strong></span>
                 ) : (
-                  "Browse web photos matching this story. Click any image to import it into your Photo Studio."
+                  "Browse authentic web photos matching this story. Click any image to import to Studio."
                 )}
               </p>
             </div>
@@ -159,14 +171,35 @@ function PhotoSearchDialog({ eventId, onClose, onSelect }: {
           </button>
         </div>
 
-        <div className="px-6 py-3.5 border-b border-ink-800 bg-ink-950/50">
+        {/* AI Story Understanding Banner */}
+        <div className="px-6 py-2.5 bg-accent-green/10 border-b border-accent-green/20 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2 text-xs">
+            <Sparkles className="h-4 w-4 text-accent-green shrink-0 animate-pulse" />
+            <span className="text-paper-400">Understood Topic:</span>
+            <strong className="text-accent-green font-medium">
+              {topic ? `"${topic}"` : "Analyzing article topic & key entities..."}
+            </strong>
+            {detectedPerson && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-purple-900/60 text-purple-200 border border-purple-700/50">
+                <User className="h-2.5 w-2.5" /> Person: {detectedPerson}
+              </span>
+            )}
+          </div>
+          {topic && (
+            <span className="text-[10px] font-mono text-paper-400">
+              Auto-matched to story &bull; No typing required
+            </span>
+          )}
+        </div>
+
+        <div className="px-6 py-3.5 border-b border-ink-800 bg-ink-950/50 space-y-2">
           <div className="flex gap-2">
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSearch(1, query)}
-              placeholder="Refine topic keywords (e.g. 'Mojo logistics', 'Addis Ababa', 'Ethiopian Airlines')..."
+              placeholder={topic ? `Filtered by story: "${topic}". Or type custom query...` : "Refine topic keywords..."}
               className="flex-1 h-9 rounded-card border border-ink-600 bg-ink-800 px-3 text-sm text-paper-100 focus:border-accent-green focus:outline-none placeholder:text-paper-600"
             />
             <Button size="sm" disabled={searching || !!importingId} onClick={() => handleSearch(1, query)}
@@ -174,9 +207,40 @@ function PhotoSearchDialog({ eventId, onClose, onSelect }: {
               {searching ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
               {searching ? "Searching..." : "Search"}
             </Button>
+            {query && (
+              <Button size="sm" variant="outline" disabled={searching} onClick={() => { setQuery(""); handleSearch(1, ""); }}
+                className="h-9 px-3 border-ink-700 text-paper-400 hover:text-paper-100 text-xs">
+                Reset to Story
+              </Button>
+            )}
           </div>
-          <p className="text-[11px] text-paper-500 mt-1.5 font-mono">
-            Direct article photos & Wikimedia Commons archives. No assets are saved until you choose one.
+
+          {/* Quick Suggested Filter Chips */}
+          {suggestedChips.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+              <span className="text-[10px] text-paper-500 font-mono">Suggested filters:</span>
+              {suggestedChips.map((chip) => (
+                <button
+                  key={chip}
+                  disabled={searching || !!importingId}
+                  onClick={() => {
+                    setQuery(chip);
+                    handleSearch(1, chip);
+                  }}
+                  className={`px-2 py-0.5 rounded-full text-[11px] transition-colors border ${
+                    query.toLowerCase() === chip.toLowerCase()
+                      ? "bg-accent-green/20 border-accent-green text-accent-green font-medium"
+                      : "bg-ink-800 hover:bg-ink-700 border-ink-700 text-paper-300 hover:text-paper-100"
+                  }`}
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <p className="text-[11px] text-paper-500 font-mono">
+            Direct article photos, Openverse & Wikimedia Commons archives. No assets are saved until you choose one.
           </p>
         </div>
 
@@ -448,6 +512,8 @@ function StudioContent() {
       {showPhotoSearch && selectedEventId && (
         <PhotoSearchDialog
           eventId={selectedEventId}
+          eventTitle={activeEvent?.title}
+          eventCategory={activeEvent?.primary_category}
           onClose={() => setShowPhotoSearch(false)}
           onSelect={(assetId) => {
             setSelectedAssetId(assetId);
