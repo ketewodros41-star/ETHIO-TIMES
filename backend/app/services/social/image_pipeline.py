@@ -218,7 +218,7 @@ class ImagePipeline:
         topic, facets, keywords = self._extract_topic_facets(event, query)
 
         # 2. Gather candidates from all available sources
-        pool = self._gather_candidate_pool(event, topic, facets, keywords, max_pool=30)
+        pool = self._gather_candidate_pool(event, topic, facets, keywords, max_pool=30, user_query=query)
 
         # 3. Store in cache
         _PHOTO_POOL_CACHE[cache_key] = (now, pool, topic)
@@ -297,6 +297,22 @@ class ImagePipeline:
             return topic, facets, keywords
 
         text = f"{event.title or ''} {event.summary or ''} {event.primary_category or ''} {event.primary_region or ''}".lower()
+
+        # 0. Prime Minister / Abiy Ahmed / Leadership / Politics / Government
+        if any(k in text for k in ["ዐቢይ", "አብይ", "ጠቅላይ ሚኒስትር", "መንግስት", "ፓርላማ", "ፕሬዝዳንት", "abiy", "prime minister", "president", "parliament"]):
+            topic = "Prime Minister Abiy Ahmed & Ethiopian Leadership"
+            facets = [
+                "Abiy Ahmed",
+                "Prime Minister of Ethiopia",
+                "Premiership of Abiy Ahmed",
+                "Council of Ministers of Abiy Ahmed",
+                "Government of Ethiopia",
+            ]
+            keywords = {
+                "abiy", "ahmed", "minister", "prime", "ethiopia", "president",
+                "government", "official", "parliament", "premiership", "leader", "speech"
+            }
+            return topic, facets, keywords
 
         # 1. Mojo / Modjo / Logistics / Port / Railway
         if any(k in text for k in ["ሞጆ", "modjo", "mojo", "ሎጂስቲክስ", "ደረቅ ወደብ", "port", "logistics"]):
@@ -427,16 +443,18 @@ class ImagePipeline:
         facets: list[str],
         keywords: set[str],
         max_pool: int = 30,
+        user_query: str | None = None,
     ) -> list[PhotoCandidate]:
         """Aggregate photos from all available sources with strict topic filtering."""
         import urllib.parse
         seen_urls: set[str] = set()
         pool: list[PhotoCandidate] = []
 
-        # --- Source 1: Live Web Image Scraper (Direct Article Media + Live Bing Photos + Firecrawl) ---
+        # --- Source 1: Live Web Image Scraper (Direct Article Media + Person Search + Live Web Photos + Firecrawl) ---
         try:
             scraper = WebImageScraper(self.director.provider)
-            live_candidates = scraper.search_candidates(event, custom_query=topic, max_pool=max_pool)
+            # Pass user_query only if explicitly provided; otherwise scraper performs entity/person extraction
+            live_candidates = scraper.search_candidates(event, custom_query=user_query, max_pool=max_pool)
             for cand in live_candidates:
                 if cand.image_url not in seen_urls:
                     seen_urls.add(cand.image_url)

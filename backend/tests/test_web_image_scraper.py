@@ -52,20 +52,34 @@ def test_web_image_scraper_extracts_article_photos(sample_event: NewsEvent):
 
 def test_web_image_scraper_heuristic_queries(sample_event: NewsEvent):
     scraper = WebImageScraper(text_provider=None)
-    queries = scraper._generate_visual_queries(sample_event)
+    person, queries = scraper._analyze_entities_and_queries(sample_event)
+    assert person is None
     assert len(queries) >= 1
-    assert any("Commercial" in q for q in queries)
+    assert any("Commercial Bank" in q for q in queries)
+
+
+def test_web_image_scraper_person_detection():
+    event = NewsEvent(
+        id=uuid.uuid4(),
+        title="ጠቅላይ ሚኒስትር ዐቢይ አሕመድ አዲስ ንግግር አደረጉ",
+        summary="ጠቅላይ ሚኒስትሩ በፓርላማ ተገኝተዋል",
+    )
+    scraper = WebImageScraper(text_provider=None)
+    person, queries = scraper._analyze_entities_and_queries(event)
+    assert person == "Abiy Ahmed"
+    assert any("Abiy Ahmed" in q for q in queries)
 
 
 def test_web_image_scraper_llm_queries(sample_event: NewsEvent):
     mock_provider = MagicMock()
     mock_provider.is_available.return_value = True
     mock_res = MagicMock()
-    mock_res.text = '["Commercial Bank of Ethiopia press conference", "CBE headquarters Addis Ababa"]'
+    mock_res.text = '{"main_person": null, "queries": ["Commercial Bank of Ethiopia press conference", "CBE headquarters"]}'
     mock_provider.generate_text.return_value = mock_res
 
     scraper = WebImageScraper(text_provider=mock_provider)
-    queries = scraper._generate_visual_queries(sample_event)
+    person, queries = scraper._analyze_entities_and_queries(sample_event)
+    assert person is None
     assert len(queries) == 2
     assert queries[0] == "Commercial Bank of Ethiopia press conference"
 

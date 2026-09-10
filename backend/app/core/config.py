@@ -134,6 +134,8 @@ class Settings(BaseSettings):
     agent_router_key: str | None = Field(default=None, alias="AGENT_ROUTER")
     agent_router_model: str = Field(default="deepseek-v4-flash")
     firecrawl_api_key: str | None = Field(default=None, alias="FIRECRAWL_API_KEY")
+    google_search_api_key: str | None = Field(default=None, alias="GOOGLE_SEARCH_API_KEY")
+    google_search_cx: str | None = Field(default=None, alias="GOOGLE_SEARCH_CX")
 
     # ---- Editorial (Phase 5) ----
     caption_max_chars: int = Field(default=2200)
