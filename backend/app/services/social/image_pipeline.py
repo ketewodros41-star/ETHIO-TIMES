@@ -14,6 +14,7 @@ from app.models.enums import VisualAssetStatus
 from app.models.news_event import NewsEvent
 from app.models.social_post import VisualAsset
 from app.repositories.visual_asset_repository import VisualAssetRepository
+from app.schemas.social_post import PhotoCandidate, SelectCandidateRequest
 from app.services.social.editorial_engine import EditorialBrief
 from app.services.social.image_critic import ImageCritic
 from app.services.social.prompt_engine import PromptEngine
@@ -125,12 +126,20 @@ class ImagePipeline:
         # If article photo not available or download failed, search Wikipedia for a real photo
         if not image_bytes:
             logger.info("article_photo_unavailable_trying_wikimedia", event_id=str(event.id))
-            wiki_assets = self.search_wikimedia(event)
-            if wiki_assets:
-                self.asset_repo.mark_selected(wiki_assets[0].id)
+            candidates = self.browse_photos(event)
+            if candidates:
+                c0 = candidates[0]
+                req = SelectCandidateRequest(
+                    event_id=event.id,
+                    image_url=c0.image_url,
+                    title=c0.title,
+                    photographer=c0.photographer,
+                    source=c0.source,
+                )
+                asset = self.import_candidate(event, req)
                 return ImagePipelineResult(
-                    selected_asset=wiki_assets[0],
-                    all_assets=wiki_assets,
+                    selected_asset=asset,
+                    all_assets=[asset],
                     attempts=1,
                 )
 
@@ -171,81 +180,172 @@ class ImagePipeline:
         )
 
     # ------------------------------------------------------------------
-    # Public entry: Pexels & Wikimedia photo search
+    # Public entry: Topic-based Internet Photo Browsing (6 Alternatives)
     # ------------------------------------------------------------------
-    def search_pexels(self, event: NewsEvent, query: str | None = None) -> list[VisualAsset]:
-        """Search Pexels for editorial photos matching the story. Falls back to Wikimedia."""
-        if not query:
-            query = self._build_pexels_query(event)
+    def browse_photos(self, event: NewsEvent, query: str | None = None) -> list[PhotoCandidate]:
+        """Search the internet for real photo alternatives based on the news topic.
 
+        Returns exactly up to 6 alternatives.
+        Candidate 1 is the real article photo if available.
+        Remaining candidates are high-res editorial photos from Wikimedia / Pexels.
+        DOES NOT save or persist to the database or filesystem.
+        """
+        topic = self._resolve_topic_query(event, query)
+        candidates: list[PhotoCandidate] = []
+        seen_urls: set[str] = set()
+
+        # 1. Candidate #1: Real article photo if linked
+        article_url = self._find_article_image_url(event)
+        if article_url and article_url.startswith("http"):
+            is_telegram = "t.me" in article_url or "telegram" in article_url.lower()
+            source_label = "telegram" if is_telegram else "article"
+            photographer = "Telegram Source" if is_telegram else "Article Source"
+            candidates.append(
+                PhotoCandidate(
+                    id="article-source-photo",
+                    title=event.title[:80],
+                    thumb_url=article_url,
+                    image_url=article_url,
+                    source=source_label,
+                    photographer=photographer,
+                    description="Original photo published with this news article",
+                )
+            )
+            seen_urls.add(article_url)
+
+        # 2. Query Wikimedia Commons / Wikipedia for topic photos
+        wiki_candidates = self._fetch_wiki_candidates(topic, seen_urls)
+        candidates.extend(wiki_candidates)
+
+        # 3. If fewer than 6, query a secondary fallback topic to reach 6
+        if len(candidates) < 6:
+            fallback_topic = (
+                f"{event.primary_region} Ethiopia"
+                if event.primary_region and event.primary_region.lower() not in topic.lower()
+                else "Addis Ababa Ethiopia"
+            )
+            if fallback_topic != topic:
+                extra_wiki = self._fetch_wiki_candidates(fallback_topic, seen_urls)
+                candidates.extend(extra_wiki)
+
+        # 4. If Pexels is configured, also fetch Pexels candidates
         pexels_key = getattr(settings, "pexels_api_key", None)
-        if pexels_key:
+        if pexels_key and len(candidates) < 6:
+            pexels_candidates = self._fetch_pexels_candidates(topic, pexels_key, seen_urls)
+            candidates.extend(pexels_candidates)
+
+        return candidates[:6]
+
+    def import_candidate(self, event: NewsEvent, req: SelectCandidateRequest) -> VisualAsset:
+        """Download ONLY the single candidate chosen by the user and import into Photo Studio."""
+        img_bytes = self._download_image(req.image_url)
+        asset = VisualAsset(
+            event_id=event.id,
+            prompt=f"Selected {req.source} photo: {req.title}",
+            visual_strategy={"strategy": f"{req.source}_selected", "title": req.title},
+            provider=req.source,
+            model=f"{req.source}/{req.photographer}",
+            style="Real Editorial Photo",
+            quality_score=90,
+            quality_report={
+                "image_source": req.source,
+                "title": req.title,
+                "photographer": req.photographer,
+                "source_url": req.image_url,
+                "issues": [],
+                "recommendation": "approve",
+            },
+            status=VisualAssetStatus.generated,
+            is_selected=True,
+        )
+        self.asset_repo.create(asset)
+        asset = self._persist_image(asset, img_bytes, req.image_url)
+        self.asset_repo.mark_selected(asset.id)
+        self.session.commit()
+        self.session.refresh(asset)
+        logger.info("imported_visual_candidate", asset_id=str(asset.id), event_id=str(event.id), source=req.source)
+        return asset
+
+    def _resolve_topic_query(self, event: NewsEvent, custom_query: str | None = None) -> str:
+        """Resolve a concise 2-4 word English topic search query for Wikipedia / Pexels."""
+        if custom_query and custom_query.strip():
+            q = custom_query.strip()
+            if "ethiopia" not in q.lower():
+                return f"{q} Ethiopia"
+            return q
+
+        # 1. Try AgentRouter text provider if available
+        if self.director.provider and self.director.provider.is_available():
             try:
-                with httpx.Client(timeout=15.0) as client:
-                    res = client.get(
-                        "https://api.pexels.com/v1/search",
-                        headers={"Authorization": pexels_key},
-                        params={"query": query, "per_page": 6, "orientation": "portrait"},
-                    )
-                    if res.status_code == 200:
-                        data = res.json()
-                        photos = data.get("photos", [])
-                        if photos:
-                            assets = []
-                            for photo in photos[:6]:
-                                img_url = photo.get("src", {}).get("portrait") or photo.get("src", {}).get("large")
-                                if not img_url:
-                                    continue
-                                img_bytes = self._download_image(img_url)
-                                if not img_bytes:
-                                    continue
-                                photographer = photo.get("photographer", "Pexels")
-                                asset = VisualAsset(
-                                    event_id=event.id,
-                                    prompt=f"Pexels search: {query}",
-                                    visual_strategy={"strategy": "pexels_photo", "pexels_id": photo.get("id")},
-                                    provider="pexels",
-                                    model=f"Pexels/{photographer}",
-                                    style="Real Editorial Photo",
-                                    quality_score=80,
-                                    quality_report={
-                                        "image_source": "pexels",
-                                        "pexels_id": photo.get("id"),
-                                        "photographer": photographer,
-                                        "pexels_url": photo.get("url"),
-                                        "query": query,
-                                        "issues": [],
-                                        "recommendation": "approve",
-                                    },
-                                    status=VisualAssetStatus.generated,
-                                    is_selected=False,
-                                )
-                                self.asset_repo.create(asset)
-                                asset = self._persist_image(asset, img_bytes, None)
-                                assets.append(asset)
-                            if assets:
-                                return assets
+                from app.integrations.ai.base import TextGenerationRequest
+                prompt = (
+                    f"Given this Ethiopian news story:\n"
+                    f"Headline: {event.title}\n"
+                    f"Summary: {event.summary or ''}\n\n"
+                    "Extract a 2 to 4 word English search topic to find relevant editorial photos on Wikipedia (e.g. 'Mojo dry port Ethiopia', 'GERD dam Ethiopia', 'Addis Ababa light rail', 'Ethiopia coffee harvest').\n"
+                    "Output ONLY the search keywords without quotes or punctuation."
+                )
+                res = self.director.provider.generate_text(
+                    TextGenerationRequest(prompt=prompt, max_tokens=1024, temperature=0.1)
+                )
+                topic = res.text.strip().replace('"', '').replace("'", "")
+                topic = topic.split("\n")[0].strip()
+                if len(topic) >= 3 and len(topic) <= 60:
+                    if "ethiopia" not in topic.lower():
+                        topic = f"{topic} Ethiopia"
+                    logger.info("resolved_topic_query_llm", topic=topic, event_id=str(event.id))
+                    return topic
             except Exception as exc:
-                logger.warning("pexels_request_failed_fallback_to_wikimedia", error=str(exc))
+                logger.warning("resolve_topic_llm_failed_fallback", error=str(exc))
 
-        # Fallback to Wikimedia Commons / Wikipedia real photo search (no API key required)
-        return self.search_wikimedia(event, query=query)
+        # 2. Heuristic fallback based on keywords & entities
+        text = f"{event.title or ''} {event.summary or ''}".lower()
+        if any(k in text for k in ["ሞጆ", "modjo", "mojo", "ሎጂስቲክስ", "ደረቅ ወደብ"]):
+            return "Mojo dry port Ethiopia"
+        if any(k in text for k in ["ህዳሴ", "ግድብ", "ዓባይ", "abbay", "gerd", "nile"]):
+            return "Grand Ethiopian Renaissance Dam Ethiopia"
+        if any(k in text for k in ["ቴሌ", "ቴሌኮም", "telecom"]):
+            return "Ethio telecom Ethiopia"
+        if any(k in text for k in ["አየር መንገድ", "airlines", "flight"]):
+            return "Ethiopian Airlines"
+        if any(k in text for k in ["ዋጋ ግሽበት", "inflation", "ምንዛሪ", "exchange rate", "ብር"]):
+            return "Commercial Bank of Ethiopia"
+        if any(k in text for k in ["እሳት", "አደጋ", "fire"]):
+            return "Addis Ababa fire disaster Ethiopia"
+        if any(k in text for k in ["ትግራይ", "tigray", "መቐለ", "mekelle"]):
+            return "Tigray Ethiopia"
+        if any(k in text for k in ["አማራ", "amhara", "ጎንደር", "gondar", "ባህር ዳር", "bahir dar"]):
+            return "Amhara Ethiopia"
+        if any(k in text for k in ["ኦሮሚያ", "oromia", "አዳማ", "adama"]):
+            return "Oromia Ethiopia"
+        if any(k in text for k in ["ድሬዳዋ", "dire dawa"]):
+            return "Dire Dawa Ethiopia"
+        if any(k in text for k in ["ሀዋሳ", "ሐዋሳ", "hawassa"]):
+            return "Hawassa Ethiopia"
+        if any(k in text for k in ["ሶማሌ", "somali", "ጅጅጋ", "jijiga"]):
+            return "Somali Region Ethiopia"
+        if any(k in text for k in ["አፋር", "afar", "ሰመራ", "semera"]):
+            return "Afar Ethiopia"
 
-    def search_wikimedia(self, event: NewsEvent, query: str | None = None) -> list[VisualAsset]:
-        """Search Wikipedia / Wikimedia Commons for real, high-resolution editorial photos. 100% free."""
+        if event.primary_region:
+            return f"{event.primary_region} Ethiopia"
+        if event.primary_category and event.primary_category.lower() not in ["general", "news"]:
+            return f"{event.primary_category} Ethiopia"
+
+        return "Addis Ababa Ethiopia"
+
+    def _fetch_wiki_candidates(self, query: str, seen_urls: set[str]) -> list[PhotoCandidate]:
+        """Fetch editorial photo candidates from Wikipedia."""
         import urllib.parse
-        if not query:
-            # Build query from region or title keywords
-            query = event.primary_region or (event.title or "Ethiopia").split()[0]
-            if "ethiopia" not in query.lower():
-                query = f"{query} Ethiopia"
-
         url = (
             f"https://en.wikipedia.org/w/api.php?action=query&generator=search"
-            f"&gsrsearch={urllib.parse.quote(query)}&gsrlimit=6&prop=pageimages&pithumbsize=1200&format=json"
+            f"&gsrsearch={urllib.parse.quote(query)}&gsrlimit=12"
+            f"&prop=pageimages|extracts&pithumbsize=1000&exintro=1&explaintext=1&exsentences=2&format=json"
         )
-        headers = {"User-Agent": "ETHIOTIMESBot/1.0 (editorial-studio@ethiotimes.org)"}
-
+        headers = {
+            "User-Agent": "ETHIOTIMESBot/1.0 (editorial-studio@ethiotimes.org; contact: info@ethiotimes.com)"
+        }
+        candidates: list[PhotoCandidate] = []
         try:
             with httpx.Client(timeout=12.0) as client:
                 res = client.get(url, headers=headers)
@@ -254,46 +354,89 @@ class ImagePipeline:
                 data = res.json()
                 pages = data.get("query", {}).get("pages", {})
         except Exception as exc:
-            logger.warning("wikimedia_search_failed", error=str(exc))
+            logger.warning("wiki_candidate_fetch_failed", query=query, error=str(exc))
             return []
 
-        assets: list[VisualAsset] = []
         for pid, p in pages.items():
-            thumb = p.get("thumbnail", {})
-            img_url = thumb.get("source")
-            if not img_url:
+            thumb = p.get("thumbnail", {}).get("source")
+            if not thumb or thumb in seen_urls:
                 continue
-
-            img_bytes = self._download_image(img_url)
-            if not img_bytes:
+            thumb_lower = thumb.lower()
+            if ".svg" in thumb_lower or ".gif" in thumb_lower:
                 continue
 
             title = p.get("title", "Ethiopian Photo")
-            asset = VisualAsset(
-                event_id=event.id,
-                prompt=f"Wikimedia Commons photo: {title}",
-                visual_strategy={"strategy": "wikimedia_photo", "page_id": pid},
-                provider="wikimedia",
-                model="Wikimedia Commons",
-                style="Real Photograph",
-                quality_score=85,
-                quality_report={
-                    "image_source": "wikimedia",
-                    "photographer": "Wikimedia Commons",
-                    "title": title,
-                    "source_url": img_url,
-                    "query": query,
-                    "issues": [],
-                    "recommendation": "approve",
-                },
-                status=VisualAssetStatus.generated,
-                is_selected=False,
-            )
-            self.asset_repo.create(asset)
-            asset = self._persist_image(asset, img_bytes, None)
-            assets.append(asset)
+            extract = p.get("extract", "")
 
+            combined = (title + " " + extract).lower()
+            if "ethiopia" not in combined and "addis" not in combined and "amharic" not in combined and "oromo" not in combined and "tigray" not in combined:
+                continue
+
+            seen_urls.add(thumb)
+            candidates.append(
+                PhotoCandidate(
+                    id=f"wiki-{pid}",
+                    title=title,
+                    thumb_url=thumb,
+                    image_url=thumb,
+                    source="wikimedia",
+                    photographer="Wikimedia Commons",
+                    description=extract[:140] if extract else None,
+                )
+            )
+        return candidates
+
+    def _fetch_pexels_candidates(self, query: str, api_key: str, seen_urls: set[str]) -> list[PhotoCandidate]:
+        """Fetch photo candidates from Pexels."""
+        candidates: list[PhotoCandidate] = []
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                res = client.get(
+                    "https://api.pexels.com/v1/search",
+                    headers={"Authorization": api_key},
+                    params={"query": query, "per_page": 6, "orientation": "portrait"},
+                )
+                if res.status_code == 200:
+                    data = res.json()
+                    for photo in data.get("photos", []):
+                        img_url = photo.get("src", {}).get("portrait") or photo.get("src", {}).get("large")
+                        if not img_url or img_url in seen_urls:
+                            continue
+                        seen_urls.add(img_url)
+                        photographer = photo.get("photographer", "Pexels")
+                        candidates.append(
+                            PhotoCandidate(
+                                id=f"pexels-{photo.get('id')}",
+                                title=f"Photo by {photographer}",
+                                thumb_url=photo.get("src", {}).get("medium") or img_url,
+                                image_url=img_url,
+                                source="pexels",
+                                photographer=photographer,
+                                description=f"Editorial photo via Pexels for '{query}'",
+                            )
+                        )
+        except Exception as exc:
+            logger.warning("pexels_candidate_fetch_failed", error=str(exc))
+        return candidates
+
+    # Legacy support
+    def search_pexels(self, event: NewsEvent, query: str | None = None) -> list[VisualAsset]:
+        candidates = self.browse_photos(event, query=query)
+        assets = []
+        for c in candidates:
+            req = SelectCandidateRequest(
+                event_id=event.id,
+                image_url=c.image_url,
+                title=c.title,
+                photographer=c.photographer,
+                source=c.source,
+            )
+            assets.append(self.import_candidate(event, req))
         return assets
+
+    def search_wikimedia(self, event: NewsEvent, query: str | None = None) -> list[VisualAsset]:
+        return self.search_pexels(event, query=query)
+
 
     # ------------------------------------------------------------------
     # Helpers

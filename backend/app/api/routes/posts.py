@@ -19,6 +19,8 @@ from app.schemas.common import Page, PageMeta
 from app.schemas.social_post import (
     ComposeTaskResponse,
     EligibilityCheck,
+    PhotoCandidate,
+    SelectCandidateRequest,
     SocialPostCompose,
     SocialPostPatch,
     SocialPostRead,
@@ -121,6 +123,54 @@ def trigger_generate_asset(
         background_tasks=background_tasks,
     )
     return ComposeTaskResponse(task_id=task_id, post_id=None, message="image generation queued")
+
+
+@router.get("/assets/browse-photos", response_model=list[PhotoCandidate])
+def browse_photos_endpoint(
+    event_id: uuid.UUID,
+    query: str | None = None,
+    session: Session = Depends(get_db),
+) -> list[PhotoCandidate]:
+    """Search internet for 6 real photo alternatives based on the news story topic without saving to DB."""
+    from app.integrations.ai.registry import get_text_provider, get_image_provider
+    from app.repositories.event_repository import EventRepository
+    from app.services.social.image_pipeline import ImagePipeline
+
+    event_repo = EventRepository(session)
+    event = event_repo.get_with_articles(event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    pipeline = ImagePipeline(
+        session=session,
+        text_provider=get_text_provider(),
+        image_provider=get_image_provider(),
+    )
+    return pipeline.browse_photos(event, query=query)
+
+
+@router.post("/assets/select-candidate", response_model=VisualAssetRead)
+def select_candidate_endpoint(
+    body: SelectCandidateRequest,
+    session: Session = Depends(get_db),
+) -> VisualAssetRead:
+    """Download only the chosen photo candidate, save as VisualAsset in Photo Studio, and mark selected."""
+    from app.integrations.ai.registry import get_text_provider, get_image_provider
+    from app.repositories.event_repository import EventRepository
+    from app.services.social.image_pipeline import ImagePipeline
+
+    event_repo = EventRepository(session)
+    event = event_repo.get_with_articles(body.event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    pipeline = ImagePipeline(
+        session=session,
+        text_provider=get_text_provider(),
+        image_provider=get_image_provider(),
+    )
+    asset = pipeline.import_candidate(event, body)
+    return VisualAssetRead.model_validate(asset)
 
 
 @router.post("/assets/search-photos", response_model=list[VisualAssetRead])

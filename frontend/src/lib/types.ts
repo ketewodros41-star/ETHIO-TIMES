@@ -390,3 +390,21 @@ export interface ComposeTaskResponse {
   post_id: string | null;
   message: string;
 }
+
+export interface PhotoCandidate {
+  id: string;
+  title: string;
+  thumb_url: string;
+  image_url: string;
+  source: string;
+  photographer: string;
+  description?: string | null;
+}
+
+export interface SelectCandidateRequest {
+  event_id: string;
+  image_url: string;
+  title: string;
+  photographer: string;
+  source: string;
+}

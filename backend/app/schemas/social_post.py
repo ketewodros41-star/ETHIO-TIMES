@@ -95,3 +95,21 @@ class ComposeTaskResponse(BaseModel):
     task_id: str
     post_id: uuid.UUID | None  # None when async via Celery
     message: str
+
+
+class PhotoCandidate(BaseModel):
+    id: str
+    title: str
+    thumb_url: str
+    image_url: str
+    source: str  # "telegram" | "wikimedia" | "pexels"
+    photographer: str
+    description: str | None = None
+
+
+class SelectCandidateRequest(BaseModel):
+    event_id: uuid.UUID
+    image_url: str
+    title: str = "Editorial Photo"
+    photographer: str = "Wikimedia Commons"
+    source: str = "wikimedia"

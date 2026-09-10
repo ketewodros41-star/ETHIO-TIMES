@@ -150,6 +150,13 @@ export const postsApi = {
     request<import('./types').ComposeTaskResponse>(`/posts/assets/generate${qs({ event_id })}`, { method: "POST" }),
   fetchArticlePhoto: (event_id: string) =>
     request<import('./types').ComposeTaskResponse>(`/posts/assets/fetch-article-photo${qs({ event_id })}`, { method: "POST" }),
+  browsePhotos: (eventId: string, query?: string) =>
+    request<import('./types').PhotoCandidate[]>(`/posts/assets/browse-photos${qs({ event_id: eventId, ...(query ? { query } : {}) })}`),
+  selectCandidate: (body: import('./types').SelectCandidateRequest) =>
+    request<import('./types').VisualAsset>('/posts/assets/select-candidate', {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   searchPhotos: (event_id: string, query?: string) =>
     request<import('./types').VisualAsset[]>(`/posts/assets/search-photos${qs({ event_id, ...(query ? { query } : {}) })}`, { method: "POST" }),
   listAssets: (event_id: string) =>
@@ -159,6 +166,7 @@ export const postsApi = {
   deleteAsset: (asset_id: string) =>
     request<void>(`/posts/assets/${asset_id}`, { method: "DELETE" }),
 };
+
 
 export const eventsApi = {
   latestTimestamp: () =>

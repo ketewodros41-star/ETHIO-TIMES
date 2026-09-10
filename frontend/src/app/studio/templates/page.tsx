@@ -17,7 +17,7 @@ import {
   THEMES, THEME_IDS,
   type InstagramFormat, type ThemeId, type PostTemplateData, type CarouselSlideData,
 } from "@/templates/instagram";
-import type { VisualAsset } from "@/lib/types";
+import type { VisualAsset, PhotoCandidate } from "@/lib/types";
 
 const SAMPLE: PostTemplateData = {
   category: "Economy",
@@ -72,16 +72,20 @@ function PhotoSearchDialog({ eventId, onClose, onSelect }: {
 }) {
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
-  const [results, setResults] = useState<VisualAsset[]>([]);
+  const [importingId, setImportingId] = useState<string | null>(null);
+  const [results, setResults] = useState<PhotoCandidate[]>([]);
   const [searched, setSearched] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleSearch = async () => {
     setSearching(true);
+    setErrorMsg(null);
     try {
-      const assets = await postsApi.searchPhotos(eventId, query || undefined);
-      setResults(assets);
+      const candidates = await postsApi.browsePhotos(eventId, query || undefined);
+      setResults(candidates);
       setSearched(true);
-    } catch {
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : "Failed to load photos");
       setResults([]);
       setSearched(true);
     } finally {
@@ -89,83 +93,178 @@ function PhotoSearchDialog({ eventId, onClose, onSelect }: {
     }
   };
 
+  const handleSelectCandidate = async (candidate: PhotoCandidate) => {
+    setImportingId(candidate.id);
+    setErrorMsg(null);
+    try {
+      const asset = await postsApi.selectCandidate({
+        event_id: eventId,
+        image_url: candidate.image_url,
+        title: candidate.title,
+        photographer: candidate.photographer,
+        source: candidate.source,
+      });
+      onSelect(asset.id);
+      onClose();
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : "Failed to import selected photo");
+      setImportingId(null);
+    }
+  };
+
   useEffect(() => { handleSearch(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="w-full max-w-2xl bg-ink-900 border border-ink-700 rounded-card shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-ink-700">
-          <div className="flex items-center gap-2">
-            <Globe className="h-4 w-4 text-blue-400" />
-            <span className="font-semibold text-sm text-paper-100">Find Real Photos</span>
-            <Badge variant="muted" className="text-[10px] font-mono">Pexels & Wikimedia</Badge>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+      <div className="w-full max-w-3xl bg-ink-900 border border-ink-700 rounded-card shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-ink-700">
+          <div className="flex items-center gap-2.5">
+            <Globe className="h-5 w-5 text-accent-green" />
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-base text-paper-100">Topic-Based Internet Photo Browsing</span>
+                <Badge variant="green" className="text-[10px] font-mono">
+                  6 Alternatives
+                </Badge>
+
+              </div>
+              <p className="text-xs text-paper-400 mt-0.5">
+                Browse web photos matching this story. Click any image to import it into your Photo Studio.
+              </p>
+            </div>
           </div>
-          <button onClick={onClose} className="text-paper-500 hover:text-paper-200">
-            <X className="h-4 w-4" />
+          <button onClick={onClose} className="text-paper-500 hover:text-paper-200 transition-colors p-1">
+            <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="px-5 py-3 border-b border-ink-800">
+
+        <div className="px-6 py-3.5 border-b border-ink-800 bg-ink-950/50">
           <div className="flex gap-2">
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              placeholder="Refine search (e.g. 'Addis Ababa politics', 'Ethiopian community')..."
-              className="flex-1 h-9 rounded-card border border-ink-600 bg-ink-800 px-3 text-sm text-paper-100 focus:border-blue-500 focus:outline-none placeholder:text-paper-600"
+              placeholder="Refine topic keywords (e.g. 'Mojo logistics', 'Addis Ababa', 'Ethiopian Airlines')..."
+              className="flex-1 h-9 rounded-card border border-ink-600 bg-ink-800 px-3 text-sm text-paper-100 focus:border-accent-green focus:outline-none placeholder:text-paper-600"
             />
-            <Button size="sm" disabled={searching} onClick={handleSearch}
-              className="h-9 px-4 bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-1.5">
+            <Button size="sm" disabled={searching || !!importingId} onClick={handleSearch}
+              className="h-9 px-4 bg-accent-green text-ink-950 font-semibold hover:bg-accent-green/90 flex items-center gap-1.5">
               {searching ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
               {searching ? "Searching..." : "Search"}
             </Button>
           </div>
-          <p className="text-[10px] text-paper-600 mt-1.5 font-mono">Photos from Pexels — editorial use. Photographer credited on each card.</p>
+          <p className="text-[11px] text-paper-500 mt-1.5 font-mono">
+            Direct article photos & Wikimedia Commons archives. No assets are saved until you choose one.
+          </p>
         </div>
-        <div className="px-5 py-4 max-h-96 overflow-y-auto">
+
+        <div className="px-6 py-5 overflow-y-auto flex-1">
+          {errorMsg && (
+            <div className="mb-4 p-3 rounded-card bg-red-950/40 border border-red-800/60 text-xs text-red-300">
+              {errorMsg}
+            </div>
+          )}
+
           {searching && (
-            <div className="py-10 text-center">
-              <RefreshCw className="h-6 w-6 animate-spin text-blue-400 mx-auto mb-2" />
-              <p className="text-xs text-paper-500">Searching editorial photo library...</p>
+            <div className="py-16 text-center space-y-3">
+              <RefreshCw className="h-8 w-8 animate-spin text-accent-green mx-auto" />
+              <p className="text-sm text-paper-300 font-medium">Searching internet for 6 topic-matched alternatives...</p>
+              <p className="text-xs text-paper-500 font-mono">Analyzing story entities and querying editorial archives</p>
             </div>
           )}
+
           {!searching && searched && results.length === 0 && (
-            <div className="py-10 text-center space-y-2">
-              <Globe className="h-8 w-8 text-paper-700 mx-auto" />
-              <p className="text-xs text-paper-500">No photos found. Try a different search, or add PEXELS_API_KEY to your .env file.</p>
+            <div className="py-16 text-center space-y-3">
+              <Globe className="h-10 w-10 text-paper-700 mx-auto" />
+              <p className="text-sm text-paper-300">No matching photos found on the web.</p>
+              <p className="text-xs text-paper-500">Try refining the search query above with different English keywords.</p>
             </div>
           )}
+
           {!searching && results.length > 0 && (
-            <>
-              <p className="text-[10px] text-paper-500 mb-3 font-mono">{results.length} photos found — click to use as background</p>
-              <div className="grid grid-cols-3 gap-3">
-                {results.map((asset) => {
-                  const report = asset.quality_report as Record<string, string> | null;
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs text-paper-400 font-mono">
+                <span>Showing {results.length} internet photo alternatives:</span>
+                <span className="text-[11px] text-accent-green font-semibold">Select 1 photo to import to Studio</span>
+              </div>
+              <div className="grid grid-cols-3 gap-3.5">
+                {results.map((c) => {
+                  const isImporting = importingId === c.id;
                   return (
-                    <div key={asset.id}
-                      onClick={() => { onSelect(asset.id); onClose(); }}
-                      className="group cursor-pointer overflow-hidden rounded-card border border-ink-700 hover:border-blue-500 transition-all">
-                      <div className="aspect-[4/5] w-full overflow-hidden bg-ink-900 relative">
-                        {asset.storage_url
-                          // eslint-disable-next-line @next/next/no-img-element
-                          ? <img src={asset.storage_url} alt="Photo" className="h-full w-full object-cover transition-transform group-hover:scale-105" />
-                          : <div className="h-full w-full flex items-center justify-center"><RefreshCw className="h-4 w-4 animate-spin text-paper-600" /></div>
-                        }
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
-                          <span className="text-[10px] text-white font-semibold">Select photo</span>
+                    <div
+                      key={c.id}
+                      onClick={() => !importingId && handleSelectCandidate(c)}
+                      className={`group cursor-pointer overflow-hidden rounded-card border transition-all duration-200 bg-ink-950 flex flex-col ${
+                        isImporting
+                          ? "border-accent-green ring-2 ring-accent-green/40 opacity-90 pointer-events-none"
+                          : "border-ink-700 hover:border-accent-green hover:shadow-lg hover:shadow-accent-green/5"
+                      }`}
+                    >
+                      <div className="aspect-[4/3] w-full overflow-hidden bg-ink-900 relative">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={c.thumb_url}
+                          alt={c.title}
+                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                          loading="lazy"
+                        />
+                        {/* Source badge */}
+                        <div className="absolute top-2 left-2">
+                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold border backdrop-blur-md ${
+                            c.source === "telegram"
+                              ? "bg-blue-900/80 text-blue-200 border-blue-600/60"
+                              : c.source === "article"
+                              ? "bg-emerald-900/80 text-emerald-200 border-emerald-600/60"
+                              : c.source === "pexels"
+                              ? "bg-indigo-900/80 text-indigo-200 border-indigo-600/60"
+                              : "bg-amber-900/80 text-amber-200 border-amber-600/60"
+                          }`}>
+                            {c.source === "telegram" ? "Telegram" : c.source === "article" ? "Article Lead" : c.source === "pexels" ? "Pexels" : "Wikimedia"}
+                          </span>
+                        </div>
+
+                        {/* Hover Overlay */}
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-3 text-center">
+                          <CheckCircle2 className="h-6 w-6 text-accent-green mb-1.5" />
+                          <span className="text-xs text-white font-semibold">Import & Select</span>
+                          <span className="text-[10px] text-paper-300 font-mono mt-0.5">Add to Photo Studio</span>
+                        </div>
+
+                        {/* Importing State */}
+                        {isImporting && (
+                          <div className="absolute inset-0 bg-ink-950/85 backdrop-blur-xs flex flex-col items-center justify-center p-3 text-center">
+                            <RefreshCw className="h-6 w-6 animate-spin text-accent-green mb-2" />
+                            <span className="text-xs text-paper-100 font-semibold">Importing photo...</span>
+                            <span className="text-[10px] text-paper-400 font-mono">Adding to Photo Studio</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="p-2.5 flex-1 flex flex-col justify-between">
+                        <div className="text-xs font-medium text-paper-100 line-clamp-2" title={c.title}>
+                          {c.title}
+                        </div>
+                        <div className="mt-1.5 pt-1.5 border-t border-ink-800 text-[10px] text-paper-500 font-mono flex items-center justify-between">
+                          <span className="truncate max-w-[130px]" title={c.photographer}>📷 {c.photographer}</span>
+                          <span className="text-accent-green/80 group-hover:text-accent-green font-semibold">Import →</span>
                         </div>
                       </div>
-                      <div className="p-2 text-[9px] text-paper-500 font-mono truncate">📷 {report?.photographer ?? "Pexels"}</div>
                     </div>
                   );
                 })}
               </div>
-            </>
+            </div>
           )}
         </div>
-        <div className="px-5 py-3 border-t border-ink-800 flex items-center justify-between">
-          <p className="text-[10px] text-paper-600">Licensed for editorial use via Pexels</p>
-          <Button variant="outline" size="sm" onClick={onClose} className="h-8 text-xs border-ink-600">Cancel</Button>
+
+        <div className="px-6 py-3 border-t border-ink-800 bg-ink-950/50 flex items-center justify-between">
+          <p className="text-[11px] text-paper-500">
+            Selected photo will be saved as a high-resolution asset in your Photo Studio.
+          </p>
+          <Button variant="outline" size="sm" onClick={onClose} disabled={!!importingId} className="h-8 text-xs border-ink-600">
+            Cancel
+          </Button>
         </div>
       </div>
     </div>

@@ -20,6 +20,7 @@ from app.integrations.ai.base import (
     ProviderResponseError,
     RateLimitError,
     TextGenerationRequest,
+    TextGenerationResult,
 )
 
 logger = get_logger(__name__)
@@ -106,7 +107,55 @@ class AgentRouterTextProvider(AIProvider):
         except Exception as exc:
             raise ProviderResponseError(f"AgentRouter API call failed: {exc}") from exc
 
+    def generate_text(self, request: TextGenerationRequest) -> TextGenerationResult:
+        if not self.is_available():
+            raise ProviderNotConfiguredError("AgentRouter API key not configured")
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "Cline/2.0.0",
+            "Accept": "application/json",
+        }
+        messages = []
+        if request.system:
+            messages.append({"role": "system", "content": request.system})
+        messages.append({"role": "user", "content": request.prompt})
+
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": request.temperature if request.temperature is not None else 0.2,
+            "max_tokens": request.max_tokens or 2048,
+        }
+
+        try:
+            with httpx.Client(timeout=45.0) as client:
+                res = client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                if res.status_code == 429:
+                    raise RateLimitError("AgentRouter rate limit exceeded")
+                if res.status_code != 200:
+                    raise ProviderResponseError(f"AgentRouter API error {res.status_code}: {res.text[:300]}")
+
+                data = res.json()
+                content = data["choices"][0]["message"]["content"].strip()
+                return TextGenerationResult(
+                    text=content,
+                    model=self.model,
+                    usage=data.get("usage", {}),
+                    raw=data,
+                )
+        except (RateLimitError, ProviderResponseError):
+            raise
+        except Exception as exc:
+            raise ProviderResponseError(f"AgentRouter API call failed: {exc}") from exc
+
     def embed(
         self, texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT"
     ) -> list[list[float]]:
         return []
+
