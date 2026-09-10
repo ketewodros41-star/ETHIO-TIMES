@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ImageIcon, Sparkles, RefreshCw, Check, Palette, CheckCircle2,
   Search, Camera, Bot, Globe, X, Newspaper, Trash2, ChevronLeft, ChevronRight, User,
+  Maximize2, ZoomIn, ZoomOut,
 } from "lucide-react";
 import {
   FORMATS, PortraitPost, SquarePost, StoryPost, CarouselCard,
@@ -27,7 +28,8 @@ const SAMPLE: PostTemplateData = {
   dateLabel: "9 SEP 2026",
   accent: "green",
   style: "Premium Magazine",
-  theme: "verified_brief",
+  theme: "broadcast_impact",
+  highlightColor: "#52B8ED",
 };
 
 function ScaledPreview({ width, height, target, children }: {
@@ -37,8 +39,109 @@ function ScaledPreview({ width, height, target, children }: {
   return (
     <div style={{ width: target, height: height * scale }}
       className="overflow-hidden rounded-card border border-ink-700 bg-ink-900 shadow-2xl relative">
-      <div style={{ transform: `scale(${scale})`, transformOrigin: "top left", width, height }}>
+      <div style={{
+        transform: `translate3d(0, 0, 0) scale(${scale})`,
+        transformOrigin: "top left",
+        width,
+        height,
+        imageRendering: "-webkit-optimize-contrast",
+        WebkitFontSmoothing: "antialiased",
+        backfaceVisibility: "hidden",
+        WebkitBackfaceVisibility: "hidden",
+        willChange: "transform",
+      }}>
         {children}
+      </div>
+    </div>
+  );
+}
+
+function InspectorModal({
+  children,
+  width,
+  height,
+  zoom,
+  onZoomChange,
+  onClose,
+  headerExtras,
+}: {
+  children: React.ReactNode;
+  width: number;
+  height: number;
+  zoom: number;
+  onZoomChange: (z: number) => void;
+  onClose: () => void;
+  headerExtras?: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-ink-950/95 backdrop-blur-md animate-in fade-in duration-150">
+      {/* Top bar */}
+      <div className="flex items-center justify-between border-b border-ink-800 px-6 py-3 bg-ink-900">
+        <div className="flex items-center gap-3">
+          <span className="flex h-2.5 w-2.5 rounded-full bg-accent-green animate-pulse" />
+          <h2 className="text-sm font-semibold text-paper-100 font-mono">
+            4K UHD Master Inspector ({width} × {height}px)
+          </h2>
+          <span className="text-xs text-paper-400 hidden sm:inline">
+            Evaluating true 1:1 pixel rendering, typography sharpness & photo textures
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          {headerExtras}
+          <div className="flex items-center gap-1 bg-ink-950 border border-ink-700 rounded-lg p-1 text-xs">
+            <button
+              onClick={() => onZoomChange(Math.max(0.4, Number((zoom - 0.15).toFixed(2))))}
+              className="p-1 rounded hover:bg-ink-800 text-paper-300 hover:text-paper-100"
+              title="Zoom out"
+            >
+              <ZoomOut className="h-3.5 w-3.5" />
+            </button>
+            <span className="px-2 font-mono text-accent-green min-w-[52px] text-center font-bold">
+              {Math.round(zoom * 100)}%
+            </span>
+            <button
+              onClick={() => onZoomChange(Math.min(2.0, Number((zoom + 0.15).toFixed(2))))}
+              className="p-1 rounded hover:bg-ink-800 text-paper-300 hover:text-paper-100"
+              title="Zoom in"
+            >
+              <ZoomIn className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => onZoomChange(1.0)}
+              className="px-2 py-0.5 rounded text-[10px] bg-ink-800 hover:bg-ink-700 text-paper-300 font-medium ml-1"
+            >
+              100% 1:1
+            </button>
+          </div>
+          <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 p-0 text-paper-400 hover:text-paper-100">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Viewport */}
+      <div className="flex-1 overflow-auto p-8 flex items-center justify-center">
+        <div
+          style={{
+            width: width * zoom,
+            height: height * zoom,
+            transition: "width 0.15s ease-out, height 0.15s ease-out",
+          }}
+          className="relative shadow-2xl rounded-card overflow-hidden border border-ink-700 bg-ink-900"
+        >
+          <div
+            style={{
+              transform: `scale(${zoom})`,
+              transformOrigin: "top left",
+              width,
+              height,
+              imageRendering: "-webkit-optimize-contrast",
+              WebkitFontSmoothing: "antialiased",
+            }}
+          >
+            {children}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -395,12 +498,19 @@ function StudioContent() {
   const [postMode, setPostMode] = useState<"single" | "carousel">("single");
   const [carouselSlideIndex, setCarouselSlideIndex] = useState(0);
   const [format, setFormat] = useState<InstagramFormat>("portrait");
-  const [themeId, setThemeId] = useState<ThemeId>("verified_brief");
+  const [themeId, setThemeId] = useState<ThemeId>("broadcast_impact");
+  const [highlightColor, setHighlightColor] = useState<string>("#52B8ED");
   const [customHeadline, setCustomHeadline] = useState<string>("");
   const [customDek, setCustomDek] = useState<string>("");
   const [customCategory, setCustomCategory] = useState<string>("");
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [showPhotoSearch, setShowPhotoSearch] = useState(false);
+  const [previewTarget, setPreviewTarget] = useState<number>(380);
+  const [carouselViewMode, setCarouselViewMode] = useState<"deck" | "single">("deck");
+  const [slideCustomHeaders, setSlideCustomHeaders] = useState<Record<number, string>>({});
+  const [slideCustomBodies, setSlideCustomBodies] = useState<Record<number, string>>({});
+  const [showInspector, setShowInspector] = useState(false);
+  const [inspectorZoom, setInspectorZoom] = useState<number>(1.0);
 
   useEffect(() => { if (queryEventId) setSelectedEventId(queryEventId); }, [queryEventId]);
 
@@ -491,22 +601,107 @@ function StudioContent() {
         category: customCategory || activeEvent.primary_category || "News",
         headline: customHeadline || activeEvent.title,
         dek: customDek || undefined,
-        source: "ETHIOTIMES",
+        source: "ETHIOPIAN TIMES",
         dateLabel: new Date(activeEvent.created_at)
           .toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })
           .toUpperCase(),
         theme: themeId,
         accent: THEMES[themeId].accent,
+        highlightColor,
         imageUrl: currentAsset?.storage_url || undefined,
       }
-    : { ...SAMPLE, theme: themeId, accent: THEMES[themeId].accent, imageUrl: currentAsset?.storage_url || undefined };
+    : { ...SAMPLE, theme: themeId, accent: THEMES[themeId].accent, highlightColor, imageUrl: currentAsset?.storage_url || undefined };
+
+  // Generate short, punchy copy for 5-page broadcast carousel
+  const rawDek = customDek || (activeEvent?.summary ? activeEvent.summary.split(/[.!?]/)[0] + "." : previewData.dek) || "Key policy directive issued with immediate regional enforcement.";
+  const shortFact = rawDek.length > 115 ? rawDek.slice(0, 110).trim() + "..." : rawDek;
+
+  // Extract short 10-12 word claims for Slide 3
+  const eventClaims = (activeEvent as any)?.claims as any[] | undefined;
+  let shortBullets: string[] = [];
+  if (eventClaims && eventClaims.length > 0) {
+    shortBullets = eventClaims.slice(0, 3).map((c) => {
+      const text = (c.claim_text || "").trim();
+      const firstClause = text.split(/[,;.]/)[0]?.trim() || text;
+      return firstClause.length > 68 ? firstClause.slice(0, 65).trim() + "..." : firstClause;
+    });
+  }
+  if (shortBullets.length === 0) {
+    shortBullets = [
+      "Directive takes immediate effect under ministry supervision.",
+      "Applies directly across key commerce and retail sectors.",
+      "Field teams deployed to verify compliance and stability.",
+    ];
+  }
+
+  const shortWhy = "Critical implications for regional trade dynamics, bilateral market ties, and ongoing economic reforms.";
 
   const carouselSlides: CarouselSlideData[] = [
-    { slide_number: 1, total_slides: 5, slide_type: "cover", header: previewData.headline, body_text: previewData.dek, bullet_points: [], source_attribution: previewData.source, accent: THEMES[themeId].accent as "green" | "red" | "gold", imageUrl: currentAsset?.storage_url || undefined },
-    { slide_number: 2, total_slides: 5, slide_type: "what_happened", header: "What Happened", body_text: previewData.dek || "Full reporting on recent developments.", bullet_points: [], accent: THEMES[themeId].accent as "green" | "red" | "gold" },
-    { slide_number: 3, total_slides: 5, slide_type: "key_facts", header: "Key Verified Facts", bullet_points: ["First documented development confirmed by official release.", "Monitored through multiple independent reporting channels.", "Corroborated by verified field dispatches."], accent: THEMES[themeId].accent as "green" | "red" | "gold" },
-    { slide_number: 4, total_slides: 5, slide_type: "why_it_matters", header: "Why It Matters", body_text: "Strategic implications for Ethiopia's economic, political, and institutional framework.", accent: THEMES[themeId].accent as "green" | "red" | "gold" },
-    { slide_number: 5, total_slides: 5, slide_type: "sources", header: "Verified Sources", body_text: "Reported and verified across authorized news desks.", bullet_points: [previewData.source || "ETHIOTIMES Intelligence"], source_attribution: previewData.source || "ETHIOTIMES Intelligence", accent: THEMES[themeId].accent as "green" | "red" | "gold" },
+    {
+      slide_number: 1,
+      total_slides: 5,
+      slide_type: "cover",
+      header: slideCustomHeaders[1] || previewData.headline,
+      body_text: null,
+      bullet_points: [],
+      source_attribution: previewData.source,
+      accent: THEMES[themeId].accent as "green" | "red" | "gold",
+      theme: themeId,
+      highlightColor,
+      imageUrl: currentAsset?.storage_url || undefined,
+    },
+    {
+      slide_number: 2,
+      total_slides: 5,
+      slide_type: "what_happened",
+      header: slideCustomHeaders[2] || "THE CORE FACTS",
+      body_text: slideCustomBodies[2] || shortFact,
+      bullet_points: [],
+      source_attribution: previewData.source,
+      accent: THEMES[themeId].accent as "green" | "red" | "gold",
+      theme: themeId,
+      highlightColor,
+      imageUrl: currentAsset?.storage_url || undefined,
+    },
+    {
+      slide_number: 3,
+      total_slides: 5,
+      slide_type: "key_facts",
+      header: slideCustomHeaders[3] || "KEY DEVELOPMENTS",
+      body_text: null,
+      bullet_points: shortBullets,
+      source_attribution: previewData.source,
+      accent: THEMES[themeId].accent as "green" | "red" | "gold",
+      theme: themeId,
+      highlightColor,
+      imageUrl: currentAsset?.storage_url || undefined,
+    },
+    {
+      slide_number: 4,
+      total_slides: 5,
+      slide_type: "why_it_matters",
+      header: slideCustomHeaders[4] || "STRATEGIC IMPACT",
+      body_text: slideCustomBodies[4] || shortWhy,
+      bullet_points: [],
+      source_attribution: previewData.source,
+      accent: THEMES[themeId].accent as "green" | "red" | "gold",
+      theme: themeId,
+      highlightColor,
+      imageUrl: currentAsset?.storage_url || undefined,
+    },
+    {
+      slide_number: 5,
+      total_slides: 5,
+      slide_type: "sources",
+      header: slideCustomHeaders[5] || "VERIFIED DESK",
+      body_text: slideCustomBodies[5] || "Corroborated across authorized monitoring desks and field dispatches.",
+      bullet_points: [],
+      source_attribution: previewData.source || "ETHIOPIAN TIMES Intelligence",
+      accent: THEMES[themeId].accent as "green" | "red" | "gold",
+      theme: themeId,
+      highlightColor,
+      imageUrl: currentAsset?.storage_url || undefined,
+    },
   ];
 
   const isLoadingImage = generateVisualMutation.isPending || fetchRealPhotoMutation.isPending;
@@ -525,6 +720,71 @@ function StudioContent() {
             refetchAssets();
           }}
         />
+      )}
+      {showInspector && (
+        <InspectorModal
+          width={postMode === "single" ? FORMATS[format].width : 1080}
+          height={postMode === "single" ? FORMATS[format].height : 1350}
+          zoom={inspectorZoom}
+          onZoomChange={setInspectorZoom}
+          onClose={() => setShowInspector(false)}
+          headerExtras={
+            postMode === "carousel" ? (
+              <div className="flex items-center gap-1.5 bg-ink-950 border border-ink-700 rounded-lg p-1 text-xs">
+                <button
+                  type="button"
+                  disabled={carouselSlideIndex === 0}
+                  onClick={() => setCarouselSlideIndex((prev) => Math.max(0, prev - 1))}
+                  className="p-1 rounded hover:bg-ink-800 text-paper-300 hover:text-paper-100 disabled:opacity-30"
+                  title="Previous slide"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <div className="flex items-center gap-1 px-1 font-mono">
+                  {carouselSlides.map((_, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setCarouselSlideIndex(idx)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                        carouselSlideIndex === idx
+                          ? "bg-accent-green text-ink-950"
+                          : "text-paper-400 hover:text-paper-100 hover:bg-ink-800"
+                      }`}
+                    >
+                      P{idx + 1}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  disabled={carouselSlideIndex === carouselSlides.length - 1}
+                  onClick={() => setCarouselSlideIndex((prev) => Math.min(carouselSlides.length - 1, prev + 1))}
+                  className="p-1 rounded hover:bg-ink-800 text-paper-300 hover:text-paper-100 disabled:opacity-30"
+                  title="Next slide"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : null
+          }
+        >
+          {postMode === "single" ? (
+            <>
+              {format === "portrait" && <PortraitPost data={previewData} />}
+              {format === "square" && <SquarePost data={previewData} />}
+              {format === "story" && <StoryPost data={previewData} />}
+            </>
+          ) : (
+            <CarouselCard
+              slide={carouselSlides[carouselSlideIndex]}
+              theme={themeId}
+              highlightColor={highlightColor}
+              category={previewData.category}
+              dateLabel={previewData.dateLabel}
+            />
+          )}
+        </InspectorModal>
       )}
       <PageShell title="Photo & Visual Studio">
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
@@ -778,6 +1038,39 @@ function StudioContent() {
                     ))}
                   </div>
                 </div>
+                {(themeId === "broadcast_impact" || themeId === "headline_impact") && (
+                  <div>
+                    <label className="block text-xs uppercase tracking-label text-paper-500 mb-2 font-mono">
+                      Punchline Highlight Color
+                    </label>
+                    <div className="flex flex-wrap gap-2 items-center">
+                      {[
+                        { color: "#52B8ED", label: "Electric Cyan (Broadcast)" },
+                        { color: "#4ADE80", label: "Mint Green" },
+                        { color: "#FBBF24", label: "Gold" },
+                        { color: "#F87171", label: "Crimson Red" },
+                        { color: "#FFFFFF", label: "Stark White" },
+                      ].map((swatch) => (
+                        <button
+                          key={swatch.color}
+                          type="button"
+                          onClick={() => setHighlightColor(swatch.color)}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-card text-xs transition-colors ${
+                            highlightColor === swatch.color
+                              ? "bg-ink-700 text-paper-50 border border-accent-green font-medium"
+                              : "bg-ink-800 text-paper-400 border border-ink-700 hover:bg-ink-700 hover:text-paper-200"
+                          }`}
+                        >
+                          <span
+                            className="w-3 h-3 rounded-full border border-black/30"
+                            style={{ backgroundColor: swatch.color }}
+                          />
+                          <span>{swatch.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {postMode === "single" ? (
                   <div>
                     <label className="block text-xs uppercase tracking-label text-paper-500 mb-2 font-mono">Instagram Format</label>
@@ -795,8 +1088,11 @@ function StudioContent() {
                     </div>
                   </div>
                 ) : (
-                  <div>
-                    <label className="block text-xs uppercase tracking-label text-paper-500 mb-2 font-mono">Carousel Slide Navigator</label>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs uppercase tracking-label text-paper-500 font-mono">Carousel Slide Navigator</label>
+                      <span className="text-[11px] font-mono text-accent-green font-bold">Slide {carouselSlideIndex + 1} of 5</span>
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       {carouselSlides.map((s, idx) => (
                         <button key={s.slide_number} onClick={() => setCarouselSlideIndex(idx)}
@@ -808,6 +1104,45 @@ function StudioContent() {
                           {idx + 1}. {s.slide_type.replace("_", " ")}
                         </button>
                       ))}
+                    </div>
+
+                    {/* Inline Slide Text Customizer for active slide */}
+                    <div className="rounded-card border border-ink-700 bg-ink-800/80 p-3 space-y-2.5">
+                      <div className="flex items-center justify-between text-xs font-mono text-paper-300">
+                        <span className="font-bold text-paper-100">Slide {carouselSlideIndex + 1}: {carouselSlides[carouselSlideIndex].slide_type.replace("_", " ").toUpperCase()}</span>
+                        {(slideCustomHeaders[carouselSlideIndex + 1] || slideCustomBodies[carouselSlideIndex + 1]) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSlideCustomHeaders((prev) => { const next = { ...prev }; delete next[carouselSlideIndex + 1]; return next; });
+                              setSlideCustomBodies((prev) => { const next = { ...prev }; delete next[carouselSlideIndex + 1]; return next; });
+                            }}
+                            className="text-[10px] text-accent-gold hover:underline"
+                          >
+                            Reset to Auto
+                          </button>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-paper-400 font-mono mb-1">Headline / Header</label>
+                        <input
+                          type="text"
+                          value={slideCustomHeaders[carouselSlideIndex + 1] ?? carouselSlides[carouselSlideIndex].header}
+                          onChange={(e) => setSlideCustomHeaders((prev) => ({ ...prev, [carouselSlideIndex + 1]: e.target.value }))}
+                          className="w-full h-8 rounded-card border border-ink-600 bg-ink-900 px-2.5 text-xs text-paper-50 focus:border-accent-green focus:outline-none font-sans"
+                        />
+                      </div>
+                      {carouselSlides[carouselSlideIndex].slide_type !== "cover" && (
+                        <div>
+                          <label className="block text-[11px] text-paper-400 font-mono mb-1">Short Body Statement (1-2 sentences)</label>
+                          <textarea
+                            rows={2}
+                            value={slideCustomBodies[carouselSlideIndex + 1] ?? carouselSlides[carouselSlideIndex].body_text ?? ""}
+                            onChange={(e) => setSlideCustomBodies((prev) => ({ ...prev, [carouselSlideIndex + 1]: e.target.value }))}
+                            className="w-full rounded-card border border-ink-600 bg-ink-900 p-2 text-xs text-paper-50 focus:border-accent-green focus:outline-none font-sans resize-none"
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -828,23 +1163,153 @@ function StudioContent() {
               <div className="flex items-center justify-between px-2">
                 <div className="flex items-center gap-2 text-xs text-paper-400 font-mono">
                   <span className="inline-block h-2 w-2 rounded-full bg-accent-green animate-pulse" />
-                  <span>Live Rendering Canvas (1080x1350)</span>
+                  <span>Live Canvas ({postMode === "single" ? `${FORMATS[format].width}×${FORMATS[format].height}` : "1080×1350"})</span>
                 </div>
-                <Badge variant="muted" className="font-mono text-[10px]">
-                  {postMode === "single" ? `${format.toUpperCase()} · ${THEMES[themeId].label}` : `SLIDE ${carouselSlideIndex + 1} OF 5`}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  {postMode === "carousel" && (
+                    <div className="flex items-center bg-ink-900 border border-ink-700 rounded p-0.5 text-[10px] font-mono">
+                      <button
+                        type="button"
+                        onClick={() => setCarouselViewMode("deck")}
+                        className={`px-2 py-0.5 rounded transition-colors ${carouselViewMode === "deck" ? "bg-accent-green text-ink-950 font-bold" : "text-paper-400 hover:text-paper-200"}`}
+                      >
+                        All 5 Pages
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCarouselViewMode("single")}
+                        className={`px-2 py-0.5 rounded transition-colors ${carouselViewMode === "single" ? "bg-accent-green text-ink-950 font-bold" : "text-paper-400 hover:text-paper-200"}`}
+                      >
+                        Focus Slide
+                      </button>
+                    </div>
+                  )}
+                  <div className="flex items-center bg-ink-900 border border-ink-700 rounded p-0.5 text-[10px] font-mono">
+                    {[380, 460, 520].map((sz) => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => setPreviewTarget(sz)}
+                        className={`px-1.5 py-0.5 rounded transition-colors ${previewTarget === sz ? "bg-accent-green text-ink-950 font-bold" : "text-paper-400 hover:text-paper-200"}`}
+                      >
+                        {sz}px
+                      </button>
+                    ))}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    type="button"
+                    onClick={() => setShowInspector(true)}
+                    className="h-6 px-2 text-[10px] flex items-center gap-1 border-accent-green/40 hover:border-accent-green text-accent-green bg-accent-green/5 hover:bg-accent-green/10 font-mono"
+                    title="Inspect raw 1080x1350 4K canvas at 100% full scale"
+                  >
+                    <Maximize2 className="h-3 w-3" />
+                    <span>4K Inspector</span>
+                  </Button>
+                  <Badge variant="muted" className="font-mono text-[10px]">
+                    {postMode === "single" ? `${format.toUpperCase()} · ${THEMES[themeId].label}` : `SLIDE ${carouselSlideIndex + 1} OF 5`}
+                  </Badge>
+                </div>
               </div>
               <div className="flex justify-center bg-ink-950 border border-ink-700 rounded-card p-6 overflow-hidden shadow-inner min-h-[620px] items-center">
                 {postMode === "single" ? (
-                  <ScaledPreview width={FORMATS[format].width} height={FORMATS[format].height} target={380}>
+                  <ScaledPreview width={FORMATS[format].width} height={FORMATS[format].height} target={previewTarget}>
                     {format === "portrait" && <PortraitPost data={previewData} />}
                     {format === "square" && <SquarePost data={previewData} />}
                     {format === "story" && <StoryPost data={previewData} />}
                   </ScaledPreview>
+                ) : carouselViewMode === "deck" ? (
+                  <div className="w-full flex flex-col gap-4 py-2">
+                    <div className="flex items-center justify-between pb-2 border-b border-ink-800 text-xs font-mono">
+                      <div className="flex items-center gap-2 text-paper-200">
+                        <span className="text-accent-green font-bold flex items-center gap-1.5">
+                          <Sparkles className="h-3.5 w-3.5" /> 5-PAGE BROADCAST CAROUSEL
+                        </span>
+                        <span className="text-paper-500">· Full Story Flow</span>
+                      </div>
+                      <span className="text-paper-400 text-[11px]">Click any card to edit / select</span>
+                    </div>
+                    <div className="w-full overflow-x-auto pb-4 pt-1">
+                      <div className="flex gap-5 items-start min-w-max px-2">
+                        {carouselSlides.map((s, idx) => (
+                          <div
+                            key={s.slide_number}
+                            onClick={() => setCarouselSlideIndex(idx)}
+                            className={`flex flex-col items-center gap-2 cursor-pointer transition-all ${
+                              carouselSlideIndex === idx
+                                ? "ring-2 ring-accent-green ring-offset-2 ring-offset-ink-950 rounded-card scale-[1.02]"
+                                : "opacity-80 hover:opacity-100 hover:scale-[1.01]"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between w-full px-1 text-[11px] font-mono">
+                              <span className={carouselSlideIndex === idx ? "font-bold text-accent-green" : "text-paper-400"}>
+                                PAGE {idx + 1} OF 5
+                              </span>
+                              <span className="text-paper-500 text-[10px] uppercase">
+                                {s.slide_type === "cover" ? "COVER" : s.slide_type === "what_happened" ? "FACTS" : s.slide_type === "key_facts" ? "POINTS" : s.slide_type === "why_it_matters" ? "IMPACT" : "SOURCES"}
+                              </span>
+                            </div>
+                            <ScaledPreview width={1080} height={1350} target={260}>
+                              <CarouselCard
+                                slide={s}
+                                theme={themeId}
+                                highlightColor={highlightColor}
+                                category={previewData.category}
+                                dateLabel={previewData.dateLabel}
+                              />
+                            </ScaledPreview>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCarouselSlideIndex(idx);
+                                setCarouselViewMode("single");
+                              }}
+                              className="text-[11px] font-mono text-accent-green hover:underline flex items-center gap-1 pt-1"
+                            >
+                              <span>Focus Slide {idx + 1} ↗</span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 ) : (
-                  <ScaledPreview width={1080} height={1350} target={380}>
-                    <CarouselCard slide={carouselSlides[carouselSlideIndex]} />
-                  </ScaledPreview>
+                  <div className="flex flex-col items-center gap-4">
+                    <ScaledPreview width={1080} height={1350} target={previewTarget}>
+                      <CarouselCard
+                        slide={carouselSlides[carouselSlideIndex]}
+                        theme={themeId}
+                        highlightColor={highlightColor}
+                        category={previewData.category}
+                        dateLabel={previewData.dateLabel}
+                      />
+                    </ScaledPreview>
+                    <div className="flex items-center gap-3 pt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={carouselSlideIndex === 0}
+                        onClick={() => setCarouselSlideIndex((prev) => Math.max(0, prev - 1))}
+                        className="h-8 text-xs font-mono bg-ink-900 border-ink-700 hover:bg-ink-800"
+                      >
+                        <ChevronLeft className="h-3.5 w-3.5 mr-1" /> Previous Slide
+                      </Button>
+                      <span className="text-xs font-mono text-paper-200 font-bold px-2">
+                        Slide {carouselSlideIndex + 1} of 5
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={carouselSlideIndex === 4}
+                        onClick={() => setCarouselSlideIndex((prev) => Math.min(4, prev + 1))}
+                        className="h-8 text-xs font-mono bg-ink-900 border-ink-700 hover:bg-ink-800"
+                      >
+                        Next Slide <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                      </Button>
+                    </div>
+                  </div>
                 )}
               </div>
               <div className="rounded-card border border-ink-800 bg-ink-900 p-3 text-xs text-paper-400 flex items-center justify-between">

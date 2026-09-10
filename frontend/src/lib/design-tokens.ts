@@ -12,6 +12,7 @@ export const tokens = {
     display: "var(--font-display)",
     sans: "var(--font-sans)",
     mono: "var(--font-mono)",
+    poster: "var(--font-poster, 'Anton', 'Bebas Neue', 'Barlow Condensed', 'Impact', sans-serif)",
   },
 } as const;
 

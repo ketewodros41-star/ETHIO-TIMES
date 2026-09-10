@@ -14,6 +14,7 @@ export type PostTemplateData = {
   accent?: "green" | "gold" | "red";
   style?: VisualStyle;
   theme?: ThemeId;
+  highlightColor?: string;
 };
 
 /**
@@ -28,6 +29,8 @@ export type PostTemplateData = {
  * zone sits behind an ink gradient scrim for legibility.
  */
 import { VerifiedBriefPost } from "./VerifiedBriefPost";
+import { BroadcastImpactPost } from "./BroadcastImpactPost";
+import { HeadlineImpactPost } from "./HeadlineImpactPost";
 import { BreakingPost } from "./BreakingPost";
 import { PoliticsSensitivePost } from "./PoliticsSensitivePost";
 import { EconomyPost } from "./EconomyPost";
@@ -45,6 +48,8 @@ export function PostTemplate({
 }) {
   if (data.theme) {
     switch (data.theme) {
+      case "broadcast_impact": return <BroadcastImpactPost format={format} data={data} highlightColor={data.highlightColor} />;
+      case "headline_impact": return <HeadlineImpactPost format={format} data={data} highlightColor={data.highlightColor} />;
       case "verified_brief": return <VerifiedBriefPost format={format} data={data} />;
       case "breaking": return <BreakingPost format={format} data={data} flashText={data.dek} />;
       case "politics_sensitive": return <PoliticsSensitivePost format={format} data={data} />;
@@ -86,19 +91,23 @@ export function PostTemplate({
           <img
             src={data.imageUrl}
             alt=""
+            decoding="async"
             style={{
               position: "absolute",
               inset: 0,
               width: "100%",
               height: "100%",
               objectFit: "cover",
+              imageRendering: "auto",
+              WebkitBackfaceVisibility: "hidden",
             }}
           />
           <div
             style={{
               position: "absolute",
               inset: 0,
-              background: `linear-gradient(180deg, rgba(11,12,14,0.35) 0%, rgba(11,12,14,0.75) 55%, ${tokens.color.ink[900]} 100%)`,
+              background: `linear-gradient(180deg, rgba(11,12,14,0.05) 0%, rgba(11,12,14,0.18) 35%, rgba(11,12,14,0.72) 70%, ${tokens.color.ink[900]} 100%)`,
+              pointerEvents: "none",
             }}
           />
         </>

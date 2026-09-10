@@ -39,7 +39,7 @@ export default async function RenderPage({
     category: post.event?.primary_category ?? "News",
     headline: post.headline,
     dek: post.key_facts?.[0] ?? undefined,
-    source: post.source_attribution ?? "ETHIOTIMES",
+    source: post.source_attribution ?? "ETHIOPIAN TIMES",
     dateLabel: new Date(post.created_at).toLocaleDateString("en-US", {
       day: "numeric",
       month: "short",

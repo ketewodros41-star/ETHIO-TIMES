@@ -19,6 +19,7 @@ from app.repositories.visual_asset_repository import VisualAssetRepository
 from app.schemas.social_post import PhotoCandidate, PhotoBrowseResponse, SelectCandidateRequest
 from app.services.social.editorial_engine import EditorialBrief
 from app.services.social.image_critic import ImageCritic
+from app.services.social.image_enhancer import enhance_and_upscale_image, upscale_news_cdn_url
 from app.services.social.prompt_engine import PromptEngine
 from app.services.social.visual_director import VisualDirector
 from app.services.social.web_image_scraper import WebImageScraper
@@ -72,11 +73,7 @@ def extract_article_web_image(url: str) -> str | None:
                         elif img.startswith("/"):
                             img = urllib.parse.urljoin(str(res.url), img)
                         if img.startswith("http") and not any(img.lower().endswith(ext) for ext in (".svg", ".ico", ".gif")):
-                            if "googleusercontent.com" in img:
-                                img = re.sub(r"=s\d+.*$", "=s1200", img)
-                                if "=s" not in img:
-                                    img += "=s1200"
-                            return img
+                            return upscale_news_cdn_url(img)
 
                 # 2. Prominent article / figure / featured images
                 article_patterns = [
@@ -93,7 +90,7 @@ def extract_article_web_image(url: str) -> str | None:
                         elif img.startswith("/"):
                             img = urllib.parse.urljoin(str(res.url), img)
                         if img.startswith("http") and not any(img.lower().endswith(ext) for ext in (".svg", ".ico", ".gif")):
-                            return img
+                            return upscale_news_cdn_url(img)
 
             # 3. If direct URL failed (e.g. 403 on Cloudflare) but original was Google News:
             if actual_url != url or res.status_code != 200:
@@ -102,11 +99,7 @@ def extract_article_web_image(url: str) -> str | None:
                     m = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', g_res.text, re.IGNORECASE)
                     if m:
                         img = m.group(1).strip()
-                        if "googleusercontent.com" in img:
-                            img = re.sub(r"=s\d+.*$", "=s1200", img)
-                            if "=s" not in img:
-                                img += "=s1200"
-                        return img
+                        return upscale_news_cdn_url(img)
     except Exception:
         pass
 
@@ -381,7 +374,8 @@ class ImagePipeline:
 
     def import_candidate(self, event: NewsEvent, req: SelectCandidateRequest) -> VisualAsset:
         """Download ONLY the single candidate chosen by the user and import into Photo Studio."""
-        img_bytes = self._download_image(req.image_url)
+        target_url = upscale_news_cdn_url(req.image_url)
+        img_bytes = self._download_image(target_url)
         asset = VisualAsset(
             event_id=event.id,
             prompt=f"Selected {req.source} photo: {req.title}",
@@ -911,19 +905,20 @@ class ImagePipeline:
         return None, None
 
     def _download_image(self, url: str) -> bytes | None:
-        """Download an image with browser headers and return bytes if valid (>3KB)."""
+        """Download an image with browser headers and return enhanced bytes if valid (>1KB)."""
         if not url:
             return None
+        url = upscale_news_cdn_url(url)
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
             "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
         }
         try:
-            with httpx.Client(timeout=12.0, follow_redirects=True, headers=headers) as client:
+            with httpx.Client(timeout=15.0, follow_redirects=True, headers=headers) as client:
                 res = client.get(url)
-                if res.status_code == 200 and len(res.content) > 3000:
-                    return res.content
+                if res.status_code == 200 and len(res.content) > 1000:
+                    return enhance_and_upscale_image(res.content, target_width=1080, target_height=1350)
         except Exception as exc:
             logger.warning("image_download_failed", url=url, error=str(exc))
         return None

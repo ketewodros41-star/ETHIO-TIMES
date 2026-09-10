@@ -9,6 +9,7 @@ Supports:
 from __future__ import annotations
 
 import base64
+import random
 import urllib.parse
 import httpx
 
@@ -20,6 +21,7 @@ from app.integrations.ai.base import (
     ImageProvider,
 )
 from app.integrations.ai.mock_image import _PLACEHOLDER_PNG
+from app.services.social.image_enhancer import enhance_and_upscale_image
 
 logger = get_logger(__name__)
 
@@ -74,10 +76,12 @@ class EditorialImageProvider(ImageProvider):
                     ),
                 )
                 if res.generated_images and res.generated_images[0].image.image_bytes:
+                    raw_bytes = res.generated_images[0].image.image_bytes
+                    enhanced = enhance_and_upscale_image(raw_bytes, target_width=w, target_height=h)
                     logger.info("gemini_imagen_success", prompt=prompt_clean[:60])
                     return ImageGenerationResult(
                         image_url=None,
-                        image_bytes=res.generated_images[0].image.image_bytes,
+                        image_bytes=enhanced,
                         model="gemini-imagen-3",
                         raw={"provider": "gemini"},
                     )
@@ -87,17 +91,22 @@ class EditorialImageProvider(ImageProvider):
 
         # 4. Free FLUX Generator (Black Forest Labs FLUX.1 via Pollinations, $0.00, 1080x1350)
         try:
-            encoded_prompt = urllib.parse.quote(prompt_clean[:400])
-            flux_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={w}&height={h}&model=flux&nologo=true"
+            seed = random.randint(1000, 999999)
+            encoded_prompt = urllib.parse.quote(prompt_clean[:1200])
+            flux_url = (
+                f"https://image.pollinations.ai/prompt/{encoded_prompt}?"
+                f"width={w}&height={h}&model=flux&nologo=true&enhance=false&seed={seed}"
+            )
 
             with httpx.Client(timeout=45.0, follow_redirects=True) as http_client:
                 res = http_client.get(flux_url)
-                if res.status_code == 200 and len(res.content) > 1000:
-                    logger.info("flux_image_success", bytes_len=len(res.content))
+                if res.status_code == 200 and len(res.content) > 1000 and not res.content.startswith(b'{"error"'):
+                    enhanced = enhance_and_upscale_image(res.content, target_width=w, target_height=h)
+                    logger.info("flux_image_success", orig_bytes=len(res.content), enhanced_bytes=len(enhanced))
                     return ImageGenerationResult(
                         image_url=None,
-                        image_bytes=res.content,
-                        model="flux-editorial",
+                        image_bytes=enhanced,
+                        model="flux-editorial-4k",
                         raw={"provider": "flux", "url": flux_url},
                     )
         except Exception as exc:
@@ -134,10 +143,11 @@ class EditorialImageProvider(ImageProvider):
                 data = res.json()
                 b64 = data["data"][0]["b64_json"]
                 img_bytes = base64.b64decode(b64)
-                logger.info("together_flux_success", bytes_len=len(img_bytes))
+                enhanced = enhance_and_upscale_image(img_bytes, target_width=width, target_height=height)
+                logger.info("together_flux_success", orig_bytes=len(img_bytes), enhanced_bytes=len(enhanced))
                 return ImageGenerationResult(
                     image_url=None,
-                    image_bytes=img_bytes,
+                    image_bytes=enhanced,
                     model="together-flux-schnell",
                     raw={"provider": "together"},
                 )
@@ -164,9 +174,10 @@ class EditorialImageProvider(ImageProvider):
                 if img_url:
                     dl = client.get(img_url)
                     if dl.status_code == 200:
+                        enhanced = enhance_and_upscale_image(dl.content, target_width=width, target_height=height)
                         return ImageGenerationResult(
                             image_url=None,
-                            image_bytes=dl.content,
+                            image_bytes=enhanced,
                             model="openrouter-flux",
                             raw={"provider": "openrouter"},
                         )

@@ -7,6 +7,8 @@
  */
 
 export type ThemeId =
+  | "broadcast_impact"
+  | "headline_impact"
   | "verified_brief"
   | "breaking"
   | "politics_sensitive"
@@ -25,6 +27,20 @@ export interface ThemeMeta {
 }
 
 export const THEMES: Record<ThemeId, ThemeMeta> = {
+  broadcast_impact: {
+    id: "broadcast_impact",
+    label: "Broadcast Impact (Habesha Style)",
+    accent: "green",
+    description: "Exact replica of diaspora broadcast post: full-bleed speaker photo, Anton/Impact heavy condensed uppercase headline, cyan punchline, ET hexagon monogram, and downward arrow CTA",
+    implementationStatus: "production",
+  },
+  headline_impact: {
+    id: "headline_impact",
+    label: "Headline Impact",
+    accent: "green",
+    description: "Mega-scale editorial card with ET brandmark and dual-tone punchline highlight",
+    implementationStatus: "production",
+  },
   verified_brief: {
     id: "verified_brief",
     label: "Verified Brief",

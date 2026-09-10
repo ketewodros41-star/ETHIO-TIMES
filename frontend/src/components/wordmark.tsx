@@ -1,22 +1,30 @@
 import { cn } from "@/lib/utils";
+import { ETLogoMark } from "@/components/et-logo";
 
 export function Wordmark({
   className,
+  showIcon = true,
   showTick = true,
+  iconSize = 28,
 }: {
   className?: string;
+  showIcon?: boolean;
   showTick?: boolean;
+  iconSize?: number;
 }) {
   return (
     <span
       className={cn(
-        "font-display text-lg font-bold tracking-tight text-paper-50",
+        "inline-flex items-center gap-2.5 font-display text-base font-extrabold tracking-tight text-paper-50 select-none",
         className,
       )}
     >
-      ETHIO
-      <span className="text-paper-300">TIMES</span>
-      {showTick && <span className="ml-1 text-accent-green">.</span>}
+      {showIcon && <ETLogoMark size={iconSize} accent="#22c55e" />}
+      <span className="flex items-baseline gap-1">
+        <span>ETHIOPIAN</span>
+        <span className="text-paper-300">TIMES</span>
+        {showTick && <span className="text-accent-green">.</span>}
+      </span>
     </span>
   );
 }

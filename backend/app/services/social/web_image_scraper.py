@@ -25,6 +25,7 @@ from app.core.logging import get_logger
 from app.integrations.ai.base import AIProvider, TextGenerationRequest
 from app.models.news_event import NewsEvent
 from app.schemas.social_post import PhotoCandidate
+from app.services.social.image_enhancer import upscale_news_cdn_url
 
 logger = get_logger(__name__)
 
@@ -197,12 +198,13 @@ class WebImageScraper:
                 continue
 
             source_name = getattr(art.source, "name", "News Source") if hasattr(art, "source") and art.source else "Original Story"
+            hd_url = upscale_news_cdn_url(url)
             candidates.append(
                 PhotoCandidate(
                     id=f"art-{art.id}",
                     title=art.title[:90] if art.title else "News Article Photo",
                     thumb_url=url,
-                    image_url=url,
+                    image_url=hd_url,
                     source="article_source",
                     photographer=source_name,
                     description=f"Authentic news photo published by {source_name}",
@@ -421,7 +423,7 @@ class WebImageScraper:
                     for pid, p in pages.items():
                         ii = p.get("imageinfo", [{}])[0]
                         thumb = ii.get("thumburl") or ii.get("url")
-                        orig = ii.get("url") or thumb
+                        orig = upscale_news_cdn_url(ii.get("url") or thumb)
                         title = p.get("title", "").replace("File:", "").replace("_", " ")
                         if not thumb or thumb in seen_urls:
                             continue
@@ -467,12 +469,13 @@ class WebImageScraper:
                         # Relevance check: title must relate to person
                         if any(w.lower() in title.lower() for w in person_name.split()):
                             seen_urls.add(thumb)
+                            orig = upscale_news_cdn_url(thumb)
                             candidates.append(
                                 PhotoCandidate(
                                     id=f"wiki-person-{pid}",
                                     title=title,
                                     thumb_url=thumb,
-                                    image_url=thumb,
+                                    image_url=orig,
                                     source="wikimedia",
                                     photographer="Wikipedia Editorial",
                                     description=f"Wikipedia portrait of {person_name}",
@@ -551,7 +554,7 @@ class WebImageScraper:
                     for pid, p in pages.items():
                         ii = p.get("imageinfo", [{}])[0]
                         thumb = ii.get("thumburl") or ii.get("url")
-                        orig = ii.get("url") or thumb
+                        orig = upscale_news_cdn_url(ii.get("url") or thumb)
                         title = p.get("title", "").replace("File:", "").replace("_", " ")
                         if not thumb or thumb in seen_urls:
                             continue
@@ -665,7 +668,7 @@ class WebImageScraper:
                     except Exception:
                         continue
 
-                    img_url = meta.get("murl")
+                    img_url = upscale_news_cdn_url(meta.get("murl"))
                     thumb_url = meta.get("turl") or img_url
                     title = meta.get("t") or query
                     purl = meta.get("purl") or ""

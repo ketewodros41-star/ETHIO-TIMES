@@ -1,4 +1,4 @@
-﻿import { tokens } from "@/lib/design-tokens";
+import { tokens } from "@/lib/design-tokens";
 import type { PostTemplateData } from "./PostTemplate";
 import { FORMATS, type InstagramFormat } from "./formats";
 import { Footer, Headline, Pill, Rule, Scrim, Wordmark } from "./primitives";
@@ -127,7 +127,7 @@ export function DataChartPost({
               maxWidth: 320,
             }}
           >
-            ETHIOTIMES INTELLIGENCE UNIT
+            ETHIOPIAN TIMES INTELLIGENCE UNIT
           </div>
         </div>
 

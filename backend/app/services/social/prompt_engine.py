@@ -64,16 +64,19 @@ class PromptEngine:
         """
         parts: list[str] = []
 
-        # --- 1. Opening angle direction + subject ---
+        # --- 1. Opening: 4K camera gear + angle direction + subject ---
         angle_dir = _ANGLE_DIRECTION.get(ctx.visual_angle, "A wide editorial scene")
         if ctx.named_roles:
             subject_desc = ctx.named_roles[0]
         else:
             subject_desc = f"Ethiopian people in a {ctx.action.replace('_', ' ')} setting"
 
-        # Build the action phrase
         action_phrase = self._action_phrase(ctx.action, ctx.subject_type)
-        parts.append(f"{angle_dir} of {subject_desc} {action_phrase}")
+        parts.append(
+            f"4K UHD {angle_dir.lower()} of {subject_desc} {action_phrase}, "
+            f"shot on Sony A7R V with {ctx.camera_lens} lens, ultra-sharp focus, "
+            f"authentic skin pores and documentary textures, Hasselblad clarity"
+        )
 
         # --- 2. Location + landmark ---
         if ctx.landmark_references:
@@ -95,32 +98,20 @@ class PromptEngine:
         atm = _MOOD_ATMOSPHERE.get(ctx.mood, "soft natural daylight, neutral atmosphere")
         parts.append(atm)
 
-        # --- 5. Camera gear (critical for removing plastic AI look) ---
-        parts.append(
-            f"Shot on Sony A7R V with {ctx.camera_lens} lens"
-        )
+        # --- 5. Film stock / color grade ---
+        parts.append(f"{ctx.film_stock} color grade, natural dynamic range")
 
-        # --- 6. Film stock / color grade ---
-        parts.append(f"{ctx.film_stock} color grade")
-
-        # --- 7. Composition guidance ---
+        # --- 6. Composition guidance ---
         comp = self._composition_for_angle(ctx.visual_angle)
         parts.append(comp)
 
-        # --- 8. Style anchor ---
+        # --- 7. Style anchor ---
         parts.append(f"{ctx.style_name}, {ctx.agency_style} quality")
 
-        # --- 9. Quality anchors (FLUX-specific — avoid 'hyperrealistic') ---
-        parts.append(
-            "Photorealistic, authentic skin texture, natural imperfections, "
-            "candid editorial photography quality"
-        )
-
-        # --- 10. What NOT to show (described positively for FLUX) ---
+        # --- 8. Negative constraints described positively ---
         parts.append(
             "Clean composition with no visible text, no logos, no watermarks, "
-            "no recognizable real faces of living public figures, "
-            "no artificial studio lighting, no generic stock photo appearance"
+            "no artificial plastic airbrushed look, no CGI, no generic stock photo appearance"
         )
 
         return ". ".join(parts) + "."
@@ -128,17 +119,17 @@ class PromptEngine:
     def _build_strategy_prompt(self, strategy: VisualStrategy, event: NewsEvent) -> str:
         """Fallback when no StoryContext is available."""
         parts = [
-            f"An editorial photograph representing {strategy.main_subject}",
+            f"4K UHD editorial photograph representing {strategy.main_subject}",
+            f"Shot on Sony A7R V with 50mm f/1.4 lens, ultra-sharp focus, Hasselblad medium format clarity",
             f"{strategy.setting.capitalize()} setting, {strategy.mood} atmosphere",
             f"Visual concept: {strategy.visual_metaphor}",
             f"Composition: {strategy.composition}",
-            f"Shot on Sony A7R V, 50mm f/2.8, Fujifilm Pro 400H color grade",
-            f"Soft natural daylight, {strategy.style} editorial style",
-            "Photorealistic, candid editorial photography, Reuters quality",
-            "No text, no logos, no watermarks, no studio lighting",
+            "Fujifilm Pro 400H color grade, soft natural daylight",
+            f"{strategy.style} editorial style, authentic documentary photography",
+            "No visible text, no logos, no watermarks, no plastic CGI look",
         ]
         if strategy.cultural_context:
-            parts.insert(2, f"Cultural context: {strategy.cultural_context}")
+            parts.insert(3, f"Cultural context: {strategy.cultural_context}")
         return ". ".join(parts) + "."
 
     def _action_phrase(self, action: str, subject_type: str) -> str:

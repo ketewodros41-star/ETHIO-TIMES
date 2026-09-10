@@ -49,7 +49,7 @@ class EditorialEngine:
             c.claim_type.value in {"financial", "statistical"} for c in event.claims if c.evidence
         ):
             return "economy"
-        return "verified_brief"
+        return "broadcast_impact"
 
     def _auto_format(self, event: NewsEvent) -> InstagramPostFormat:
         cat = (event.primary_category or "").lower()
@@ -74,14 +74,14 @@ class EditorialEngine:
         key_facts = [c.claim_text for c in evidenced_claims][:5]
         
         cat = (event.primary_category or "News").title()
-        hashtags = ["#Ethiopia", "#EthioTimes", f"#{cat}"]
+        hashtags = ["#Ethiopia", "#EthiopianTimes", f"#{cat}"]
         
         # Build source attribution
         sources = set()
         for al in getattr(event, "article_links", []):
             if al.article and al.article.source:
                 sources.add(al.article.source.name)
-        source_attribution = "Sources: " + ", ".join(sources) if sources else "Source: EthioTimes"
+        source_attribution = "Sources: " + ", ".join(sources) if sources else "Source: Ethiopian Times"
 
         theme = self._auto_theme(event)
         fmt = self._auto_format(event)
@@ -174,7 +174,7 @@ class EditorialEngine:
         raw_slides.append({
             "slide_type": "sources",
             "header": "Verified Coverage",
-            "body_text": "Story verified across multiple independent and primary sources by the ETHIOTIMES intelligence engine.",
+            "body_text": "Story verified across multiple independent and primary sources by the ETHIOPIAN TIMES intelligence engine.",
             "bullet_points": [brief.source_attribution] if brief.source_attribution else [],
             "source_attribution": brief.source_attribution,
             "accent": accent,
@@ -211,8 +211,8 @@ class EditorialEngine:
                 key_facts=result.get("key_facts", []),
                 what_happens_next=result.get("what_happens_next"),
                 instagram_caption=result.get("instagram_caption", "")[:2200],
-                hashtags=result.get("hashtags", ["#Ethiopia"]),
-                source_attribution=result.get("source_attribution", "EthioTimes"),
+                hashtags=result.get("hashtags", ["#Ethiopia", "#EthiopianTimes"]),
+                source_attribution=result.get("source_attribution", "Ethiopian Times"),
                 suggested_theme=theme,
                 suggested_format=fmt,
                 content_format=cfmt,

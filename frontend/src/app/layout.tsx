@@ -3,9 +3,9 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "ETHIOTIMES — News Intelligence",
+  title: "ETHIOPIAN TIMES — News Intelligence & Publishing",
   description:
-    "Ethiopian News Intelligence Engine — newsroom dashboard (Phase 1).",
+    "Ethiopian Times — Automated news intelligence, editorial verification, and visual publishing platform.",
 };
 
 export default function RootLayout({

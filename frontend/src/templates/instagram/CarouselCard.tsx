@@ -1,10 +1,11 @@
-﻿/**
+/**
  * ETHIOTIMES Instagram Carousel Slide Component.
  * Strict inline styles for Playwright rendering safety.
  */
 import { tokens } from "@/lib/design-tokens";
 import { FORMATS, type InstagramFormat } from "./formats";
 import { Footer, Pill, Rule, Scrim, Wordmark } from "./primitives";
+import { BroadcastCarouselCard } from "./BroadcastCarouselCard";
 
 export interface CarouselSlideData {
   slide_number: number;
@@ -15,6 +16,8 @@ export interface CarouselSlideData {
   bullet_points?: string[];
   source_attribution?: string | null;
   accent?: string;
+  theme?: string;
+  highlightColor?: string;
   imageUrl?: string | null;
 }
 
@@ -23,12 +26,29 @@ export function CarouselCard({
   slide,
   category = "ETHIOPIA",
   dateLabel,
+  theme,
+  highlightColor,
 }: {
   format?: InstagramFormat;
   slide: CarouselSlideData;
   category?: string;
   dateLabel?: string;
+  theme?: string;
+  highlightColor?: string;
 }) {
+  const activeTheme = slide.theme || theme;
+  if (activeTheme === "broadcast_impact" || activeTheme === "headline_impact") {
+    return (
+      <BroadcastCarouselCard
+        format={format}
+        slide={slide}
+        category={category}
+        dateLabel={dateLabel}
+        highlightColor={slide.highlightColor || highlightColor}
+      />
+    );
+  }
+
   const { width, height, safeMargin } = FORMATS[format] ?? FORMATS.portrait;
   const accentColor =
     slide.accent === "red"
@@ -206,7 +226,7 @@ export function CarouselCard({
           }}
         >
           <Footer
-            source={slide.source_attribution || "ETHIOTIMES Intelligence"}
+            source={slide.source_attribution || "ETHIOPIAN TIMES Intelligence"}
             date={dateLabel}
             accent={accentColor}
           />

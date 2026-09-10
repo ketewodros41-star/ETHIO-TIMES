@@ -76,19 +76,57 @@ export function Rule({ accent = tokens.color.accent.green }: AccentProps) {
   );
 }
 
-/** ETHIOTIMES wordmark */
+/** ETHIOPIAN TIMES wordmark with ET geometric monogram badge */
 export function Wordmark({ accent = tokens.color.accent.green }: AccentProps) {
   return (
     <div style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 14,
       fontFamily: tokens.font.display,
-      fontWeight: 700,
-      fontSize: 32,
-      letterSpacing: "-0.01em",
+      fontWeight: 800,
       color: tokens.color.paper[50],
+      textTransform: "uppercase" as const,
     }}>
-      ETHIO
-      <span style={{ color: tokens.color.paper[300] }}>TIMES</span>
-      <span style={{ color: accent }}>.</span>
+      <svg
+        width="44"
+        height="44"
+        viewBox="0 0 100 100"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ flexShrink: 0 }}
+      >
+        <polygon
+          points="50,6 88,28 88,72 50,94 12,72 12,28"
+          stroke="#FFFFFF"
+          strokeWidth="6.5"
+          strokeLinejoin="round"
+          fill="none"
+        />
+        <path
+          d="M32 32 H47 M32 50 H44 M32 68 H47 M32 32 V68"
+          stroke="#FFFFFF"
+          strokeWidth="6"
+          strokeLinecap="square"
+          strokeLinejoin="miter"
+        />
+        <path
+          d="M52 32 H78 M65 32 V68"
+          stroke="#FFFFFF"
+          strokeWidth="6"
+          strokeLinecap="square"
+          strokeLinejoin="miter"
+        />
+        <circle cx="77" cy="68" r="3.2" fill={accent} />
+      </svg>
+      <div style={{ display: "flex", flexDirection: "column", lineHeight: 0.92, textAlign: "left" as const }}>
+        <span style={{ fontSize: 24, fontWeight: 900, letterSpacing: "0.06em", color: tokens.color.paper[50] }}>
+          ETHIOPIAN
+        </span>
+        <span style={{ fontSize: 24, fontWeight: 900, letterSpacing: "0.06em", color: tokens.color.paper[300] }}>
+          TIMES<span style={{ color: accent }}>.</span>
+        </span>
+      </div>
     </div>
   );
 }
@@ -113,13 +151,14 @@ export function Footer({
   );
 }
 
-/** Ink gradient scrim over image zone */
+/** Ink gradient scrim over image zone — subtle top/mid transparency to preserve 4K brilliance, dark bottom for headline contrast */
 export function Scrim() {
   return (
     <div style={{
       position: "absolute" as const,
       inset: 0,
-      background: `linear-gradient(180deg, rgba(11,12,14,0.25) 0%, rgba(11,12,14,0.65) 50%, ${tokens.color.ink[900]} 100%)`,
+      background: `linear-gradient(180deg, rgba(11,12,14,0.05) 0%, rgba(11,12,14,0.18) 35%, rgba(11,12,14,0.72) 70%, ${tokens.color.ink[900]} 100%)`,
+      pointerEvents: "none" as const,
     }} />
   );
 }
