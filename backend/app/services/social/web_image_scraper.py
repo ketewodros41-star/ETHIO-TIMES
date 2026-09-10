@@ -79,8 +79,27 @@ class WebImageScraper:
         # Tier 2: Entity & Person Analysis (LLM or Heuristic)
         # -------------------------------------------------------------
         if custom_query and custom_query.strip():
+            cq = custom_query.strip()
+            cq_lower = cq.lower()
             main_person = None
-            queries = [custom_query.strip(), f"{custom_query.strip()} Ethiopia news"]
+            for keywords, name in [
+                (("ዐቢይ", "አብይ", "ጠቅላይ ሚኒስትር", "abiy", "prime minister"), "Abiy Ahmed"),
+                (("ሽመልስ", "shimelis"), "Shimelis Abdisa"),
+                (("ታየ አጽቀ", "taye atske"), "Taye Atske Selassie"),
+                (("ሳህለወርቅ", "sahle-work"), "Sahle-Work Zewde"),
+                (("አዳነች አቤቤ", "adanech"), "Adanech Abebe"),
+                (("ሃይለማሪያም", "hailemariam"), "Hailemariam Desalegn"),
+                (("ቴዲ አፍሮ", "teddy afro"), "Teddy Afro"),
+                (("ደመቀ መኮንን", "demeke mekonnen"), "Demeke Mekonnen"),
+            ]:
+                if any(k in cq_lower for k in keywords):
+                    main_person = name
+                    break
+
+            if main_person:
+                queries = [f"{main_person} Ethiopia", f"{main_person} news"]
+            else:
+                queries = [cq, f"{cq} Ethiopia news"]
         else:
             main_person, queries = self._analyze_entities_and_queries(event)
 
@@ -99,9 +118,7 @@ class WebImageScraper:
             for cand in person_photos:
                 if len(pool) >= max_pool:
                     break
-                if cand.image_url not in seen_urls:
-                    seen_urls.add(cand.image_url)
-                    pool.append(cand)
+                pool.append(cand)
 
         # -------------------------------------------------------------
         # Tier 4: Openverse Global Editorial Engine (Flickr/CC Photojournalism)
@@ -113,9 +130,7 @@ class WebImageScraper:
             for cand in ov_results:
                 if len(pool) >= max_pool:
                     break
-                if cand.image_url not in seen_urls:
-                    seen_urls.add(cand.image_url)
-                    pool.append(cand)
+                pool.append(cand)
 
         # -------------------------------------------------------------
         # Tier 5: Wikimedia Commons Topic Bitmap Archives
@@ -127,9 +142,7 @@ class WebImageScraper:
             for cand in wm_results:
                 if len(pool) >= max_pool:
                     break
-                if cand.image_url not in seen_urls:
-                    seen_urls.add(cand.image_url)
-                    pool.append(cand)
+                pool.append(cand)
 
         # -------------------------------------------------------------
         # Tier 6: Live Web Image Search (Bing with Relevance Validation)
@@ -141,9 +154,7 @@ class WebImageScraper:
             for cand in web_results:
                 if len(pool) >= max_pool:
                     break
-                if cand.image_url not in seen_urls:
-                    seen_urls.add(cand.image_url)
-                    pool.append(cand)
+                pool.append(cand)
 
         # -------------------------------------------------------------
         # Tier 7: Google Custom Search API (If configured)
@@ -155,9 +166,7 @@ class WebImageScraper:
             for cand in g_results:
                 if len(pool) >= max_pool:
                     break
-                if cand.image_url not in seen_urls:
-                    seen_urls.add(cand.image_url)
-                    pool.append(cand)
+                pool.append(cand)
 
         # -------------------------------------------------------------
         # Tier 8: Firecrawl (If configured)
@@ -168,9 +177,7 @@ class WebImageScraper:
             for cand in fc_results:
                 if len(pool) >= max_pool:
                     break
-                if cand.image_url not in seen_urls:
-                    seen_urls.add(cand.image_url)
-                    pool.append(cand)
+                pool.append(cand)
 
         return pool
 
