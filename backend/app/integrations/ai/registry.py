@@ -33,12 +33,5 @@ def get_text_provider() -> AIProvider:
 
 
 def get_image_provider() -> ImageProvider:
-    from app.integrations.ai.mock_image import MockImageProvider
-    if settings.gemini_api_key:
-        try:
-            p = GeminiImageProvider()
-            if p.is_available():
-                return p
-        except Exception:
-            pass
-    return MockImageProvider()
+    from app.integrations.ai.flux_image import EditorialImageProvider
+    return EditorialImageProvider()

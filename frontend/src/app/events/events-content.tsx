@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Layers, Play, RefreshCw, ShieldAlert, TrendingUp, Users, Zap } from "lucide-react";
+import { AlertCircle, Layers, Palette, Play, RefreshCw, ShieldAlert, TrendingUp, Users, Zap } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -264,6 +264,15 @@ export function EventsContent() {
                       </span>
                     )}
                     <span>updated {relativeTime(e.last_seen_at)}</span>
+                    <span
+                      onClick={(ev) => {
+                        ev.preventDefault();
+                        window.location.href = `/studio/templates?event_id=${e.id}`;
+                      }}
+                      className="inline-flex items-center gap-1 rounded bg-ink-800 px-2 py-0.5 text-accent-green hover:bg-ink-700 transition-colors cursor-pointer text-xs font-medium"
+                    >
+                      <Palette className="h-3 w-3" /> Photo Studio →
+                    </span>
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
