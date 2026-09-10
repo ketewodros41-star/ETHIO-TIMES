@@ -102,9 +102,11 @@ class PhotoCandidate(BaseModel):
     title: str
     thumb_url: str
     image_url: str
-    source: str  # "telegram" | "wikimedia" | "pexels"
+    source: str  # "telegram" | "article" | "wikimedia" | "pexels" | "openverse" | "web_search"
     photographer: str
     description: str | None = None
+    entity_type: str = "lead"  # "lead" | "person" | "location" | "institution" | "concept"
+    entity_name: str | None = None
 
 
 class SelectCandidateRequest(BaseModel):
@@ -124,6 +126,10 @@ class PhotoBrowseResponse(BaseModel):
     has_prev: bool
     topic: str
     detected_person: str | None = None
+    detected_persons: list[str] = Field(default_factory=list)
+    detected_locations: list[str] = Field(default_factory=list)
+    detected_institutions: list[str] = Field(default_factory=list)
     search_queries: list[str] = Field(default_factory=list)
     suggested_chips: list[str] = Field(default_factory=list)
+
 

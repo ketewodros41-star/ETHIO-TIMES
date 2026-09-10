@@ -13,6 +13,7 @@ Discovers authentic photos matching news events using:
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import json
 import re
 import urllib.parse
@@ -61,12 +62,26 @@ _EXCLUDED_TITLE_KEYWORDS = (
 )
 
 
+@dataclass
+class StoryVisualEntities:
+    """Decomposed story entities for structured, multi-tier photo searching."""
+    topic: str
+    main_person: str | None = None
+    persons: list[str] = field(default_factory=list)
+    locations: list[str] = field(default_factory=list)
+    institutions: list[str] = field(default_factory=list)
+    concepts: list[str] = field(default_factory=list)
+    search_queries: list[str] = field(default_factory=list)
+    suggested_chips: list[str] = field(default_factory=list)
+
+
 class WebImageScraper:
     """Multi-source free web image scraper tailored for Ethiopian news stories."""
 
     def __init__(self, text_provider: AIProvider | None = None) -> None:
         self.text_provider = text_provider
-        self._analysis_cache: dict[str, tuple[str, str | None, list[str], list[str]]] = {}
+        self._analysis_cache: dict[str, StoryVisualEntities] = {}
+        self._wiki_img_cache: dict[str, PhotoCandidate | None] = {}
 
     def search_candidates(
         self,
@@ -74,9 +89,13 @@ class WebImageScraper:
         custom_query: str | None = None,
         max_pool: int = 36,
     ) -> list[PhotoCandidate]:
-        """Aggregate story-relevant photos from all free web sources."""
+        """Aggregate story-relevant photos from all free web sources using a 4-tier waterfall."""
         seen_urls: set[str] = set()
-        pool: list[PhotoCandidate] = []
+
+        tier1_leads: list[PhotoCandidate] = []
+        tier2_persons: list[PhotoCandidate] = []
+        tier3_locations: list[PhotoCandidate] = []
+        tier4_institutions_and_concepts: list[PhotoCandidate] = []
 
         # -------------------------------------------------------------
         # Tier 1: Direct Ingested Article Media (Highest Relevance)
@@ -85,91 +104,109 @@ class WebImageScraper:
         for cand in direct_photos:
             if cand.image_url not in seen_urls:
                 seen_urls.add(cand.image_url)
-                pool.append(cand)
+                cand.entity_type = "lead"
+                tier1_leads.append(cand)
 
         # -------------------------------------------------------------
-        # Tier 2: Entity & Person Analysis (LLM or Heuristic)
+        # Entity & Story Analysis (LLM + Comprehensive Ethiopian Knowledge Base)
         # -------------------------------------------------------------
-        topic, main_person, queries, suggested_chips = self.analyze_story(event, custom_query=custom_query)
+        entities = self.analyze_story_entities(event, custom_query=custom_query)
 
         logger.info(
             "web_image_search_plan",
             event_id=str(event.id),
-            topic=topic,
-            main_person=main_person,
-            queries=queries,
+            topic=entities.topic,
+            main_person=entities.main_person,
+            persons=entities.persons,
+            locations=entities.locations,
+            institutions=entities.institutions,
+            concepts=entities.concepts,
         )
 
-        # -------------------------------------------------------------
-        # Tier 3: Person-Specific Search (If a person was identified!)
-        # -------------------------------------------------------------
-        if main_person:
-            person_photos = self._search_person_photos(main_person, seen_urls, limit=12)
-            for cand in person_photos:
-                if len(pool) >= max_pool:
-                    break
-                pool.append(cand)
+        # Tier 1 concepts (concise 2-word photographic concepts)
+        for q in entities.concepts[:2]:
+            cands = self._search_openverse_photos(q, seen_urls, limit=4)
+            for c in cands:
+                c.entity_type = "concept"
+                tier1_leads.append(c)
+            wm_cands = self._search_wikimedia_topic_photos(q, seen_urls, limit=3)
+            for c in wm_cands:
+                c.entity_type = "concept"
+                tier1_leads.append(c)
 
         # -------------------------------------------------------------
-        # Tier 4: Openverse Global Editorial Engine (Flickr/CC Photojournalism)
+        # Tier 2: Key Persons & Officials (Portraits & Press)
         # -------------------------------------------------------------
-        for q in queries[:2]:
-            if len(pool) >= 18:
-                break
-            ov_results = self._search_openverse_photos(q, seen_urls, limit=6)
-            for cand in ov_results:
-                if len(pool) >= max_pool:
-                    break
-                pool.append(cand)
+        target_persons = entities.persons or ([entities.main_person] if entities.main_person else [])
+        for person in target_persons[:3]:
+            # Exact Wikipedia Portrait
+            wiki_portrait = self._resolve_wikipedia_portrait(person, entity_type="person", seen_urls=seen_urls)
+            if wiki_portrait:
+                tier2_persons.append(wiki_portrait)
+            # Wikimedia person photos
+            p_cands = self._search_person_photos(person, seen_urls, limit=6)
+            for c in p_cands:
+                c.entity_type = "person"
+                c.entity_name = person
+                tier2_persons.append(c)
 
         # -------------------------------------------------------------
-        # Tier 5: Wikimedia Commons Topic Bitmap Archives
+        # Tier 3: City, Region & Landmark Atmosphere
         # -------------------------------------------------------------
-        for q in queries[:2]:
-            if len(pool) >= 18:
-                break
-            wm_results = self._search_wikimedia_topic_photos(q, seen_urls, limit=5)
-            for cand in wm_results:
-                if len(pool) >= max_pool:
-                    break
-                pool.append(cand)
+        target_locs = entities.locations or ([event.primary_region] if event.primary_region else ["Addis Ababa"])
+        for loc in target_locs[:2]:
+            loc_cands = self._search_city_photos(loc, seen_urls, limit=6)
+            tier3_locations.extend(loc_cands)
 
         # -------------------------------------------------------------
-        # Tier 6: Live Web Image Search (Bing with Relevance Validation)
+        # Tier 4: Institutions & Broader Domain Concepts
         # -------------------------------------------------------------
-        for q in queries[:2]:
-            if len(pool) >= 18:
-                break
-            web_results = self._search_bing_photos(q, seen_urls, limit=6)
-            for cand in web_results:
-                if len(pool) >= max_pool:
-                    break
-                pool.append(cand)
+        for inst in entities.institutions[:2]:
+            inst_cands = self._search_institution_photos(inst, seen_urls, limit=4)
+            tier4_institutions_and_concepts.extend(inst_cands)
 
-        # -------------------------------------------------------------
+        # Backfill with general web search if total pool is small (< 18)
+        if (len(tier1_leads) + len(tier2_persons) + len(tier3_locations) + len(tier4_institutions_and_concepts)) < 18:
+            for q in entities.search_queries[:2]:
+                web_res = self._search_bing_photos(q, seen_urls, limit=6)
+                for c in web_res:
+                    c.entity_type = "concept"
+                    tier4_institutions_and_concepts.append(c)
+
         # Tier 7: Google Custom Search API (If configured)
-        # -------------------------------------------------------------
         google_key = getattr(settings, "google_search_api_key", None)
         google_cx = getattr(settings, "google_search_cx", None)
-        if google_key and google_cx and len(pool) < 18 and queries:
-            g_results = self._search_google_cse(queries[0], google_key, google_cx, seen_urls, limit=8)
-            for cand in g_results:
-                if len(pool) >= max_pool:
-                    break
-                pool.append(cand)
+        if google_key and google_cx and (len(tier1_leads) + len(tier2_persons)) < 12 and entities.search_queries:
+            g_results = self._search_google_cse(entities.search_queries[0], google_key, google_cx, seen_urls, limit=8)
+            tier4_institutions_and_concepts.extend(g_results)
 
         # -------------------------------------------------------------
-        # Tier 8: Firecrawl (If configured)
+        # Assemble Balanced Multi-Page Candidate Pool
+        # Page 1: Leads & Direct Concepts (up to 6)
+        # Page 2: Persons & Key Officials (up to 6)
+        # Page 3: City & Regional Landscapes (up to 6)
+        # Page 4: Institutions & Broad Concepts (up to 6)
         # -------------------------------------------------------------
-        firecrawl_key = getattr(settings, "firecrawl_api_key", None)
-        if firecrawl_key and len(pool) < max_pool and queries:
-            fc_results = self._search_firecrawl(queries[0], firecrawl_key, seen_urls)
-            for cand in fc_results:
-                if len(pool) >= max_pool:
-                    break
-                pool.append(cand)
+        final_pool: list[PhotoCandidate] = []
+        final_pool.extend(tier1_leads[:6])
+        final_pool.extend(tier2_persons[:6])
+        final_pool.extend(tier3_locations[:6])
+        final_pool.extend(tier4_institutions_and_concepts[:6])
 
-        return pool
+        # If any tier had extra candidates and we still have room under max_pool, add remainder
+        if len(final_pool) < max_pool:
+            remainder = (
+                tier1_leads[6:] +
+                tier2_persons[6:] +
+                tier3_locations[6:] +
+                tier4_institutions_and_concepts[6:]
+            )
+            for c in remainder:
+                if len(final_pool) >= max_pool:
+                    break
+                final_pool.append(c)
+
+        return final_pool
 
     def _extract_article_photos(self, event: NewsEvent) -> list[PhotoCandidate]:
         """Pull editorial images directly attached to the event's articles."""
@@ -208,66 +245,159 @@ class WebImageScraper:
                     source="article_source",
                     photographer=source_name,
                     description=f"Authentic news photo published by {source_name}",
+                    entity_type="lead",
+                    entity_name=source_name,
                 )
             )
         return candidates
 
-    def analyze_story(
+    def analyze_story_entities(
         self, event: NewsEvent, custom_query: str | None = None
-    ) -> tuple[str, str | None, list[str], list[str]]:
-        """Deeply understand news story: returns (topic, main_person, photo_queries, suggested_chips)."""
-        if custom_query and custom_query.strip():
-            cq = custom_query.strip()
-            cq_lower = cq.lower()
-            main_person = None
-            for keywords, name in [
-                (("ዐቢይ", "አብይ", "ጠቅላይ ሚኒስትር", "abiy", "prime minister"), "Abiy Ahmed"),
-                (("ሽመልስ", "shimelis"), "Shimelis Abdisa"),
-                (("ታየ አጽቀ", "taye atske"), "Taye Atske Selassie"),
-                (("ሳህለወርቅ", "sahle-work"), "Sahle-Work Zewde"),
-                (("አዳነች አቤቤ", "adanech"), "Adanech Abebe"),
-                (("ሃይለማሪያም", "hailemariam"), "Hailemariam Desalegn"),
-                (("ቴዲ አፍሮ", "teddy afro"), "Teddy Afro"),
-                (("ደመቀ መኮንን", "demeke mekonnen"), "Demeke Mekonnen"),
-                (("ዳንጎቴ", "dangote"), "Aliko Dangote"),
-            ]:
-                if any(k in cq_lower for k in keywords):
-                    main_person = name
-                    break
-
-            if main_person:
-                queries = [f"{main_person} Ethiopia", f"{main_person} news", f"{main_person} official portrait"]
-                chips = [main_person, "Ethiopia leadership", "News photo"]
-            else:
-                queries = [cq, f"{cq} Ethiopia news", f"Contemporary {cq}"]
-                chips = [cq, f"{cq} news", "Ethiopia"]
-            return cq, main_person, queries, chips
-
-        # Story understanding for event without custom query
-        cache_key = str(event.id)
+    ) -> StoryVisualEntities:
+        """Extract concrete photographic entities (persons, cities, institutions, concepts)."""
+        cache_key = f"{event.id}:{custom_query.strip().lower() if custom_query else ''}"
         if cache_key in self._analysis_cache:
             return self._analysis_cache[cache_key]
 
-        topic: str | None = None
+        text = f"{event.title or ''} {event.summary or ''}".lower()
+        topic: str = "Ethiopian News"
         main_person: str | None = None
+        persons: list[str] = []
+        locations: list[str] = []
+        institutions: list[str] = []
+        concepts: list[str] = []
         queries: list[str] = []
         chips: list[str] = []
 
-        # 1. LLM entity & topic extraction via AgentRouter / Gemini
+        # -------------------------------------------------------------
+        # 1. Custom Query Handling
+        # -------------------------------------------------------------
+        if custom_query and custom_query.strip():
+            cq = custom_query.strip()
+            topic = cq
+            queries = [cq, f"{cq} Ethiopia", f"Contemporary {cq}"]
+            chips = [cq, "Ethiopia"]
+            entities = StoryVisualEntities(
+                topic=topic,
+                main_person=None,
+                persons=[],
+                locations=[cq] if any(w in cq.lower() for w in ["addis", "hawassa", "mekelle", "gondar"]) else [],
+                institutions=[],
+                concepts=[cq],
+                search_queries=queries,
+                suggested_chips=chips,
+            )
+            self._analysis_cache[cache_key] = entities
+            return entities
+
+        # -------------------------------------------------------------
+        # 2. Comprehensive Ethiopian Knowledge Base (Deterministic & Fast)
+        # -------------------------------------------------------------
+        # 2a. Prominent Leaders & Figures
+        person_map = [
+            (["ዐቢይ", "አብይ", "ጠቅላይ ሚኒስትር", "abiy", "prime minister"], "Abiy Ahmed"),
+            (["ዳንኤል በቀለ", "ዳንኤል", "daniel bekele", "ehrc", "ሰብዓዊ መብት"], "Daniel Bekele"),
+            (["ማሞ ምህረቱ", "ማሞ", "mamo mihretu", "ብሔራዊ ባንክ", "national bank"], "Mamo Mihretu"),
+            (["ታየ አጽቀ", "ታየ", "taye atske"], "Taye Atske Selassie"),
+            (["ሳህለወርቅ", "ሳህለ-ወርቅ", "sahle-work"], "Sahle-Work Zewde"),
+            (["ሽመልስ", "shimelis"], "Shimelis Abdisa"),
+            (["አዳነች አቤቤ", "አዳነች", "adanech"], "Adanech Abebe"),
+            (["ጌዲዮን ጢሞቴዎስ", "ጌዲዮን", "gedion"], "Gedion Timotheos"),
+            (["አህመድ ሽዴ", "አህመድ", "ahmed shide"], "Ahmed Shide"),
+            (["ደመቀ መኮንን", "ደመቀ", "demeke"], "Demeke Mekonnen"),
+            (["ሃይለማሪያም", "hailemariam"], "Hailemariam Desalegn"),
+            (["ፍሬህይወት ታምሩ", "ፍሬህይወት", "frehiwot"], "Frehiwot Tamiru"),
+            (["መስፍን ጣሰው", "መስፍን", "mesfin tasew"], "Mesfin Tasew"),
+            (["ደራርቱ ቱሉ", "ደራርቱ", "derartu"], "Derartu Tulu"),
+            (["ኃይሌ ገብረስላሴ", "ሀይሌ", "haile gebrselassie"], "Haile Gebrselassie"),
+            (["ቴዲ አፍሮ", "ቴዎድሮስ ካሳሁን", "teddy afro"], "Teddy Afro"),
+            (["ዳንጎቴ", "dangote"], "Aliko Dangote"),
+        ]
+        for keywords, name in person_map:
+            if any(k in text for k in keywords):
+                if name not in persons:
+                    persons.append(name)
+                if not main_person:
+                    main_person = name
+
+        # 2b. Cities & Regional Centers
+        location_map = [
+            (["አዲስ አበባ", "addis ababa", "bole", "meskel square", "piazza", "arada"], "Addis Ababa"),
+            (["ሀዋሳ", "ሐዋሳ", "hawassa", "awassa", "sidama"], "Hawassa"),
+            (["መቀሌ", "መቐለ", "mekelle", "mekele", "tigray"], "Mekelle"),
+            (["ባህር ዳር", "ባሕር ዳር", "bahir dar", "lake tana", "amhara"], "Bahir Dar"),
+            (["ጎንደር", "ጐንደር", "gondar", "gonder"], "Gondar"),
+            (["ድሬዳዋ", "ድሬ ዳዋ", "dire dawa"], "Dire Dawa"),
+            (["ጅማ", "jimma"], "Jimma"),
+            (["አዳማ", "adama", "nazret"], "Adama"),
+            (["ቢሾፍቱ", "bishoftu", "debre zeit"], "Bishoftu"),
+            (["ሐረር", "ሀረር", "harar"], "Harar"),
+            (["ጅጅጋ", "jijiga"], "Jijiga"),
+            (["ሰመራ", "semera", "afar", "danakil"], "Semera"),
+            (["አሶሳ", "asosa", "benishangul"], "Asosa"),
+            (["ጋምቤላ", "gambella"], "Gambella"),
+            (["ሞጆ", "modjo", "dry port"], "Modjo"),
+            (["ላሊበላ", "lalibela"], "Lalibela"),
+            (["አክሱም", "axum"], "Axum"),
+        ]
+        for keywords, loc_name in location_map:
+            if any(k in text for k in keywords):
+                if loc_name not in locations:
+                    locations.append(loc_name)
+
+        # 2c. Institutions & Organizations
+        institution_map = [
+            (["ብሔራዊ ባንክ", "nbe", "national bank of ethiopia"], "National Bank of Ethiopia"),
+            (["የኢትዮጵያ ንግድ ባንክ", "ንግድ ባንክ", "cbe", "commercial bank of ethiopia"], "Commercial Bank of Ethiopia"),
+            (["የኢትዮጵያ አየር መንገድ", "አየር መንገድ", "ethiopian airlines"], "Ethiopian Airlines"),
+            (["ኢትዮ ቴሌኮም", "ቴሌኮም", "ethio telecom"], "Ethio Telecom"),
+            (["ጠቅላይ ፍርድ ቤት", "ፍርድ ቤት", "supreme court", "court", "judiciary", "justice"], "Federal Supreme Court of Ethiopia"),
+            (["ሰብዓዊ መብት ኮሚሽን", "ehrc", "human rights commission"], "Ethiopian Human Rights Commission"),
+            (["የህዝብ ተወካዮች ምክር ቤት", "ምክር ቤት", "parliament"], "Ethiopian Parliament"),
+            (["ታላቁ የህዳሴ ግድብ", "ህዳሴ ግድብ", "ህዳሴ", "gerd", "renaissance dam"], "Grand Ethiopian Renaissance Dam"),
+            (["የአፍሪካ ህብረት", "አፍሪካ ህብረት", "african union"], "African Union"),
+        ]
+        for keywords, inst_name in institution_map:
+            if any(k in text for k in keywords):
+                if inst_name not in institutions:
+                    institutions.append(inst_name)
+
+        # 2d. Concrete Photographic Concepts
+        concept_map = [
+            (["ይቅርታ", "እስረኛ", "እስር", "pardon", "prisoner", "prison", "ፍርድ"], ["Ethiopian court justice", "Ethiopia prison"]),
+            (["ባንክ", "ብር", "ገንዘብ", "devaluation", "currency", "birr", "forex", "exchange rate"], ["Ethiopian Birr banknotes", "Commercial Bank of Ethiopia"]),
+            (["ቡና", "እርሻ", "coffee", "agriculture", "farming", "crop", "wheat"], ["Ethiopian coffee harvest", "Ethiopia agriculture farming"]),
+            (["በረራ", "አውሮፕላን", "flight", "aviation", "airline", "aircraft"], ["Ethiopian Airlines aircraft", "Bole International Airport"]),
+            (["ሰላም", "ስምምነት", "peace", "treaty", "diplomacy", "talks"], ["African Union Addis Ababa", "Ethiopian diplomacy"]),
+            (["ትምህርት", "ዩኒቨርሲቲ", "university", "education", "school"], ["Addis Ababa University", "Ethiopia education"]),
+        ]
+        for keywords, conc_list in concept_map:
+            if any(k in text for k in keywords):
+                for c in conc_list:
+                    if c not in concepts:
+                        concepts.append(c)
+
+        # -------------------------------------------------------------
+        # 3. LLM Extraction Enhancement (when available)
+        # -------------------------------------------------------------
         if self.text_provider and self.text_provider.is_available():
             try:
                 prompt = (
-                    "You are a photo desk editor for a newsroom in Ethiopia.\n"
+                    "You are a photo desk director for a newsroom in Ethiopia.\n"
+                    "Extract concrete, photographic search entities.\n"
+                    "Editorial rules: Search engines fail on news headlines. "
+                    "Extract concrete nouns, people's names, cities/locations, and institutions that have actual photos available.\n\n"
                     f"Headline: {event.title}\n"
                     f"Summary: {(event.summary or '')[:450]}\n"
                     f"Category: {event.primary_category or 'General'}, Region: {event.primary_region or 'Ethiopia'}\n\n"
-                    "Extract the main topic, central person (if any), 3 photo search queries in English, and 3 suggested filter chips.\n"
-                    "Output JSON only:\n"
+                    "Output JSON ONLY:\n"
                     "{\n"
-                    '  "topic": "Concise English editorial topic",\n'
-                    '  "main_person": "Full English Name or null",\n'
-                    '  "queries": ["query 1", "query 2", "query 3"],\n'
-                    '  "suggested_chips": ["chip 1", "chip 2", "chip 3"]\n'
+                    '  "topic": "Concise 2-4 word editorial topic",\n'
+                    '  "searchable_concepts": ["2-3 word photographic noun query 1", "query 2"],\n'
+                    '  "persons": ["Full English name of key figures or officials mentioned"],\n'
+                    '  "locations": ["City, capital, or landmark mentioned"],\n'
+                    '  "institutions": ["Organization, ministry, or bank"],\n'
+                    '  "suggested_chips": ["Chip 1", "Chip 2", "Chip 3", "Chip 4"]\n'
                     "}"
                 )
                 req = TextGenerationRequest(prompt=prompt)
@@ -276,129 +406,224 @@ class WebImageScraper:
                 if match:
                     parsed = json.loads(match.group(0))
                     t = str(parsed.get("topic") or "").strip()
-                    p = parsed.get("main_person")
-                    if p and str(p).strip().lower() in ("null", "none", ""):
-                        p = None
-                    raw_q = parsed.get("queries") or parsed.get("photo_queries") or parsed.get("search_queries") or []
-                    clean_q = [str(q).strip() for q in raw_q if str(q).strip()][:3]
-                    raw_c = parsed.get("suggested_chips") or parsed.get("chips") or []
-                    clean_c = [str(c).strip() for c in raw_c if str(c).strip()][:4]
                     if t:
                         topic = t
-                    if p:
-                        main_person = str(p).strip()
-                    if clean_q:
-                        queries = clean_q
-                    if clean_c:
-                        chips = clean_c
+                    for p in parsed.get("persons", []):
+                        p_str = str(p).strip()
+                        if p_str and p_str.lower() not in ("null", "none", "") and p_str not in persons:
+                            persons.append(p_str)
+                            if not main_person:
+                                main_person = p_str
+                    for loc in parsed.get("locations", []):
+                        loc_str = str(loc).strip()
+                        if loc_str and loc_str not in locations:
+                            locations.append(loc_str)
+                    for inst in parsed.get("institutions", []):
+                        inst_str = str(inst).strip()
+                        if inst_str and inst_str not in institutions:
+                            institutions.append(inst_str)
+                    for sc in parsed.get("searchable_concepts", []):
+                        sc_str = str(sc).strip()
+                        if sc_str and sc_str not in concepts:
+                            concepts.append(sc_str)
+                    raw_q = parsed.get("queries") or parsed.get("search_queries") or []
+                    if raw_q:
+                        queries = [str(q).strip() for q in raw_q if str(q).strip()]
+                    for ch in parsed.get("suggested_chips", []):
+                        ch_str = str(ch).strip()
+                        if ch_str and ch_str not in chips:
+                            chips.append(ch_str)
             except Exception as exc:
-                logger.warning("llm_story_analysis_failed", error=_safe_str(exc))
+                logger.warning("llm_story_entities_failed", error=_safe_str(exc))
 
-        # 2. Heuristic person detection if not identified by LLM
-        text = f"{event.title or ''} {event.summary or ''}".lower()
-        if not main_person:
-            person_map = {
-                ("ዐቢይ", "አብይ", "ጠቅላይ ሚኒስትር", "abiy", "prime minister"): "Abiy Ahmed",
-                ("ሽመልስ", "shimelis"): "Shimelis Abdisa",
-                ("ታየ አጽቀ", "taye atske"): "Taye Atske Selassie",
-                ("ሳህለወርቅ", "sahle-work"): "Sahle-Work Zewde",
-                ("አዳነች አቤቤ", "adanech"): "Adanech Abebe",
-                ("ሃይለማሪያም", "hailemariam"): "Hailemariam Desalegn",
-                ("ቴዲ አፍሮ", "teddy afro"): "Teddy Afro",
-                ("ደመቀ መኮንን", "demeke mekonnen"): "Demeke Mekonnen",
-                ("ዳንጎቴ", "dangote"): "Aliko Dangote",
-            }
-            for keywords, name in person_map.items():
-                if any(k in text for k in keywords):
-                    main_person = name
-                    break
-
-        # 3. Topic & query fallback if not identified by LLM
-        if main_person and not queries:
-            queries = [
-                f"{main_person} Ethiopia",
-                f"{main_person} official portrait",
-                f"Prime Minister {main_person}",
-            ]
-            if not topic:
-                topic = f"Prime Minister {main_person}" if main_person == "Abiy Ahmed" else f"{main_person} Leadership"
-
-        if not topic:
-            amharic_entities = {
-                ("ንግድ ባንክ", "cbe", "commercial bank"): ("Commercial Bank of Ethiopia", "Commercial Bank of Ethiopia headquarters"),
-                ("ብሔራዊ ባንክ", "nbe", "national bank"): ("National Bank of Ethiopia", "National Bank of Ethiopia"),
-                ("ሞጆ", "modjo", "mojo"): ("Modjo Logistics & Dry Port", "Modjo dry port Ethiopia logistics"),
-                ("አየር መንገድ", "airlines", "airline", "flight"): ("Ethiopian Airlines & Aviation", "Ethiopian Airlines Addis Ababa"),
-                ("ቴሌኮም", "telecom", "safari"): ("Ethio Telecom & Technology", "Ethio telecom Addis Ababa"),
-                ("ህዳሴ ግድብ", "ህዳሴ", "ዓባይ", "gerd", "dam"): ("Grand Ethiopian Renaissance Dam", "Grand Ethiopian Renaissance Dam GERD"),
-                ("እሳት", "አደጋ", "fire", "rescue"): ("Fire & Emergency Services", "Addis Ababa fire emergency rescue"),
-                ("ዋጋ ግሽበት", "inflation", "ብር", "birr"): ("Ethiopian Economy & Currency", "Ethiopian market economy currency"),
-            }
-            for keywords, (top_name, default_query) in amharic_entities.items():
-                if any(k in text for k in keywords):
-                    topic = top_name
-                    if not queries:
-                        queries = [default_query, f"{top_name} contemporary", f"{top_name} news"]
-                    break
-
-        # 4. Regional fallback if still no topic
-        if not topic:
-            region_topics = {
-                "tigray": ("Tigray Region", ["Tigray Ethiopia", "Mekelle city Ethiopia"]),
-                "amhara": ("Amhara Region", ["Amhara Ethiopia", "Bahir Dar Lake Tana"]),
-                "oromia": ("Oromia Region", ["Oromia Ethiopia", "Adama city Ethiopia"]),
-                "somali": ("Somali Region", ["Somali Region Ethiopia", "Jijiga Ethiopia"]),
-                "afar": ("Afar Region", ["Afar Region Ethiopia", "Danakil Ethiopia"]),
-                "sidama": ("Sidama Region", ["Sidama Region Ethiopia", "Hawassa Ethiopia"]),
-                "dire dawa": ("Dire Dawa", ["Dire Dawa Ethiopia", "Dire Dawa city"]),
-            }
-            for rk, (rtopic, rfacets) in region_topics.items():
-                if rk in text:
-                    topic = rtopic
-                    if not queries:
-                        queries = rfacets
-                    break
-
-        # 5. Default topic from title or region
-        if not topic:
-            clean_words = [
-                w for w in re.split(r"\W+", event.title or "")
-                if len(w) > 3 and not re.search(r"[\u1200-\u137F]", w)
-            ]
-            if clean_words:
-                subj = " ".join(clean_words[:4])
-                topic = f"{subj}"
-                if not queries:
-                    queries = [f"{subj} Ethiopia", f"{subj} news", f"{subj} Addis Ababa"]
+        # Defaults if empty
+        if not locations:
+            locations = [event.primary_region] if event.primary_region else ["Addis Ababa"]
+        if not concepts:
+            concepts = [f"{locations[0]} Ethiopia", "Contemporary Ethiopia"]
+        if not topic or topic == "Ethiopian News":
+            if persons:
+                topic = f"{persons[0]} & Leadership"
+            elif institutions:
+                topic = institutions[0]
+            elif concepts:
+                topic = concepts[0]
             else:
-                topic = f"{event.primary_region or 'Addis Ababa'} News"
-                if not queries:
-                    queries = [f"{event.primary_region or 'Addis Ababa'} Ethiopia", f"Ethiopia {event.primary_category or 'economy'}"]
+                topic = f"{locations[0]} News"
 
+        # Build search queries if not already populated from LLM
         if not queries:
-            if main_person:
-                queries = [f"{main_person} Ethiopia", f"{main_person} official portrait", f"Prime Minister {main_person}"]
-            else:
-                queries = [f"{topic} Ethiopia", f"{topic} news"]
+            queries = []
+            if persons:
+                queries.append(f"{persons[0]} Ethiopia")
+            if institutions:
+                queries.append(f"{institutions[0]}")
+            if concepts:
+                queries.append(concepts[0])
+            queries.append(f"{locations[0]} Ethiopia")
 
+        # Build suggested chips
         if not chips:
-            chips = []
-            if main_person:
-                chips.append(main_person)
-            chips.append(topic.split()[0] if topic else "Ethiopia")
-            if event.primary_region and event.primary_region not in chips:
-                chips.append(event.primary_region)
-            if event.primary_category and event.primary_category.title() not in chips:
-                chips.append(event.primary_category.title())
+            if persons:
+                chips.append(persons[0])
+            if locations:
+                chips.append(locations[0])
+            if institutions:
+                chips.append(institutions[0])
+            if concepts:
+                chips.append(concepts[0])
 
-        result = (topic, main_person, queries, chips)
-        self._analysis_cache[cache_key] = result
-        return result
+        entities = StoryVisualEntities(
+            topic=topic,
+            main_person=main_person or (persons[0] if persons else None),
+            persons=persons,
+            locations=locations,
+            institutions=institutions,
+            concepts=concepts,
+            search_queries=queries,
+            suggested_chips=chips[:5],
+        )
+        self._analysis_cache[cache_key] = entities
+        return entities
+
+    def analyze_story(
+        self, event: NewsEvent, custom_query: str | None = None
+    ) -> tuple[str, str | None, list[str], list[str]]:
+        """Backward-compatible wrapper returning (topic, main_person, queries, suggested_chips)."""
+        entities = self.analyze_story_entities(event, custom_query=custom_query)
+        return entities.topic, entities.main_person, entities.search_queries, entities.suggested_chips
+
+    def _resolve_wikipedia_portrait(
+        self,
+        entity_name: str,
+        entity_type: str = "person",
+        seen_urls: set[str] | None = None,
+    ) -> PhotoCandidate | None:
+        """Resolve exact high-resolution Wikipedia infobox photo for a person, city, or institution."""
+        if not entity_name or not entity_name.strip():
+            return None
+        name = entity_name.strip()
+        cache_key = f"wiki_img:{name.lower()}"
+        if hasattr(self, "_wiki_img_cache") and cache_key in self._wiki_img_cache:
+            cand = self._wiki_img_cache[cache_key]
+            if cand and seen_urls is not None and cand.image_url in seen_urls:
+                return None
+            return cand
+
+        if not hasattr(self, "_wiki_img_cache"):
+            self._wiki_img_cache = {}
+
+        try:
+            s_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={urllib.parse.quote(name)}&format=json"
+            with httpx.Client(timeout=6.0, headers=_WIKI_HEADERS) as client:
+                r = client.get(s_url)
+                if r.status_code != 200:
+                    return None
+                hits = r.json().get("query", {}).get("search", [])
+                if not hits:
+                    return None
+                best_title = hits[0]["title"]
+                # Fetch page image and extract
+                p_url = (
+                    f"https://en.wikipedia.org/w/api.php?action=query&titles={urllib.parse.quote(best_title)}"
+                    f"&prop=pageimages|extracts&pithumbsize=1200&exintro=1&explaintext=1&format=json"
+                )
+                r2 = client.get(p_url)
+                if r2.status_code != 200:
+                    return None
+                pages = r2.json().get("query", {}).get("pages", {})
+                for pid, p in pages.items():
+                    thumb = p.get("thumbnail", {}).get("source")
+                    if not thumb:
+                        continue
+                    if any(thumb.lower().endswith(ext) for ext in _EXCLUDED_EXTENSIONS):
+                        continue
+                    if any(bad in thumb.lower() for bad in ("logo", "flag", "seal", "emblem", "coat_of_arms")):
+                        continue
+
+                    if seen_urls is not None and thumb in seen_urls:
+                        return None
+
+                    cand = PhotoCandidate(
+                        id=f"wiki-direct-{pid}",
+                        title=f"{name} ({best_title})",
+                        thumb_url=thumb,
+                        image_url=upscale_news_cdn_url(thumb),
+                        source="wikimedia",
+                        photographer="Wikipedia Editorial",
+                        description=f"Official {entity_type} reference: {best_title}",
+                        entity_type=entity_type,
+                        entity_name=name,
+                    )
+                    self._wiki_img_cache[cache_key] = cand
+                    if seen_urls is not None:
+                        seen_urls.add(thumb)
+                    return cand
+        except Exception as exc:
+            logger.warning("wiki_portrait_resolution_failed", entity=_safe_str(name), error=_safe_str(exc))
+        return None
+
+    def _search_city_photos(
+        self,
+        city_name: str,
+        seen_urls: set[str],
+        limit: int = 6,
+    ) -> list[PhotoCandidate]:
+        """Search Wikimedia Commons and Openverse specifically for high-res cityscapes and landmarks."""
+        candidates: list[PhotoCandidate] = []
+        # 1. First attempt exact Wikipedia lead photo
+        wiki_direct = self._resolve_wikipedia_portrait(city_name, entity_type="location", seen_urls=seen_urls)
+        if wiki_direct:
+            candidates.append(wiki_direct)
+
+        # 2. Wikimedia Commons cityscape search
+        queries = [f"{city_name} skyline", f"{city_name} city Ethiopia", f"{city_name} landmark"]
+        for q in queries[:2]:
+            if len(candidates) >= limit:
+                break
+            wm_res = self._search_wikimedia_topic_photos(q, seen_urls, limit=4)
+            for cand in wm_res:
+                cand.entity_type = "location"
+                cand.entity_name = city_name
+                candidates.append(cand)
+
+        # 3. Openverse search
+        if len(candidates) < limit:
+            ov_res = self._search_openverse_photos(f"{city_name} Ethiopia", seen_urls, limit=4)
+            for cand in ov_res:
+                cand.entity_type = "location"
+                cand.entity_name = city_name
+                candidates.append(cand)
+
+        return candidates[:limit]
+
+    def _search_institution_photos(
+        self,
+        inst_name: str,
+        seen_urls: set[str],
+        limit: int = 6,
+    ) -> list[PhotoCandidate]:
+        """Search Wikipedia and Wikimedia Commons for institution headquarters and facilities."""
+        candidates: list[PhotoCandidate] = []
+        # 1. Exact Wikipedia lead photo
+        wiki_direct = self._resolve_wikipedia_portrait(inst_name, entity_type="institution", seen_urls=seen_urls)
+        if wiki_direct:
+            candidates.append(wiki_direct)
+
+        # 2. Wikimedia Commons search
+        c_res = self._search_wikimedia_topic_photos(f"{inst_name} building", seen_urls, limit=4)
+        for cand in c_res:
+            cand.entity_type = "institution"
+            cand.entity_name = inst_name
+            candidates.append(cand)
+
+        return candidates[:limit]
 
     def _analyze_entities_and_queries(self, event: NewsEvent) -> tuple[str | None, list[str]]:
         """Backward-compatible helper returning (main_person, queries)."""
         _topic, main_person, queries, _chips = self.analyze_story(event)
         return main_person, queries
+
 
     def _search_person_photos(
         self,

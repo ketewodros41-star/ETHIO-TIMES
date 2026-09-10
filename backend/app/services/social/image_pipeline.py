@@ -301,22 +301,35 @@ class ImagePipeline:
                 cached_pool = cached_entry[1]
                 cached_topic = cached_entry[2]
                 cached_person = cached_entry[3] if len(cached_entry) > 3 else None
-                cached_queries = cached_entry[4] if len(cached_entry) > 4 else []
-                cached_chips = cached_entry[5] if len(cached_entry) > 5 else []
+                cached_persons = cached_entry[4] if len(cached_entry) > 4 else []
+                cached_locations = cached_entry[5] if len(cached_entry) > 5 else []
+                cached_institutions = cached_entry[6] if len(cached_entry) > 6 else []
+                cached_queries = cached_entry[7] if len(cached_entry) > 7 else []
+                cached_chips = cached_entry[8] if len(cached_entry) > 8 else []
                 return self._paginate_pool(
                     cached_pool,
                     cached_topic,
                     page,
                     page_size,
                     detected_person=cached_person,
+                    detected_persons=cached_persons,
+                    detected_locations=cached_locations,
+                    detected_institutions=cached_institutions,
                     search_queries=cached_queries,
                     suggested_chips=cached_chips,
                 )
 
-        # 1. AI Story Understanding: extract topic, central person, search queries, and suggested chips
+        # 1. AI Story Understanding: extract structured entities
         from app.services.social.web_image_scraper import WebImageScraper
         scraper = WebImageScraper(self.director.provider)
-        topic, detected_person, search_queries, suggested_chips = scraper.analyze_story(event, custom_query=query)
+        entities = scraper.analyze_story_entities(event, custom_query=query)
+        topic = entities.topic
+        detected_person = entities.main_person
+        detected_persons = entities.persons
+        detected_locations = entities.locations
+        detected_institutions = entities.institutions
+        search_queries = entities.search_queries
+        suggested_chips = entities.suggested_chips
 
         # 2. Gather candidates from all available sources
         pool = self._gather_candidate_pool(
@@ -324,13 +337,16 @@ class ImagePipeline:
             topic=topic,
             facets=search_queries,
             keywords=set(),
-            max_pool=30,
+            max_pool=36,
             user_query=query,
             scraper=scraper,
         )
 
         # 3. Store in cache
-        _PHOTO_POOL_CACHE[cache_key] = (now, pool, topic, detected_person, search_queries, suggested_chips)
+        _PHOTO_POOL_CACHE[cache_key] = (
+            now, pool, topic, detected_person, detected_persons,
+            detected_locations, detected_institutions, search_queries, suggested_chips
+        )
 
         return self._paginate_pool(
             pool,
@@ -338,6 +354,9 @@ class ImagePipeline:
             page,
             page_size,
             detected_person=detected_person,
+            detected_persons=detected_persons,
+            detected_locations=detected_locations,
+            detected_institutions=detected_institutions,
             search_queries=search_queries,
             suggested_chips=suggested_chips,
         )
@@ -349,6 +368,9 @@ class ImagePipeline:
         page: int,
         page_size: int,
         detected_person: str | None = None,
+        detected_persons: list[str] | None = None,
+        detected_locations: list[str] | None = None,
+        detected_institutions: list[str] | None = None,
         search_queries: list[str] | None = None,
         suggested_chips: list[str] | None = None,
     ) -> PhotoBrowseResponse:
@@ -368,6 +390,9 @@ class ImagePipeline:
             has_prev=current_page > 1,
             topic=topic,
             detected_person=detected_person,
+            detected_persons=detected_persons or [],
+            detected_locations=detected_locations or [],
+            detected_institutions=detected_institutions or [],
             search_queries=search_queries or [],
             suggested_chips=suggested_chips or [],
         )

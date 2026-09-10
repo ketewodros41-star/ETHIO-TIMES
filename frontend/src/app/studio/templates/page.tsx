@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ImageIcon, Sparkles, RefreshCw, Check, Palette, CheckCircle2,
   Search, Camera, Bot, Globe, X, Newspaper, Trash2, ChevronLeft, ChevronRight, User,
-  Maximize2, ZoomIn, ZoomOut,
+  Maximize2, ZoomIn, ZoomOut, MapPin, Building2,
 } from "lucide-react";
 import {
   FORMATS, PortraitPost, SquarePost, StoryPost, CarouselCard,
@@ -190,7 +190,11 @@ function PhotoSearchDialog({
   const [hasPrev, setHasPrev] = useState(false);
   const [topic, setTopic] = useState("");
   const [detectedPerson, setDetectedPerson] = useState<string | null>(null);
+  const [detectedPersons, setDetectedPersons] = useState<string[]>([]);
+  const [detectedLocations, setDetectedLocations] = useState<string[]>([]);
+  const [detectedInstitutions, setDetectedInstitutions] = useState<string[]>([]);
   const [suggestedChips, setSuggestedChips] = useState<string[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [searching, setSearching] = useState(false);
   const [importingId, setImportingId] = useState<string | null>(null);
   const [results, setResults] = useState<PhotoCandidate[]>([]);
@@ -211,6 +215,9 @@ function PhotoSearchDialog({
       setHasPrev(res.has_prev);
       if (res.topic) setTopic(res.topic);
       if (res.detected_person) setDetectedPerson(res.detected_person);
+      if (res.detected_persons) setDetectedPersons(res.detected_persons);
+      if (res.detected_locations) setDetectedLocations(res.detected_locations);
+      if (res.detected_institutions) setDetectedInstitutions(res.detected_institutions);
       if (res.suggested_chips && res.suggested_chips.length > 0) setSuggestedChips(res.suggested_chips);
       setSearched(true);
     } catch (err: unknown) {
@@ -243,17 +250,33 @@ function PhotoSearchDialog({
 
   useEffect(() => { handleSearch(1); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const categoryCounts = {
+    all: results.length,
+    lead: results.filter((r) => r.entity_type === "lead").length,
+    person: results.filter((r) => r.entity_type === "person").length,
+    location: results.filter((r) => r.entity_type === "location").length,
+    institution: results.filter((r) => r.entity_type === "institution").length,
+  };
+
+  const displayedResults =
+    categoryFilter === "all"
+      ? results
+      : results.filter((r) => r.entity_type === categoryFilter);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div className="w-full max-w-3xl bg-ink-900 border border-ink-700 rounded-card shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="w-full max-w-4xl bg-ink-900 border border-ink-700 rounded-card shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-ink-700">
           <div className="flex items-center gap-2.5">
-            <Globe className="h-5 w-5 text-accent-green" />
+            <Globe className="h-5 w-5 text-accent-green shrink-0" />
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-base text-paper-100">Topic-Based Internet Photo Browsing</span>
+                <span className="font-semibold text-base text-paper-100">
+                  Topic-Based Internet Photo Browsing
+                </span>
                 <Badge variant="green" className="text-[10px] font-mono">
-                  6 Alternatives / Page
+                  6 per page &bull; Entity Cascade
                 </Badge>
                 {totalItems > 0 && (
                   <Badge variant="muted" className="text-[10px] font-mono text-paper-400">
@@ -261,9 +284,11 @@ function PhotoSearchDialog({
                   </Badge>
                 )}
               </div>
-              <p className="text-xs text-paper-400 mt-0.5 truncate max-w-lg">
+              <p className="text-xs text-paper-400 mt-0.5 truncate max-w-xl">
                 {eventTitle ? (
-                  <span>Story: <strong className="text-paper-200 font-medium">&ldquo;{eventTitle}&rdquo;</strong></span>
+                  <span>
+                    Story: <strong className="text-paper-200 font-medium">&ldquo;{eventTitle}&rdquo;</strong>
+                  </span>
                 ) : (
                   "Browse authentic web photos matching this story. Click any image to import to Studio."
                 )}
@@ -277,78 +302,271 @@ function PhotoSearchDialog({
 
         {/* AI Story Understanding Banner */}
         <div className="px-6 py-2.5 bg-accent-green/10 border-b border-accent-green/20 flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-2 text-xs flex-wrap">
             <Sparkles className="h-4 w-4 text-accent-green shrink-0 animate-pulse" />
-            <span className="text-paper-400">Understood Topic:</span>
+            <span className="text-paper-400">Story Topic:</span>
             <strong className="text-accent-green font-medium">
-              {topic ? `"${topic}"` : "Analyzing article topic & key entities..."}
+              {topic ? `"${topic}"` : "Extracting article topic & key entities..."}
             </strong>
-            {detectedPerson && (
+            {detectedPersons.length > 0 && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-purple-900/60 text-purple-200 border border-purple-700/50">
-                <User className="h-2.5 w-2.5" /> Person: {detectedPerson}
+                <User className="h-2.5 w-2.5 shrink-0" />
+                <span>{detectedPersons.join(", ")}</span>
+              </span>
+            )}
+            {detectedLocations.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-900/60 text-emerald-200 border border-emerald-700/50">
+                <MapPin className="h-2.5 w-2.5 shrink-0" />
+                <span>{detectedLocations.join(", ")}</span>
+              </span>
+            )}
+            {detectedInstitutions.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-cyan-900/60 text-cyan-200 border border-cyan-700/50">
+                <Building2 className="h-2.5 w-2.5 shrink-0" />
+                <span>{detectedInstitutions.join(", ")}</span>
               </span>
             )}
           </div>
           {topic && (
             <span className="text-[10px] font-mono text-paper-400">
-              Auto-matched to story &bull; No typing required
+              4-Tier Waterfall Search &bull; Zero typing needed
             </span>
           )}
         </div>
 
-        <div className="px-6 py-3.5 border-b border-ink-800 bg-ink-950/50 space-y-2">
+        {/* Search Bar & Entity Chips */}
+        <div className="px-6 py-3 border-b border-ink-800 bg-ink-950/50 space-y-2.5">
           <div className="flex gap-2">
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSearch(1, query)}
-              placeholder={topic ? `Filtered by story: "${topic}". Or type custom query...` : "Refine topic keywords..."}
+              placeholder={topic ? `Filtered by story: "${topic}". Or type custom query...` : "Search photos by entity or topic..."}
               className="flex-1 h-9 rounded-card border border-ink-600 bg-ink-800 px-3 text-sm text-paper-100 focus:border-accent-green focus:outline-none placeholder:text-paper-600"
             />
-            <Button size="sm" disabled={searching || !!importingId} onClick={() => handleSearch(1, query)}
-              className="h-9 px-4 bg-accent-green text-ink-950 font-semibold hover:bg-accent-green/90 flex items-center gap-1.5">
+            <Button
+              size="sm"
+              disabled={searching || !!importingId}
+              onClick={() => handleSearch(1, query)}
+              className="h-9 px-4 bg-accent-green text-ink-950 font-semibold hover:bg-accent-green/90 flex items-center gap-1.5"
+            >
               {searching ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
               {searching ? "Searching..." : "Search"}
             </Button>
             {query && (
-              <Button size="sm" variant="outline" disabled={searching} onClick={() => { setQuery(""); handleSearch(1, ""); }}
-                className="h-9 px-3 border-ink-700 text-paper-400 hover:text-paper-100 text-xs">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={searching}
+                onClick={() => {
+                  setQuery("");
+                  handleSearch(1, "");
+                }}
+                className="h-9 px-3 border-ink-700 text-paper-400 hover:text-paper-100 text-xs"
+              >
                 Reset to Story
               </Button>
             )}
           </div>
 
-          {/* Quick Suggested Filter Chips */}
-          {suggestedChips.length > 0 && (
+          {/* Clickable Entity Quick-Chips */}
+          {(detectedPersons.length > 0 || detectedLocations.length > 0 || detectedInstitutions.length > 0 || suggestedChips.length > 0) && (
             <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-              <span className="text-[10px] text-paper-500 font-mono">Suggested filters:</span>
-              {suggestedChips.map((chip) => (
+              <span className="text-[10px] text-paper-500 font-mono">Quick entity search:</span>
+              {detectedPersons.map((person) => (
                 <button
-                  key={chip}
+                  key={`person-${person}`}
+                  type="button"
                   disabled={searching || !!importingId}
                   onClick={() => {
-                    setQuery(chip);
-                    handleSearch(1, chip);
+                    setQuery(person);
+                    handleSearch(1, person);
                   }}
-                  className={`px-2 py-0.5 rounded-full text-[11px] transition-colors border ${
-                    query.toLowerCase() === chip.toLowerCase()
-                      ? "bg-accent-green/20 border-accent-green text-accent-green font-medium"
-                      : "bg-ink-800 hover:bg-ink-700 border-ink-700 text-paper-300 hover:text-paper-100"
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] transition-colors border ${
+                    query.toLowerCase() === person.toLowerCase()
+                      ? "bg-purple-900/60 border-purple-500 text-purple-200 font-medium"
+                      : "bg-purple-950/30 hover:bg-purple-900/40 border-purple-800/60 text-purple-300 hover:text-purple-100"
                   }`}
+                  title={`Search for portraits of ${person}`}
                 >
-                  {chip}
+                  <User className="h-2.5 w-2.5" />
+                  <span>{person}</span>
                 </button>
               ))}
+              {detectedLocations.map((loc) => (
+                <button
+                  key={`loc-${loc}`}
+                  type="button"
+                  disabled={searching || !!importingId}
+                  onClick={() => {
+                    setQuery(loc);
+                    handleSearch(1, loc);
+                  }}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] transition-colors border ${
+                    query.toLowerCase() === loc.toLowerCase()
+                      ? "bg-emerald-900/60 border-emerald-500 text-emerald-200 font-medium"
+                      : "bg-emerald-950/30 hover:bg-emerald-900/40 border-emerald-800/60 text-emerald-300 hover:text-emerald-100"
+                  }`}
+                  title={`Search for photos of ${loc}`}
+                >
+                  <MapPin className="h-2.5 w-2.5" />
+                  <span>{loc}</span>
+                </button>
+              ))}
+              {detectedInstitutions.map((inst) => (
+                <button
+                  key={`inst-${inst}`}
+                  type="button"
+                  disabled={searching || !!importingId}
+                  onClick={() => {
+                    setQuery(inst);
+                    handleSearch(1, inst);
+                  }}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] transition-colors border ${
+                    query.toLowerCase() === inst.toLowerCase()
+                      ? "bg-cyan-900/60 border-cyan-500 text-cyan-200 font-medium"
+                      : "bg-cyan-950/30 hover:bg-cyan-900/40 border-cyan-800/60 text-cyan-300 hover:text-cyan-100"
+                  }`}
+                  title={`Search for photos of ${inst}`}
+                >
+                  <Building2 className="h-2.5 w-2.5" />
+                  <span>{inst}</span>
+                </button>
+              ))}
+              {suggestedChips
+                .filter(
+                  (c) =>
+                    !detectedPersons.some((p) => p.toLowerCase() === c.toLowerCase()) &&
+                    !detectedLocations.some((l) => l.toLowerCase() === c.toLowerCase()) &&
+                    !detectedInstitutions.some((i) => i.toLowerCase() === c.toLowerCase())
+                )
+                .map((chip) => (
+                  <button
+                    key={`chip-${chip}`}
+                    type="button"
+                    disabled={searching || !!importingId}
+                    onClick={() => {
+                      setQuery(chip);
+                      handleSearch(1, chip);
+                    }}
+                    className={`px-2 py-0.5 rounded-full text-[11px] transition-colors border ${
+                      query.toLowerCase() === chip.toLowerCase()
+                        ? "bg-accent-green/20 border-accent-green text-accent-green font-medium"
+                        : "bg-ink-800 hover:bg-ink-700 border-ink-700 text-paper-300 hover:text-paper-100"
+                    }`}
+                  >
+                    {chip}
+                  </button>
+                ))}
             </div>
           )}
 
-          <p className="text-[11px] text-paper-500 font-mono">
-            Direct article photos, Openverse & Wikimedia Commons archives. No assets are saved until you choose one.
-          </p>
+          {/* Category Filter Tabs */}
+          <div className="flex items-center gap-1 pt-1 overflow-x-auto text-xs border-t border-ink-800/80">
+            <span className="text-[10px] text-paper-500 font-mono mr-1">Filter Page:</span>
+            <button
+              type="button"
+              onClick={() => setCategoryFilter("all")}
+              className={`px-2.5 py-1 rounded text-xs transition-colors flex items-center gap-1.5 font-medium ${
+                categoryFilter === "all"
+                  ? "bg-accent-green text-ink-950 font-bold"
+                  : "bg-ink-850 hover:bg-ink-800 text-paper-300 hover:text-paper-100 border border-ink-700"
+              }`}
+            >
+              <Sparkles className="h-3 w-3" />
+              <span>All Story-Matched</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                categoryFilter === "all" ? "bg-ink-950/30 text-ink-950" : "bg-ink-800 text-paper-400"
+              }`}>
+                {categoryCounts.all}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCategoryFilter("lead")}
+              className={`px-2.5 py-1 rounded text-xs transition-colors flex items-center gap-1.5 font-medium ${
+                categoryFilter === "lead"
+                  ? "bg-blue-600 text-white font-bold"
+                  : "bg-ink-850 hover:bg-ink-800 text-paper-300 hover:text-paper-100 border border-ink-700"
+              }`}
+            >
+              <Newspaper className="h-3 w-3" />
+              <span>Lead Photos</span>
+              {categoryCounts.lead > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                  categoryFilter === "lead" ? "bg-black/30 text-white" : "bg-ink-800 text-paper-400"
+                }`}>
+                  {categoryCounts.lead}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCategoryFilter("person")}
+              className={`px-2.5 py-1 rounded text-xs transition-colors flex items-center gap-1.5 font-medium ${
+                categoryFilter === "person"
+                  ? "bg-purple-600 text-white font-bold"
+                  : "bg-ink-850 hover:bg-ink-800 text-paper-300 hover:text-paper-100 border border-ink-700"
+              }`}
+            >
+              <User className="h-3 w-3" />
+              <span>Key People</span>
+              {categoryCounts.person > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                  categoryFilter === "person" ? "bg-black/30 text-white" : "bg-ink-800 text-paper-400"
+                }`}>
+                  {categoryCounts.person}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCategoryFilter("location")}
+              className={`px-2.5 py-1 rounded text-xs transition-colors flex items-center gap-1.5 font-medium ${
+                categoryFilter === "location"
+                  ? "bg-emerald-600 text-white font-bold"
+                  : "bg-ink-850 hover:bg-ink-800 text-paper-300 hover:text-paper-100 border border-ink-700"
+              }`}
+            >
+              <MapPin className="h-3 w-3" />
+              <span>City & Location</span>
+              {categoryCounts.location > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                  categoryFilter === "location" ? "bg-black/30 text-white" : "bg-ink-800 text-paper-400"
+                }`}>
+                  {categoryCounts.location}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCategoryFilter("institution")}
+              className={`px-2.5 py-1 rounded text-xs transition-colors flex items-center gap-1.5 font-medium ${
+                categoryFilter === "institution"
+                  ? "bg-cyan-600 text-white font-bold"
+                  : "bg-ink-850 hover:bg-ink-800 text-paper-300 hover:text-paper-100 border border-ink-700"
+              }`}
+            >
+              <Building2 className="h-3 w-3" />
+              <span>Institutions</span>
+              {categoryCounts.institution > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                  categoryFilter === "institution" ? "bg-black/30 text-white" : "bg-ink-800 text-paper-400"
+                }`}>
+                  {categoryCounts.institution}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
 
-        <div className="px-6 py-5 overflow-y-auto flex-1">
+        {/* Results Body */}
+        <div className="px-6 py-4 overflow-y-auto flex-1">
           {errorMsg && (
             <div className="mb-4 p-3 rounded-card bg-red-950/40 border border-red-800/60 text-xs text-red-300">
               {errorMsg}
@@ -359,7 +577,7 @@ function PhotoSearchDialog({
             <div className="py-16 text-center space-y-3">
               <RefreshCw className="h-8 w-8 animate-spin text-accent-green mx-auto" />
               <p className="text-sm text-paper-300 font-medium">Searching internet for 6 topic-matched alternatives...</p>
-              <p className="text-xs text-paper-500 font-mono">Analyzing story entities and querying editorial archives</p>
+              <p className="text-xs text-paper-500 font-mono">Querying Wikipedia portraits, city archives, and editorial databases</p>
             </div>
           )}
 
@@ -367,20 +585,39 @@ function PhotoSearchDialog({
             <div className="py-16 text-center space-y-3">
               <Globe className="h-10 w-10 text-paper-700 mx-auto" />
               <p className="text-sm text-paper-300">No matching photos found on the web.</p>
-              <p className="text-xs text-paper-500">Try refining the search query above with different English keywords.</p>
+              <p className="text-xs text-paper-500">Try clicking one of the suggested entity chips above.</p>
             </div>
           )}
 
-          {!searching && results.length > 0 && (
+          {!searching && results.length > 0 && displayedResults.length === 0 && (
+            <div className="py-12 text-center space-y-2 rounded-card border border-dashed border-ink-700 bg-ink-900/40 p-6">
+              <p className="text-xs text-paper-300 font-medium">
+                No photos classified under &ldquo;{categoryFilter}&rdquo; on Page {page}.
+              </p>
+              <p className="text-[11px] text-paper-500">
+                Check other pages (total {totalPages} pages) or switch back to &ldquo;All Story-Matched&rdquo;.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setCategoryFilter("all")}
+                className="mt-2 text-xs border-ink-600 text-accent-green hover:bg-accent-green/10"
+              >
+                Show All {results.length} Photos on Page {page}
+              </Button>
+            </div>
+          )}
+
+          {!searching && displayedResults.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs text-paper-400 font-mono">
                 <span>
-                  Showing {results.length} of {totalItems} alternatives (Page {page} of {totalPages}):
+                  Showing {displayedResults.length} of {totalItems} alternatives (Page {page} of {totalPages}):
                 </span>
                 <span className="text-[11px] text-accent-green font-semibold">Select 1 photo to import to Studio</span>
               </div>
               <div className="grid grid-cols-3 gap-3.5">
-                {results.map((c) => {
+                {displayedResults.map((c) => {
                   const isImporting = importingId === c.id;
                   return (
                     <div
@@ -400,19 +637,54 @@ function PhotoSearchDialog({
                           className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                           loading="lazy"
                         />
-                        {/* Source badge */}
-                        <div className="absolute top-2 left-2">
-                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold border backdrop-blur-md ${
-                            c.source === "telegram"
-                              ? "bg-blue-900/80 text-blue-200 border-blue-600/60"
-                              : c.source === "article"
-                              ? "bg-emerald-900/80 text-emerald-200 border-emerald-600/60"
+
+                        {/* Top Badges Row: Source on Left, Entity Context on Right */}
+                        <div className="absolute top-2 left-2 right-2 flex items-center justify-between gap-1 pointer-events-none">
+                          <span
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold border backdrop-blur-md shadow-sm ${
+                              c.source === "telegram"
+                                ? "bg-blue-900/80 text-blue-200 border-blue-600/60"
+                                : c.source === "article" || c.source === "article_source"
+                                ? "bg-emerald-900/80 text-emerald-200 border-emerald-600/60"
+                                : c.source === "pexels"
+                                ? "bg-indigo-900/80 text-indigo-200 border-indigo-600/60"
+                                : "bg-amber-900/80 text-amber-200 border-amber-600/60"
+                            }`}
+                          >
+                            {c.source === "telegram"
+                              ? "Telegram"
+                              : c.source === "article" || c.source === "article_source"
+                              ? "Article Lead"
                               : c.source === "pexels"
-                              ? "bg-indigo-900/80 text-indigo-200 border-indigo-600/60"
-                              : "bg-amber-900/80 text-amber-200 border-amber-600/60"
-                          }`}>
-                            {c.source === "telegram" ? "Telegram" : c.source === "article" ? "Article Lead" : c.source === "pexels" ? "Pexels" : "Wikimedia"}
+                              ? "Pexels"
+                              : "Wikimedia"}
                           </span>
+
+                          {/* Entity Context Badge */}
+                          {c.entity_type === "person" && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-purple-950/90 text-purple-200 border border-purple-600/70 backdrop-blur-md max-w-[125px] truncate shadow-sm">
+                              <User className="h-2.5 w-2.5 shrink-0" />
+                              <span className="truncate">{c.entity_name || "Portrait"}</span>
+                            </span>
+                          )}
+                          {c.entity_type === "location" && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-emerald-950/90 text-emerald-200 border border-emerald-600/70 backdrop-blur-md max-w-[125px] truncate shadow-sm">
+                              <MapPin className="h-2.5 w-2.5 shrink-0" />
+                              <span className="truncate">{c.entity_name || "Location"}</span>
+                            </span>
+                          )}
+                          {c.entity_type === "institution" && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-cyan-950/90 text-cyan-200 border border-cyan-600/70 backdrop-blur-md max-w-[125px] truncate shadow-sm">
+                              <Building2 className="h-2.5 w-2.5 shrink-0" />
+                              <span className="truncate">{c.entity_name || "Institution"}</span>
+                            </span>
+                          )}
+                          {c.entity_type === "lead" && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-950/90 text-blue-200 border border-blue-600/70 backdrop-blur-md shadow-sm">
+                              <Newspaper className="h-2.5 w-2.5 shrink-0" />
+                              <span>Lead Photo</span>
+                            </span>
+                          )}
                         </div>
 
                         {/* Hover Overlay */}
@@ -449,6 +721,7 @@ function PhotoSearchDialog({
           )}
         </div>
 
+        {/* Footer Pagination */}
         <div className="px-6 py-3.5 border-t border-ink-800 bg-ink-950/70 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Button
@@ -932,7 +1205,7 @@ function StudioContent() {
                       <Globe className="h-4 w-4 text-blue-400 shrink-0" />
                       <div>
                         <div className="text-xs font-semibold text-paper-100">Browse Real Photos</div>
-                        <div className="text-[9px] text-paper-500">6 editorial alternatives</div>
+                        <div className="text-[9px] text-paper-500">Multi-tier entity cascade</div>
                       </div>
                     </button>
                   </div>

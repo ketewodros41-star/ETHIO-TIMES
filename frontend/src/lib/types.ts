@@ -399,6 +399,8 @@ export interface PhotoCandidate {
   source: string;
   photographer: string;
   description?: string | null;
+  entity_type?: string;
+  entity_name?: string | null;
 }
 
 export interface SelectCandidateRequest {
@@ -418,7 +420,11 @@ export interface PhotoBrowseResponse {
   has_prev: boolean;
   topic: string;
   detected_person?: string | null;
+  detected_persons?: string[];
+  detected_locations?: string[];
+  detected_institutions?: string[];
   search_queries?: string[];
   suggested_chips?: string[];
 }
+
 
