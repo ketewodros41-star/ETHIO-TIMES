@@ -69,15 +69,52 @@ export function BroadcastImpactPost({
     baseFontSize = 128;
   }
 
-  // Format scaling
-  const headlineSize =
-    format === "square"
-      ? Math.round(baseFontSize * 0.82)
-      : format === "story"
-      ? Math.round(baseFontSize * 0.94)
-      : baseFontSize;
-
-  const photoHeightPercent = format === "story" ? "74%" : format === "square" ? "62%" : "68%";
+  // Format-specific layout scaling:
+  // Eliminates dead black voids in Story (1080x1920) and cramped stacking in Square (1080x1080).
+  const layoutConfig = {
+    portrait: {
+      headlineSize: baseFontSize,
+      photoHeight: "72%",
+      photoPosition: "center 16%",
+      scrim:
+        "linear-gradient(180deg, rgba(7, 8, 11, 0.0) 0%, rgba(7, 8, 11, 0.0) 26%, rgba(7, 8, 11, 0.20) 38%, rgba(7, 8, 11, 0.65) 50%, rgba(7, 8, 11, 0.92) 62%, #07080B 72%, #07080B 100%)",
+      padding: "54px 64px 48px 64px",
+      contentGap: 26,
+      emblemSize: 60,
+      brandFontSize: 27,
+      footerPaddingTop: 16,
+      arrowWidth: 22,
+      arrowHeight: 40,
+    },
+    story: {
+      headlineSize: Math.round(baseFontSize * 1.04), // 100px - 132px: bold, commanding presence in 1920h
+      photoHeight: "88%", // Photo extends deep behind text so there is no flat black void
+      photoPosition: "center 18%",
+      scrim:
+        "linear-gradient(180deg, rgba(7, 8, 11, 0.0) 0%, rgba(7, 8, 11, 0.0) 24%, rgba(7, 8, 11, 0.15) 36%, rgba(7, 8, 11, 0.52) 48%, rgba(7, 8, 11, 0.82) 58%, rgba(7, 8, 11, 0.95) 68%, #07080B 82%, #07080B 100%)",
+      padding: "100px 72px 90px 72px", // Story safe area (clears IG top handles & bottom reply bar)
+      contentGap: 32,
+      emblemSize: 68,
+      brandFontSize: 30,
+      footerPaddingTop: 22,
+      arrowWidth: 24,
+      arrowHeight: 44,
+    },
+    square: {
+      headlineSize: Math.round(baseFontSize * 0.84), // 84px - 108px
+      photoHeight: "78%",
+      photoPosition: "center 14%",
+      scrim:
+        "linear-gradient(180deg, rgba(7, 8, 11, 0.0) 0%, rgba(7, 8, 11, 0.0) 18%, rgba(7, 8, 11, 0.25) 32%, rgba(7, 8, 11, 0.70) 45%, rgba(7, 8, 11, 0.94) 58%, #07080B 70%, #07080B 100%)",
+      padding: "44px 56px 40px 56px",
+      contentGap: 20,
+      emblemSize: 52,
+      brandFontSize: 24,
+      footerPaddingTop: 14,
+      arrowWidth: 20,
+      arrowHeight: 36,
+    },
+  }[format];
 
   return (
     <div
@@ -89,7 +126,7 @@ export function BroadcastImpactPost({
         backgroundColor: "#07080B",
         color: "#FFFFFF",
         boxSizing: "border-box",
-        padding: "54px 64px 48px 64px",
+        padding: layoutConfig.padding,
         display: "flex",
         flexDirection: "column",
         justifyContent: "flex-end",
@@ -108,21 +145,20 @@ export function BroadcastImpactPost({
               top: 0,
               left: 0,
               width: "100%",
-              height: photoHeightPercent,
+              height: layoutConfig.photoHeight,
               objectFit: "cover",
-              objectPosition: "center 16%",
+              objectPosition: layoutConfig.photoPosition,
               imageRendering: "auto",
               WebkitBackfaceVisibility: "hidden",
             }}
           />
 
-          {/* 2. 3-Stage Horizon Scrim Gradient */}
+          {/* 2. Horizon Scrim Gradient Tailored to Aspect Ratio */}
           <div
             style={{
               position: "absolute",
               inset: 0,
-              background:
-                "linear-gradient(180deg, rgba(7, 8, 11, 0.0) 0%, rgba(7, 8, 11, 0.0) 28%, rgba(7, 8, 11, 0.22) 40%, rgba(7, 8, 11, 0.68) 50%, rgba(7, 8, 11, 0.92) 60%, #07080B 68%, #07080B 100%)",
+              background: layoutConfig.scrim,
               pointerEvents: "none",
             }}
           />
@@ -136,7 +172,7 @@ export function BroadcastImpactPost({
           zIndex: 10,
           display: "flex",
           flexDirection: "column",
-          gap: 26,
+          gap: layoutConfig.contentGap,
         }}
       >
         {/* Brand Header: ET Hexagon Emblem + Stacked ETHIOPIAN TIMES */}
@@ -144,13 +180,13 @@ export function BroadcastImpactPost({
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 16,
+            gap: layoutConfig.contentGap > 24 ? 18 : 14,
           }}
         >
           {/* Geometric ET Monogram Shield */}
           <svg
-            width="60"
-            height="60"
+            width={layoutConfig.emblemSize}
+            height={layoutConfig.emblemSize}
             viewBox="0 0 100 100"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
@@ -195,7 +231,7 @@ export function BroadcastImpactPost({
           >
             <span
               style={{
-                fontSize: 27,
+                fontSize: layoutConfig.brandFontSize,
                 color: "#FFFFFF",
                 fontWeight: 900,
               }}
@@ -204,7 +240,7 @@ export function BroadcastImpactPost({
             </span>
             <span
               style={{
-                fontSize: 27,
+                fontSize: layoutConfig.brandFontSize,
                 color: "#FFFFFF",
                 fontWeight: 900,
               }}
@@ -219,7 +255,7 @@ export function BroadcastImpactPost({
           style={{
             fontFamily: tokens.font.poster,
             fontWeight: 900,
-            fontSize: headlineSize,
+            fontSize: layoutConfig.headlineSize,
             lineHeight: 1.02,
             letterSpacing: "-0.005em",
             textTransform: "uppercase",
@@ -243,14 +279,16 @@ export function BroadcastImpactPost({
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            marginTop: 16,
+            marginTop: layoutConfig.footerPaddingTop,
+            paddingTop: layoutConfig.footerPaddingTop,
+            borderTop: "1px solid rgba(255, 255, 255, 0.08)",
           }}
         >
           {/* Signal Downward Arrow & CTA */}
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <svg
-              width="22"
-              height="40"
+              width={layoutConfig.arrowWidth}
+              height={layoutConfig.arrowHeight}
               viewBox="0 0 24 38"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"

@@ -65,7 +65,8 @@ export function PostTemplate({
   const accent =
     data.accent === "gold" ? tokens.color.accent.gold : data.accent === "red" ? tokens.color.accent.red : tokens.color.accent.green;
 
-  const headlineSize = format === "story" ? 96 : format === "square" ? 84 : 104;
+  const headlineSize = format === "story" ? 116 : format === "square" ? 88 : 104;
+  const padding = format === "story" ? "100px 72px 90px 72px" : safeMargin;
 
   return (
     <div
@@ -80,7 +81,7 @@ export function PostTemplate({
         display: "flex",
         flexDirection: "column",
         justifyContent: "flex-end",
-        padding: safeMargin,
+        padding,
         boxSizing: "border-box",
       }}
     >

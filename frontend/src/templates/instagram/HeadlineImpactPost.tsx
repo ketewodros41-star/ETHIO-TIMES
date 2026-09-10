@@ -67,12 +67,52 @@ export function HeadlineImpactPost({
     baseFontSize = 112;
   }
 
-  const headlineSizes = {
-    portrait: baseFontSize,
-    square: Math.round(baseFontSize * 0.82),
-    story: Math.round(baseFontSize * 0.94),
-  };
-  const headlineSize = headlineSizes[format] ?? baseFontSize;
+  // Format-specific layout scaling:
+  // Eliminates dead black voids in Story (1080x1920) and cramped stacking in Square (1080x1080).
+  const layoutConfig = {
+    portrait: {
+      headlineSize: baseFontSize,
+      photoHeight: "72%",
+      photoPosition: "center 18%",
+      scrim:
+        "linear-gradient(180deg, rgba(7,8,10,0.02) 0%, rgba(7,8,10,0.18) 28%, rgba(7,8,10,0.65) 50%, rgba(7,8,10,0.92) 62%, #07080A 72%, #07080A 100%)",
+      padding: "54px 64px 48px 64px",
+      contentGap: 26,
+      emblemSize: 58,
+      brandFontSize: 27,
+      footerPaddingTop: 16,
+      arrowWidth: 22,
+      arrowHeight: 40,
+    },
+    story: {
+      headlineSize: Math.round(baseFontSize * 1.04), // 100px - 132px
+      photoHeight: "88%", // Deep photo bleed behind text
+      photoPosition: "center 18%",
+      scrim:
+        "linear-gradient(180deg, rgba(7,8,10,0.02) 0%, rgba(7,8,10,0.14) 24%, rgba(7,8,10,0.50) 48%, rgba(7,8,10,0.82) 58%, rgba(7,8,10,0.95) 68%, #07080A 82%, #07080A 100%)",
+      padding: "100px 72px 90px 72px",
+      contentGap: 32,
+      emblemSize: 66,
+      brandFontSize: 30,
+      footerPaddingTop: 22,
+      arrowWidth: 24,
+      arrowHeight: 44,
+    },
+    square: {
+      headlineSize: Math.round(baseFontSize * 0.84), // 84px - 108px
+      photoHeight: "78%",
+      photoPosition: "center 14%",
+      scrim:
+        "linear-gradient(180deg, rgba(7,8,10,0.02) 0%, rgba(7,8,10,0.20) 24%, rgba(7,8,10,0.68) 46%, rgba(7,8,10,0.94) 58%, #07080A 70%, #07080A 100%)",
+      padding: "44px 56px 40px 56px",
+      contentGap: 20,
+      emblemSize: 52,
+      brandFontSize: 24,
+      footerPaddingTop: 14,
+      arrowWidth: 20,
+      arrowHeight: 36,
+    },
+  }[format];
 
   return (
     <div
@@ -87,7 +127,7 @@ export function HeadlineImpactPost({
         display: "flex",
         flexDirection: "column",
         justifyContent: "flex-end",
-        padding: safeMargin,
+        padding: layoutConfig.padding,
         boxSizing: "border-box",
       }}
     >
@@ -104,9 +144,9 @@ export function HeadlineImpactPost({
               top: 0,
               left: 0,
               width: "100%",
-              height: format === "story" ? "70%" : "65%",
+              height: layoutConfig.photoHeight,
               objectFit: "cover",
-              objectPosition: "center 20%",
+              objectPosition: layoutConfig.photoPosition,
               imageRendering: "auto",
               WebkitBackfaceVisibility: "hidden",
             }}
@@ -117,8 +157,7 @@ export function HeadlineImpactPost({
             style={{
               position: "absolute",
               inset: 0,
-              background:
-                "linear-gradient(180deg, rgba(7,8,10,0.02) 0%, rgba(7,8,10,0.18) 32%, rgba(7,8,10,0.75) 50%, #07080A 64%, #07080A 100%)",
+              background: layoutConfig.scrim,
               pointerEvents: "none",
             }}
           />
@@ -132,7 +171,7 @@ export function HeadlineImpactPost({
           zIndex: 2,
           display: "flex",
           flexDirection: "column",
-          gap: 28,
+          gap: layoutConfig.contentGap,
           marginBottom: 16,
         }}
       >
@@ -146,8 +185,8 @@ export function HeadlineImpactPost({
         >
           {/* ET Hexagonal Monogram */}
           <svg
-            width="58"
-            height="58"
+            width={layoutConfig.emblemSize}
+            height={layoutConfig.emblemSize}
             viewBox="0 0 100 100"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
@@ -189,7 +228,7 @@ export function HeadlineImpactPost({
           >
             <span
               style={{
-                fontSize: 27,
+                fontSize: layoutConfig.brandFontSize,
                 fontWeight: 900,
                 letterSpacing: "0.05em",
                 color: "#FFFFFF",
@@ -199,7 +238,7 @@ export function HeadlineImpactPost({
             </span>
             <span
               style={{
-                fontSize: 27,
+                fontSize: layoutConfig.brandFontSize,
                 fontWeight: 900,
                 letterSpacing: "0.05em",
                 color: "#FFFFFF",
@@ -215,7 +254,7 @@ export function HeadlineImpactPost({
           style={{
             fontFamily: tokens.font.poster,
             fontWeight: 900,
-            fontSize: headlineSize,
+            fontSize: layoutConfig.headlineSize,
             lineHeight: 1.02,
             letterSpacing: "-0.005em",
             textTransform: "uppercase",
@@ -241,16 +280,16 @@ export function HeadlineImpactPost({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          paddingTop: 20,
+          paddingTop: layoutConfig.footerPaddingTop,
           borderTop: "1px solid rgba(255,255,255,0.08)",
-          marginTop: 16,
+          marginTop: layoutConfig.footerPaddingTop,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           {/* Signal Downward Arrow */}
           <svg
-            width="28"
-            height="34"
+            width={layoutConfig.arrowWidth}
+            height={layoutConfig.arrowHeight}
             viewBox="0 0 24 28"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"

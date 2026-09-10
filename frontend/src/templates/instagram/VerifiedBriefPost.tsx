@@ -14,8 +14,9 @@ export function VerifiedBriefPost({
 }) {
   const { width, height, safeMargin } = FORMATS[format];
   const accent = tokens.color.accent.green;
-  const headlineSizes = { portrait: 104, square: 84, story: 90 };
+  const headlineSizes = { portrait: 104, square: 88, story: 116 };
   const headlineSize = headlineSizes[format] ?? 96;
+  const padding = format === "story" ? "100px 72px 90px 72px" : safeMargin;
   const sourceLabel = verifiedSourceCount
     ? `${verifiedSourceCount} VERIFIED SOURCE${verifiedSourceCount !== 1 ? "S" : ""}`
     : data.source;
@@ -31,7 +32,7 @@ export function VerifiedBriefPost({
       display: "flex",
       flexDirection: "column",
       justifyContent: "flex-end",
-      padding: safeMargin,
+      padding,
       boxSizing: "border-box",
     }}>
       {/* Image zone + scrim */}

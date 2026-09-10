@@ -59,9 +59,42 @@ export function BroadcastCarouselCard({
 
   // Dynamic slide font sizing (stays punchy and never overflows)
   const isCover = slide.slide_type === "cover";
-  const headerFontSize = isCover
+  const baseHeaderFontSize = isCover
     ? (slide.header.length > 60 ? 104 : 118)
     : 84;
+
+  const layoutConfig = {
+    portrait: {
+      padding: "54px 64px 48px 64px",
+      coverPhotoHeight: "72%",
+      photoPosition: "center 16%",
+      coverScrim:
+        "linear-gradient(180deg, rgba(7, 8, 11, 0.0) 0%, rgba(7, 8, 11, 0.0) 26%, rgba(7, 8, 11, 0.20) 38%, rgba(7, 8, 11, 0.65) 50%, rgba(7, 8, 11, 0.92) 62%, #07080B 72%, #07080B 100%)",
+      headerFontSize: baseHeaderFontSize,
+      emblemSize: 52,
+      brandFontSize: 24,
+    },
+    story: {
+      padding: "100px 72px 90px 72px",
+      coverPhotoHeight: "88%",
+      photoPosition: "center 18%",
+      coverScrim:
+        "linear-gradient(180deg, rgba(7, 8, 11, 0.0) 0%, rgba(7, 8, 11, 0.0) 24%, rgba(7, 8, 11, 0.15) 36%, rgba(7, 8, 11, 0.52) 48%, rgba(7, 8, 11, 0.82) 58%, rgba(7, 8, 11, 0.95) 68%, #07080B 82%, #07080B 100%)",
+      headerFontSize: Math.round(baseHeaderFontSize * 1.05),
+      emblemSize: 60,
+      brandFontSize: 28,
+    },
+    square: {
+      padding: "44px 56px 40px 56px",
+      coverPhotoHeight: "78%",
+      photoPosition: "center 14%",
+      coverScrim:
+        "linear-gradient(180deg, rgba(7, 8, 11, 0.0) 0%, rgba(7, 8, 11, 0.0) 18%, rgba(7, 8, 11, 0.25) 32%, rgba(7, 8, 11, 0.70) 45%, rgba(7, 8, 11, 0.94) 58%, #07080B 70%, #07080B 100%)",
+      headerFontSize: Math.round(baseHeaderFontSize * 0.85),
+      emblemSize: 46,
+      brandFontSize: 21,
+    },
+  }[format];
 
   return (
     <div
@@ -73,13 +106,13 @@ export function BroadcastCarouselCard({
         backgroundColor: "#07080B",
         color: "#FFFFFF",
         boxSizing: "border-box",
-        padding: "54px 64px 48px 64px",
+        padding: layoutConfig.padding,
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
       }}
     >
-      {/* Background Photo (Cover uses upper 68% bleed, subsequent slides use dark ambient glow) */}
+      {/* Background Photo (Cover uses deep bleed, subsequent slides use dark ambient glow) */}
       {slide.imageUrl && (
         <>
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -92,9 +125,9 @@ export function BroadcastCarouselCard({
               top: 0,
               left: 0,
               width: "100%",
-              height: isCover ? "68%" : "45%",
+              height: isCover ? layoutConfig.coverPhotoHeight : "45%",
               objectFit: "cover",
-              objectPosition: "center 16%",
+              objectPosition: isCover ? layoutConfig.photoPosition : "center 16%",
               opacity: isCover ? 1 : 0.22,
               filter: isCover ? "none" : "grayscale(30%) blur(2px)",
               WebkitBackfaceVisibility: "hidden",
@@ -106,7 +139,7 @@ export function BroadcastCarouselCard({
               position: "absolute",
               inset: 0,
               background: isCover
-                ? "linear-gradient(180deg, rgba(7, 8, 11, 0.0) 0%, rgba(7, 8, 11, 0.0) 28%, rgba(7, 8, 11, 0.22) 40%, rgba(7, 8, 11, 0.68) 50%, rgba(7, 8, 11, 0.92) 60%, #07080B 68%, #07080B 100%)"
+                ? layoutConfig.coverScrim
                 : "linear-gradient(180deg, rgba(7, 8, 11, 0.5) 0%, rgba(7, 8, 11, 0.85) 35%, #07080B 55%, #07080B 100%)",
               pointerEvents: "none",
             }}
@@ -127,8 +160,8 @@ export function BroadcastCarouselCard({
         {/* Brand Header */}
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <svg
-            width="52"
-            height="52"
+            width={layoutConfig.emblemSize}
+            height={layoutConfig.emblemSize}
             viewBox="0 0 100 100"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
@@ -166,10 +199,10 @@ export function BroadcastCarouselCard({
               letterSpacing: "0.05em",
             }}
           >
-            <span style={{ fontSize: 24, color: "#FFFFFF", fontWeight: 900 }}>
+            <span style={{ fontSize: layoutConfig.brandFontSize, color: "#FFFFFF", fontWeight: 900 }}>
               ETHIOPIAN
             </span>
-            <span style={{ fontSize: 24, color: "#FFFFFF", fontWeight: 900 }}>
+            <span style={{ fontSize: layoutConfig.brandFontSize, color: "#FFFFFF", fontWeight: 900 }}>
               TIMES
             </span>
           </div>
@@ -241,7 +274,7 @@ export function BroadcastCarouselCard({
           style={{
             fontFamily: tokens.font.poster,
             fontWeight: 900,
-            fontSize: headerFontSize,
+            fontSize: layoutConfig.headerFontSize,
             lineHeight: 1.02,
             letterSpacing: "-0.005em",
             textTransform: "uppercase",
