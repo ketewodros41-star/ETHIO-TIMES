@@ -452,9 +452,13 @@ function StudioContent() {
 
   const fetchRealPhotoMutation = useMutation({
     mutationFn: () => postsApi.fetchArticlePhoto(selectedEventId),
-    onSuccess: () => {
-      setTimeout(() => refetchAssets(), 2000);
-      setTimeout(() => refetchAssets(), 6000);
+    onSuccess: (data) => {
+      if (data?.post_id) {
+        setSelectedAssetId(data.post_id);
+      }
+      queryClient.invalidateQueries({ queryKey: ["event_visual_assets", selectedEventId] });
+      refetchAssets();
+      setTimeout(() => refetchAssets(), 1200);
     },
   });
 

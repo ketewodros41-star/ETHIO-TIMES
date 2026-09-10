@@ -1,8 +1,10 @@
 """Visual intelligence pipeline (Phase 5, spec §§25-32) — Phase 7: dual source."""
 from __future__ import annotations
 
-from pathlib import Path
+import re
+import urllib.parse
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 from sqlalchemy.orm import Session
@@ -22,6 +24,94 @@ from app.services.social.visual_director import VisualDirector
 from app.services.social.web_image_scraper import WebImageScraper
 
 logger = get_logger(__name__)
+
+
+def extract_article_web_image(url: str) -> str | None:
+    """Extract authentic high-resolution editorial photo from an article webpage."""
+    if not url or not url.startswith("http"):
+        return None
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/128.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    actual_url = url
+    if "news.google.com" in url:
+        try:
+            from googlenewsdecoder import gnewsdecoder
+            decoded = gnewsdecoder(url)
+            if decoded.get("status") and decoded.get("decoded_url"):
+                actual_url = decoded["decoded_url"]
+        except Exception:
+            pass
+
+    try:
+        with httpx.Client(timeout=8.0, follow_redirects=True, headers=headers) as client:
+            res = client.get(actual_url)
+            if res.status_code == 200:
+                text = res.text
+                # 1. Open Graph and Twitter image meta tags
+                og_patterns = [
+                    r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+                    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+                    r'<meta[^>]+property=["\']og:image:secure_url["\'][^>]+content=["\']([^"\']+)["\']',
+                    r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
+                    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']',
+                ]
+                for pat in og_patterns:
+                    m = re.search(pat, text, re.IGNORECASE)
+                    if m:
+                        img = m.group(1).strip()
+                        if img.startswith("//"):
+                            img = "https:" + img
+                        elif img.startswith("/"):
+                            img = urllib.parse.urljoin(str(res.url), img)
+                        if img.startswith("http") and not any(img.lower().endswith(ext) for ext in (".svg", ".ico", ".gif")):
+                            if "googleusercontent.com" in img:
+                                img = re.sub(r"=s\d+.*$", "=s1200", img)
+                                if "=s" not in img:
+                                    img += "=s1200"
+                            return img
+
+                # 2. Prominent article / figure / featured images
+                article_patterns = [
+                    r'<figure[^>]*>.*?<img[^>]+src=["\']([^"\']+)["\']',
+                    r'<article[^>]*>.*?<img[^>]+src=["\']([^"\']+)["\']',
+                    r'<div[^>]+class=["\'][^"\']*(?:featured|lead|entry-thumb|post-thumb)[^"\']*["\'][^>]*>.*?<img[^>]+src=["\']([^"\']+)["\']',
+                ]
+                for pat in article_patterns:
+                    m = re.search(pat, text, re.IGNORECASE | re.DOTALL)
+                    if m:
+                        img = m.group(1).strip()
+                        if img.startswith("//"):
+                            img = "https:" + img
+                        elif img.startswith("/"):
+                            img = urllib.parse.urljoin(str(res.url), img)
+                        if img.startswith("http") and not any(img.lower().endswith(ext) for ext in (".svg", ".ico", ".gif")):
+                            return img
+
+            # 3. If direct URL failed (e.g. 403 on Cloudflare) but original was Google News:
+            if actual_url != url or res.status_code != 200:
+                g_res = client.get(url)
+                if g_res.status_code == 200:
+                    m = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', g_res.text, re.IGNORECASE)
+                    if m:
+                        img = m.group(1).strip()
+                        if "googleusercontent.com" in img:
+                            img = re.sub(r"=s\d+.*$", "=s1200", img)
+                            if "=s" not in img:
+                                img += "=s1200"
+                        return img
+    except Exception:
+        pass
+
+    return None
+
 
 
 @dataclass
@@ -120,12 +210,12 @@ class ImagePipeline:
     # Public entry: real article photo
     # ------------------------------------------------------------------
     def run_real_photo(self, event: NewsEvent) -> ImagePipelineResult:
-        """Try to fetch a real photo from the event's linked articles, or Wikimedia."""
-        image_url = self._find_article_image_url(event)
+        """Fetch the authentic article photo from the source publisher as the visual asset."""
+        image_url, source_name = self._find_article_image_url(event)
         image_bytes = self._download_image(image_url) if image_url else None
 
-        # If article photo not available or download failed, search Wikipedia for a real photo
-        if not image_bytes:
+        # If article photo not available or download failed, search authentic editorial photos
+        if not image_bytes or not image_url:
             logger.info("article_photo_unavailable_trying_wikimedia", event_id=str(event.id))
             browse_res = self.browse_photos(event)
             if browse_res.items:
@@ -144,37 +234,39 @@ class ImagePipeline:
                     attempts=1,
                 )
 
-
-            # If even Wikimedia has no match, fall back to contextual AI generation
+            # If even browsing has no match, fall back to contextual AI generation
             logger.info("fallback_to_ai_generation", event_id=str(event.id))
             from app.services.social.editorial_engine import EditorialEngine
             editorial = EditorialEngine(self.director.provider)
             brief = editorial.compose(event)
             return self.run(event, brief)
 
-        # Save as a real_photo VisualAsset
-        strategy = self.director.direct(event, event.title, event.summary or "")
+        # Save authentic source photo as a VisualAsset
+        src_label = source_name or "News Source"
         asset = VisualAsset(
             event_id=event.id,
-            prompt=f"Real article photo from: {image_url}",
-            visual_strategy={"strategy": "real_photo"},
-            provider="real_photo",
-            model="article_source",
-            style="Real News Photo",
-            quality_score=85,
+            prompt=f"Authentic article photo from {src_label}: {image_url}",
+            visual_strategy={"strategy": "real_article_photo", "source": src_label},
+            provider="article_source",
+            model=src_label,
+            style="News Article Photo",
+            quality_score=95,
             quality_report={
-                "image_source": "real_photo",
+                "image_source": "article_source",
+                "publisher": src_label,
                 "source_url": image_url,
                 "issues": [],
                 "recommendation": "approve",
             },
-            status=VisualAssetStatus.generated,
-            is_selected=False,
+            status=VisualAssetStatus.approved,
+            is_selected=True,
         )
         self.asset_repo.create(asset)
         asset = self._persist_image(asset, image_bytes, None)
         self.asset_repo.mark_selected(asset.id)
+        self.session.flush()
 
+        logger.info("article_source_photo_saved", event_id=str(event.id), asset_id=str(asset.id), source=src_label)
         return ImagePipelineResult(
             selected_asset=asset,
             all_assets=[asset],
@@ -765,39 +857,71 @@ class ImagePipeline:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    def _find_article_image_url(self, event: NewsEvent) -> str | None:
-        """Get the first non-null image_url from the event's linked articles."""
+    def _find_article_image_url(self, event: NewsEvent) -> tuple[str | None, str | None]:
+        """Find authentic editorial photo URL from the event's linked articles.
+        
+        Returns (image_url, source_name).
+        Persists newly discovered image_url back to Article row for future use.
+        """
         from app.models.article import Article
         from app.models.news_event import EventArticle
+
+        articles: list[Article] = []
         try:
             # 1. Check in-memory relationships if loaded
             if hasattr(event, "article_links") and event.article_links:
                 for link in event.article_links:
-                    article = getattr(link, "article", None)
-                    if article and article.image_url:
-                        url = article.image_url.strip()
-                        if url.startswith("http"):
-                            return url
+                    art = getattr(link, "article", None)
+                    if art:
+                        articles.append(art)
 
-            # 2. Directly query EventArticle -> Article
-            articles = (
-                self.session.query(Article)
-                .join(EventArticle, EventArticle.article_id == Article.id)
-                .filter(EventArticle.event_id == event.id)
-                .all()
-            )
-            for article in articles:
-                if article.image_url and article.image_url.strip().startswith("http"):
-                    return article.image_url.strip()
+            # 2. Query EventArticle -> Article if not loaded
+            if not articles:
+                articles = (
+                    self.session.query(Article)
+                    .join(EventArticle, EventArticle.article_id == Article.id)
+                    .filter(EventArticle.event_id == event.id)
+                    .all()
+                )
         except Exception as exc:
-            logger.warning("find_article_image_failed", error=str(exc))
-        return None
+            logger.warning("collect_event_articles_failed", error=str(exc))
+
+        # 3. Check if any linked article already has a valid image_url
+        for art in articles:
+            if art.image_url and art.image_url.strip().startswith("http"):
+                src_name = getattr(art.source, "name", "News Source") if hasattr(art, "source") and art.source else "News Source"
+                return art.image_url.strip(), src_name
+
+        # 4. Live extraction from article web pages (Open Graph / article lead photo)
+        for art in articles:
+            target_url = art.url or art.canonical_url
+            if not target_url:
+                continue
+            extracted = extract_article_web_image(target_url)
+            if extracted:
+                try:
+                    art.image_url = extracted
+                    self.session.flush()
+                except Exception:
+                    pass
+                src_name = getattr(art.source, "name", "News Source") if hasattr(art, "source") and art.source else "News Source"
+                logger.info("extracted_article_image", event_id=str(event.id), source=src_name, image_url=extracted[:80])
+                return extracted, src_name
+
+        return None, None
 
     def _download_image(self, url: str) -> bytes | None:
-        """Download an image and return bytes if it looks valid (>5KB)."""
+        """Download an image with browser headers and return bytes if valid (>3KB)."""
+        if not url:
+            return None
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
         try:
-            with httpx.Client(timeout=12.0, follow_redirects=True) as client:
-                res = client.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ETHIOTIMES/1.0"})
+            with httpx.Client(timeout=12.0, follow_redirects=True, headers=headers) as client:
+                res = client.get(url)
                 if res.status_code == 200 and len(res.content) > 3000:
                     return res.content
         except Exception as exc:

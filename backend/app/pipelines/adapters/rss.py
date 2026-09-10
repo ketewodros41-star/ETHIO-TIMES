@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from time import mktime
 
@@ -148,7 +149,7 @@ class RSSSourceAdapter(BaseSourceAdapter):
             author=self.source.name,
             language=self.source.language,
             categories=self.source.coverage_categories or ["general"],
-            image_url=None,
+            image_url=self._extract_image(entry),
             published_at=published_at,
             raw_payload={"id": entry.get("id"), "link": link, "source": domain},
         )
@@ -197,11 +198,32 @@ class RSSSourceAdapter(BaseSourceAdapter):
     @staticmethod
     def _extract_image(entry) -> str | None:  # noqa: ANN001
         media = entry.get("media_content") or entry.get("media_thumbnail")
-        if media and isinstance(media, list) and media[0].get("url"):
-            return media[0]["url"]
+        if media:
+            if isinstance(media, list) and len(media) > 0 and isinstance(media[0], dict) and media[0].get("url"):
+                return media[0]["url"]
+            elif isinstance(media, dict) and media.get("url"):
+                return media["url"]
         for link in entry.get("links", []):
-            if link.get("rel") == "enclosure" and str(link.get("type", "")).startswith(
-                "image"
-            ):
-                return link.get("href")
+            if link.get("rel") == "enclosure":
+                href = link.get("href")
+                if href and (any(href.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp")) or str(link.get("type", "")).startswith("image")):
+                    return href
+        # Check summary/description/content for <img> tags
+        for field in ("summary", "description"):
+            val = entry.get(field)
+            if val and isinstance(val, str) and "<img" in val.lower():
+                m = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', val, re.IGNORECASE)
+                if m:
+                    img_src = m.group(1).strip()
+                    if img_src.startswith("http") and not any(img_src.lower().endswith(ext) for ext in (".svg", ".gif", ".ico")):
+                        return img_src
+        if entry.get("content"):
+            for c in entry["content"]:
+                val = c.get("value") if isinstance(c, dict) else None
+                if val and isinstance(val, str) and "<img" in val.lower():
+                    m = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', val, re.IGNORECASE)
+                    if m:
+                        img_src = m.group(1).strip()
+                        if img_src.startswith("http") and not any(img_src.lower().endswith(ext) for ext in (".svg", ".gif", ".ico")):
+                            return img_src
         return None

@@ -205,17 +205,32 @@ def search_real_photos(
 @router.post("/assets/fetch-article-photo", response_model=ComposeTaskResponse, status_code=202)
 def fetch_article_photo(
     event_id: uuid.UUID,
-    background_tasks: BackgroundTasks,
     session: Session = Depends(get_db),
 ) -> ComposeTaskResponse:
-    """Try to use the real article photo from RSS feed as the visual asset."""
-    from app.workers.tasks import generate_visual_asset_real_photo
-    task_id = _dispatch_task(
-        generate_visual_asset_real_photo,
-        str(event_id),
-        background_tasks=background_tasks,
+    """Fetch the authentic article photo from the source publisher as the visual asset."""
+    from app.integrations.ai.registry import get_text_provider, get_image_provider
+    from app.repositories.event_repository import EventRepository
+    from app.services.social.image_pipeline import ImagePipeline
+
+    event_repo = EventRepository(session)
+    event = event_repo.get_with_articles(event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    pipeline = ImagePipeline(
+        session=session,
+        text_provider=get_text_provider(),
+        image_provider=get_image_provider(),
     )
-    return ComposeTaskResponse(task_id=task_id, post_id=None, message="real photo fetch queued")
+    result = pipeline.run_real_photo(event)
+    session.commit()
+
+    asset_id = result.selected_asset.id if result.selected_asset else None
+    return ComposeTaskResponse(
+        task_id=str(uuid.uuid4()),
+        post_id=asset_id,
+        message="Article photo fetched successfully" if asset_id else "Photo fetch completed",
+    )
 
 
 @router.post("/assets/{asset_id}/select", response_model=VisualAssetRead)

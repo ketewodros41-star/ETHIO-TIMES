@@ -178,10 +178,22 @@ class WebImageScraper:
 
         for link in event.article_links:
             art = getattr(link, "article", None)
-            if not art or not art.image_url:
+            if not art:
                 continue
-            url = art.image_url.strip()
-            if not url.startswith("http") or any(url.lower().endswith(ext) for ext in _EXCLUDED_EXTENSIONS):
+
+            url = art.image_url
+            if not url or not url.strip().startswith("http"):
+                target_url = art.url or art.canonical_url
+                if target_url:
+                    try:
+                        from app.services.social.image_pipeline import extract_article_web_image
+                        url = extract_article_web_image(target_url)
+                        if url:
+                            art.image_url = url
+                    except Exception:
+                        pass
+
+            if not url or not url.startswith("http") or any(url.lower().endswith(ext) for ext in _EXCLUDED_EXTENSIONS):
                 continue
 
             source_name = getattr(art.source, "name", "News Source") if hasattr(art, "source") and art.source else "Original Story"
