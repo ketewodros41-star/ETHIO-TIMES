@@ -28,6 +28,16 @@ from app.schemas.social_post import PhotoCandidate
 
 logger = get_logger(__name__)
 
+
+def _safe_str(val: Any) -> str:
+    if val is None:
+        return ""
+    try:
+        return str(val).encode("ascii", "replace").decode("ascii")
+    except Exception:
+        return "<unprintable>"
+
+
 # User-Agent for free web image queries
 _BROWSER_HEADERS = {
     "User-Agent": (
@@ -268,7 +278,7 @@ class WebImageScraper:
                     if clean_c:
                         chips = clean_c
             except Exception as exc:
-                logger.warning("llm_story_analysis_failed", error=str(exc))
+                logger.warning("llm_story_analysis_failed", error=_safe_str(exc))
 
         # 2. Heuristic person detection if not identified by LLM
         text = f"{event.title or ''} {event.summary or ''}".lower()
@@ -418,7 +428,7 @@ class WebImageScraper:
                             )
                         )
         except Exception as exc:
-            logger.warning("commons_person_search_failed", person=person_name, error=str(exc))
+            logger.warning("commons_person_search_failed", person=_safe_str(person_name), error=_safe_str(exc))
 
         # 2. Openverse search for authentic press photos of person (Flickr summits, state visits)
         ov_person = self._search_openverse_photos(person_name, seen_urls, limit=6)
@@ -457,7 +467,7 @@ class WebImageScraper:
                                 )
                             )
         except Exception as exc:
-            logger.warning("wiki_person_search_failed", person=person_name, error=str(exc))
+            logger.warning("wiki_person_search_failed", person=_safe_str(person_name), error=_safe_str(exc))
 
         return candidates
 
@@ -504,7 +514,7 @@ class WebImageScraper:
                             )
                         )
         except Exception as exc:
-            logger.warning("openverse_search_failed", query=query, error=str(exc))
+            logger.warning("openverse_search_failed", query=_safe_str(query), error=_safe_str(exc))
 
         return candidates
 
@@ -551,7 +561,7 @@ class WebImageScraper:
                             )
                         )
         except Exception as exc:
-            logger.warning("wikimedia_topic_search_failed", query=query, error=str(exc))
+            logger.warning("wikimedia_topic_search_failed", query=_safe_str(query), error=_safe_str(exc))
 
         return candidates
 
@@ -601,7 +611,7 @@ class WebImageScraper:
                             )
                         )
         except Exception as exc:
-            logger.warning("google_cse_search_failed", query=query, error=str(exc))
+            logger.warning("google_cse_search_failed", query=_safe_str(query), error=_safe_str(exc))
         return candidates
 
     def _search_bing_photos(
@@ -676,7 +686,7 @@ class WebImageScraper:
                         )
                     )
         except Exception as exc:
-            logger.warning("bing_image_scrape_failed", query=query, error=str(exc))
+            logger.warning("bing_image_scrape_failed", query=_safe_str(query), error=_safe_str(exc))
 
         return candidates
 
@@ -730,8 +740,8 @@ class WebImageScraper:
                                     )
                                 )
                 except Exception as scrape_err:
-                    logger.debug("firecrawl_scrape_page_failed", url=url, error=str(scrape_err))
+                    logger.debug("firecrawl_scrape_page_failed", url=url, error=_safe_str(scrape_err))
         except Exception as exc:
-            logger.warning("firecrawl_integration_error", error=str(exc))
+            logger.warning("firecrawl_integration_error", error=_safe_str(exc))
 
         return candidates

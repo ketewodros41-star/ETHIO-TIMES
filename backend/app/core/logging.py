@@ -3,10 +3,23 @@
 from __future__ import annotations
 
 import logging
+import sys
 
 import structlog
 
 from app.core.config import settings
+
+# Prevent Windows cp1252 console UnicodeEncodeError on Amharic or external API unicode
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 
 def configure_logging() -> None:

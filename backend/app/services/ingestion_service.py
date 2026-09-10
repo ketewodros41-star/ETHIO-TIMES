@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -71,6 +72,7 @@ class IngestionService:
                 source_id, status=JobStatus.failed, error="source not found"
             )
 
+        source_slug = source.slug
         job = self._start_job(source, celery_task_id)
 
         try:
@@ -86,16 +88,18 @@ class IngestionService:
             self.sources.mark_success(source, created)
             self._finish_job(job, JobStatus.success, processed, created)
             logger.info(
-                "ingest_success", source=source.slug, processed=processed, created=created
+                "ingest_success", source=source_slug, processed=processed, created=created
             )
             return IngestionResult(
                 source_id, processed, created, JobStatus.success, created_ids=created_ids
             )
 
         except (AdapterError, NotImplementedError) as exc:
+            self.session.rollback()
             return self._finish_failed(job, source, str(exc))
         except Exception as exc:  # noqa: BLE001 - record any unexpected failure
-            logger.exception("ingest_error", source=source.slug)
+            self.session.rollback()
+            logger.exception("ingest_error", source=source_slug)
             return self._finish_failed(job, source, f"unexpected: {exc}")
 
     def _persist_items(
@@ -104,14 +108,26 @@ class IngestionService:
         processed = 0
         created = 0
         created_ids: list[uuid.UUID] = []
+        seen_batch_urls: set[str] = set()
+
         for item in items:
             processed += 1
+            if not item.canonical_url or item.canonical_url in seen_batch_urls:
+                continue
             if self.articles.exists_canonical_url(item.canonical_url):
                 continue
+            seen_batch_urls.add(item.canonical_url)
+
             article = self._build_article(source, item)
-            self.articles.add(article)
-            created += 1
-            created_ids.append(article.id)
+            try:
+                with self.session.begin_nested():
+                    self.articles.add(article)
+                created += 1
+                created_ids.append(article.id)
+            except IntegrityError:
+                # Race condition or duplicate within transaction
+                continue
+
         return processed, created, created_ids
 
     def _build_article(self, source: NewsSource, item: FetchedItem) -> Article:

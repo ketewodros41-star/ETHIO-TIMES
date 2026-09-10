@@ -96,6 +96,16 @@ def _background_run_ingest(source_ids: list[uuid.UUID]) -> None:
         session.close()
 
 
+def _is_redis_available() -> bool:
+    try:
+        import socket
+        with socket.socket() as s:
+            s.settimeout(0.15)
+            return s.connect_ex(("localhost", 6379)) == 0
+    except Exception:
+        return False
+
+
 @router.post("/trigger", response_model=IngestTriggerResponse, status_code=status.HTTP_202_ACCEPTED)
 def trigger_ingest(
     payload: IngestTriggerRequest,
@@ -112,12 +122,13 @@ def trigger_ingest(
             )
         task_id = str(uuid.uuid4())
         background_tasks.add_task(_background_run_ingest, [source.id])
-        try:
-            from app.workers.tasks import ingest_source
-            celery_task = ingest_source.delay(str(source.id))
-            task_id = celery_task.id
-        except Exception:
-            pass
+        if _is_redis_available():
+            try:
+                from app.workers.tasks import ingest_source
+                celery_task = ingest_source.delay(str(source.id))
+                task_id = celery_task.id
+            except Exception:
+                pass
 
         return IngestTriggerResponse(
             enqueued=True,
@@ -129,12 +140,13 @@ def trigger_ingest(
     active_ids = repo.list_active_ids()
     task_id = str(uuid.uuid4())
     background_tasks.add_task(_background_run_ingest, active_ids)
-    try:
-        from app.workers.tasks import ingest_all_active
-        celery_task = ingest_all_active.delay()
-        task_id = celery_task.id
-    except Exception:
-        pass
+    if _is_redis_available():
+        try:
+            from app.workers.tasks import ingest_all_active
+            celery_task = ingest_all_active.delay()
+            task_id = celery_task.id
+        except Exception:
+            pass
 
     return IngestTriggerResponse(
         enqueued=True,
