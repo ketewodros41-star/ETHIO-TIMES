@@ -47,7 +47,7 @@ export function useNewEventsPoller(
           return;
         }
 
-        // Check if there are genuinely new events
+        // Check if there are genuinely new events or updated coverage
         const isNewer =
           data.latest_at &&
           lastSeenAt.current &&
@@ -55,9 +55,9 @@ export function useNewEventsPoller(
 
         const countDiff = data.total_count - lastSeenCount.current;
 
-        if (isNewer && countDiff > 0) {
+        if (isNewer) {
           setHasNew(true);
-          setNewCount(countDiff);
+          setNewCount(countDiff > 0 ? countDiff : 1);
         }
       } catch {
         // Silently ignore polling errors � network blips shouldn't break the UI

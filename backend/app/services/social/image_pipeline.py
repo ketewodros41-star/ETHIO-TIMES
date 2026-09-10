@@ -19,6 +19,7 @@ from app.services.social.editorial_engine import EditorialBrief
 from app.services.social.image_critic import ImageCritic
 from app.services.social.prompt_engine import PromptEngine
 from app.services.social.visual_director import VisualDirector
+from app.services.social.web_image_scraper import WebImageScraper
 
 logger = get_logger(__name__)
 
@@ -432,6 +433,17 @@ class ImagePipeline:
         seen_urls: set[str] = set()
         pool: list[PhotoCandidate] = []
 
+        # --- Source 1: Live Web Image Scraper (Direct Article Media + Live Bing Photos + Firecrawl) ---
+        try:
+            scraper = WebImageScraper(self.director.provider)
+            live_candidates = scraper.search_candidates(event, custom_query=topic, max_pool=max_pool)
+            for cand in live_candidates:
+                if cand.image_url not in seen_urls:
+                    seen_urls.add(cand.image_url)
+                    pool.append(cand)
+        except Exception as exc:
+            logger.warning("live_web_image_scraper_failed", error=str(exc))
+
         # Exclusion list: no SVGs, PDFs, maps, diagrams, coats of arms, flags, or logos
         non_photo_patterns = (
             ".svg", ".gif", ".pdf",
@@ -442,9 +454,11 @@ class ImagePipeline:
         is_conflict_topic = any(k in topic.lower() for k in ["war", "conflict", "battle", "military", "army"])
         generic_negative_terms = (" war", "battle of", "massacre", "famine in", "corpse", "casualty")
 
-        # --- Source 1: All Linked Article Photos (Telegram / RSS / Web) ---
+        # --- Source 2: Backfill from Linked Article Photos (if not already captured) ---
         article_images = self._find_all_article_images(event)
         for url, art_title, source_label, photographer in article_images:
+            if len(pool) >= max_pool:
+                break
             if url not in seen_urls:
                 seen_urls.add(url)
                 pool.append(
@@ -459,7 +473,7 @@ class ImagePipeline:
                     )
                 )
 
-        # --- Source 2: Wikipedia Article Page Images across facets ---
+        # --- Source 3: Backfill from Wikipedia Article Page Images if pool has room ---
         headers = {
             "User-Agent": "ETHIOTIMESBot/1.0 (editorial-studio@ethiotimes.org; contact: info@ethiotimes.com)"
         }
@@ -565,6 +579,42 @@ class ImagePipeline:
             pool.extend(pexels_candidates)
 
         return pool
+
+    def _fetch_pexels_candidates(
+        self, topic: str, api_key: str, seen_urls: set[str], limit: int = 6
+    ) -> list[PhotoCandidate]:
+        """Fetch photos from Pexels API when key is configured."""
+        import urllib.parse
+        if not api_key:
+            return []
+        candidates: list[PhotoCandidate] = []
+        try:
+            url = f"https://api.pexels.com/v1/search?query={urllib.parse.quote(topic)}&per_page={limit}"
+            headers = {"Authorization": api_key}
+            with httpx.Client(timeout=6.0) as client:
+                res = client.get(url, headers=headers)
+                if res.status_code == 200:
+                    data = res.json()
+                    for p in data.get("photos", []):
+                        src = p.get("src", {})
+                        img_url = src.get("large2x") or src.get("large") or src.get("original")
+                        thumb_url = src.get("medium") or src.get("small") or img_url
+                        if img_url and img_url not in seen_urls:
+                            seen_urls.add(img_url)
+                            candidates.append(
+                                PhotoCandidate(
+                                    id=f"pexels-{p.get('id')}",
+                                    title=p.get("alt") or f"Pexels: {topic}",
+                                    thumb_url=thumb_url,
+                                    image_url=img_url,
+                                    source="pexels",
+                                    photographer=p.get("photographer") or "Pexels",
+                                    description=f"Pexels photo by {p.get('photographer')}",
+                                )
+                            )
+        except Exception as exc:
+            logger.warning("pexels_fetch_failed", error=str(exc))
+        return candidates
 
     def _find_all_article_images(self, event: NewsEvent) -> list[tuple[str, str, str, str]]:
         """Return list of (image_url, title, source_label, photographer) from all linked articles."""

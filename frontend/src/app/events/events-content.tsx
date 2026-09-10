@@ -48,7 +48,7 @@ export function EventsContent() {
   const [trend, setTrend] = useState<TrendStatus | "">("");
   const [breakingOnly, setBreakingOnly] = useState(false);
   const [reviewOnly, setReviewOnly] = useState(false);
-  const [sort, setSort] = useState<"last_seen" | "trend_score">("trend_score");
+  const [sort, setSort] = useState<"last_seen" | "trend_score">("last_seen");
   const [scope, setScope] = useState<"ethiopia" | "neighboring" | "all">("ethiopia");
 
   const { hasNew, newCount, dismiss, refresh } = useNewEventsPoller(() => {
@@ -215,8 +215,19 @@ export function EventsContent() {
             Review required
           </label>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-paper-500">{total} clustered events</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-paper-500 mr-1">{total} clustered events</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => ingestMutation.mutate()}
+            disabled={ingestMutation.isPending}
+            className="flex items-center gap-1.5 border-accent-green/50 text-accent-green hover:bg-accent-green/10"
+            title="Immediately fetch new articles from Tikvah and active RSS sources and cluster into events"
+          >
+            <Play className={`h-3.5 w-3.5 ${ingestMutation.isPending ? "animate-spin" : ""}`} />
+            {ingestMutation.isPending ? "Syncing Feeds…" : "Sync Feeds"}
+          </Button>
           <Button
             variant="outline"
             size="sm"

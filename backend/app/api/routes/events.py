@@ -54,18 +54,45 @@ def list_events(
 
 @router.get("/latest-timestamp")
 def get_latest_timestamp(session: Session = Depends(get_db)) -> dict:
-    """Lightweight endpoint for frontend polling — returns timestamp of newest event.
-    The frontend polls this every 15s to show a 'new events available' banner.
+    """Lightweight endpoint for frontend polling — returns timestamp of newest or newly updated event.
+    The frontend polls this to show a 'new events available' banner.
     """
     from sqlalchemy import func
     from app.models.news_event import NewsEvent as EventModel
+
+    # Check the latest timestamp considering both creation and newly updated coverage
     result = session.query(
-        func.max(EventModel.created_at).label("latest_at"),
+        func.max(func.coalesce(EventModel.last_seen_at, EventModel.created_at)).label("latest_at"),
         func.count(EventModel.id).label("total_count"),
     ).first()
     return {
         "latest_at": result.latest_at.isoformat() if result and result.latest_at else None,
         "total_count": result.total_count if result else 0,
+    }
+
+
+@router.post("/sync-now")
+def sync_events_now(
+    session: Session = Depends(get_db),
+) -> dict:
+    """Immediately triggers background ingestion of active sources and clustering into events.
+    Bypasses external Celery requirement for reliable news updates in all environments.
+    """
+    import threading
+    from app.api.routes.ingest import _background_run_ingest
+    from app.repositories.source_repository import SourceRepository
+
+    repo = SourceRepository(session)
+    active_ids = repo.list_active_ids()
+
+    # Run in a separate thread so API returns immediately with 200 OK
+    thread = threading.Thread(target=_background_run_ingest, args=(active_ids,), daemon=True)
+    thread.start()
+
+    return {
+        "status": "syncing",
+        "message": f"Syncing {len(active_ids)} active news sources",
+        "source_count": len(active_ids),
     }
 
 
