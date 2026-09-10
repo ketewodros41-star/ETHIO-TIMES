@@ -147,10 +147,19 @@ export const postsApi = {
   checkEligibility: (id: string) => request<import('./types').EligibilityCheck>(`/posts/${id}/eligibility`),
   generateAsset: (event_id: string) =>
     request<import('./types').ComposeTaskResponse>(`/posts/assets/generate${qs({ event_id })}`, { method: "POST" }),
+  fetchArticlePhoto: (event_id: string) =>
+    request<import('./types').ComposeTaskResponse>(`/posts/assets/fetch-article-photo${qs({ event_id })}`, { method: "POST" }),
+  searchPhotos: (event_id: string, query?: string) =>
+    request<import('./types').VisualAsset[]>(`/posts/assets/search-photos${qs({ event_id, ...(query ? { query } : {}) })}`, { method: "POST" }),
   listAssets: (event_id: string) =>
     request<import('./types').VisualAsset[]>(`/posts/assets${qs({ event_id })}`),
   selectAsset: (asset_id: string) =>
     request<import('./types').VisualAsset>(`/posts/assets/${asset_id}/select`, { method: "POST" }),
+};
+
+export const eventsApi = {
+  latestTimestamp: () =>
+    request<{ latest_at: string | null; total_count: number }>("/events/latest-timestamp"),
 };
 
 export { API_BASE };

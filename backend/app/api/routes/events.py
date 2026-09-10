@@ -90,3 +90,20 @@ def clear_event_review(
     session.commit()
     session.refresh(event)
     return to_event_detail(event)
+
+
+@router.get("/latest-timestamp")
+def get_latest_timestamp(session: Session = Depends(get_db)) -> dict:
+    """Lightweight endpoint for frontend polling — returns timestamp of newest event.
+    The frontend polls this every 15s to show a 'new events available' banner.
+    """
+    from sqlalchemy import func
+    from app.models.news_event import NewsEvent as EventModel
+    result = session.query(
+        func.max(EventModel.created_at).label("latest_at"),
+        func.count(EventModel.id).label("total_count"),
+    ).first()
+    return {
+        "latest_at": result.latest_at.isoformat() if result and result.latest_at else None,
+        "total_count": result.total_count if result else 0,
+    }

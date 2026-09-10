@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     gemini_image_model: str = Field(default="imagen-3.0")
     gemini_embedding_model: str = Field(default="gemini-embedding-001")
     nvidia_api_key: str | None = Field(default=None)
+    pexels_api_key: str = ""
     nvidia_text_model: str = Field(default="meta/llama-3.2-11b-vision-instruct")
     nvidia_base_url: str = Field(default="https://integrate.api.nvidia.com/v1")
     # gemini-embedding-001 defaults to 3072 dims; 1536 is a recommended MRL

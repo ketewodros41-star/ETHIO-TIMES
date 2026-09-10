@@ -347,6 +347,33 @@ def generate_visual_asset(self, event_id: str) -> dict:
         session.close()
 
 
+@celery_app.task(name="app.workers.tasks.generate_visual_asset_real_photo", max_retries=2, bind=True)
+def generate_visual_asset_real_photo(self, event_id: str) -> dict:
+    """Try to use real article photo; fall back to AI generation."""
+    from app.integrations.ai.registry import get_text_provider, get_image_provider
+    from app.repositories.event_repository import EventRepository
+    from app.services.social.editorial_engine import EditorialEngine
+    from app.services.social.image_pipeline import ImagePipeline
+
+    with SessionLocal() as session:
+        event_repo = EventRepository(session)
+        event = event_repo.get_with_articles(event_id)
+        if event is None:
+            return {"error": "event_not_found"}
+
+        pipeline = ImagePipeline(
+            session=session,
+            text_provider=get_text_provider(),
+            image_provider=get_image_provider(),
+        )
+        result = pipeline.run_real_photo(event)
+        session.commit()
+        return {
+            "asset_id": str(result.selected_asset.id) if result.selected_asset else None,
+            "source": "real_photo",
+        }
+
+
 @celery_app.task(bind=True, name="app.workers.tasks.compose_post", max_retries=2)
 def compose_post(self, event_id: str, format: str = "portrait", theme: str | None = None) -> dict:
     """EditorialEngine → CaptionBuilder → save SocialPost(status=draft)."""

@@ -39,6 +39,23 @@ class EventRepository:
     def get_detail_for_compose(self, event_id: uuid.UUID) -> NewsEvent | None:
         return self.get_detail(event_id)
 
+    def get_with_articles(self, event_id: uuid.UUID | str) -> NewsEvent | None:
+        """Fetch event with article_links + articles eagerly loaded."""
+        from sqlalchemy.orm import joinedload
+        from app.models.news_event import EventArticle
+        from app.models.article import Article
+        if isinstance(event_id, str):
+            import uuid as uuid_mod
+            event_id = uuid_mod.UUID(event_id)
+        return (
+            self.session.query(NewsEvent)
+            .options(
+                joinedload(NewsEvent.article_links).joinedload(EventArticle.article)
+            )
+            .filter(NewsEvent.id == event_id)
+            .first()
+        )
+
     def event_for_article(self, article_id: uuid.UUID) -> NewsEvent | None:
         """Return the event an article belongs to (if any)."""
         return self.session.scalar(

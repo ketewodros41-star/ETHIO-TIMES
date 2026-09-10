@@ -123,6 +123,49 @@ def trigger_generate_asset(
     return ComposeTaskResponse(task_id=task_id, post_id=None, message="image generation queued")
 
 
+@router.post("/assets/search-photos", response_model=list[VisualAssetRead])
+def search_real_photos(
+    event_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    query: str | None = None,
+    session: Session = Depends(get_db),
+) -> list[VisualAssetRead]:
+    """Search Pexels for editorial photos matching this event story."""
+    from app.integrations.ai.registry import get_text_provider, get_image_provider
+    from app.repositories.event_repository import EventRepository
+    from app.services.social.image_pipeline import ImagePipeline
+
+    event_repo = EventRepository(session)
+    event = event_repo.get_with_articles(event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    pipeline = ImagePipeline(
+        session=session,
+        text_provider=get_text_provider(),
+        image_provider=get_image_provider(),
+    )
+    assets = pipeline.search_pexels(event, query=query)
+    session.commit()
+    return [VisualAssetRead.model_validate(a) for a in assets]
+
+
+@router.post("/assets/fetch-article-photo", response_model=ComposeTaskResponse, status_code=202)
+def fetch_article_photo(
+    event_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_db),
+) -> ComposeTaskResponse:
+    """Try to use the real article photo from RSS feed as the visual asset."""
+    from app.workers.tasks import generate_visual_asset_real_photo
+    task_id = _dispatch_task(
+        generate_visual_asset_real_photo,
+        str(event_id),
+        background_tasks=background_tasks,
+    )
+    return ComposeTaskResponse(task_id=task_id, post_id=None, message="real photo fetch queued")
+
+
 @router.post("/assets/{asset_id}/select", response_model=VisualAssetRead)
 def select_asset(asset_id: uuid.UUID, session: Session = Depends(get_db)) -> VisualAssetRead:
     repo = VisualAssetRepository(session)
