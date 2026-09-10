@@ -3,8 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Layers, Palette, Play, RefreshCw, ShieldAlert, TrendingUp, Users, Zap } from "lucide-react";
+import { AlertCircle, Bell, Layers, Palette, Play, RefreshCw, ShieldAlert, TrendingUp, Users, Zap } from "lucide-react";
 import { api } from "@/lib/api";
+import { useNewEventsPoller } from "@/lib/useNewEventsPoller";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +50,10 @@ export function EventsContent() {
   const [reviewOnly, setReviewOnly] = useState(false);
   const [sort, setSort] = useState<"last_seen" | "trend_score">("trend_score");
 
+  const { hasNew, newCount, dismiss, refresh } = useNewEventsPoller(() => {
+    qc.invalidateQueries({ queryKey: ["events"] });
+  });
+
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["events", search, page, verification, trend, breakingOnly, reviewOnly, sort],
     queryFn: () =>
@@ -62,7 +67,7 @@ export function EventsContent() {
         breaking: breakingOnly ? true : undefined,
         sort,
       }),
-    refetchInterval: 10000,
+    refetchInterval: 60000,
   });
 
   const ingestMutation = useMutation({
@@ -78,6 +83,20 @@ export function EventsContent() {
 
   return (
     <div className="space-y-4">
+      {hasNew && (
+        <div className="flex items-center justify-between rounded-card border border-amber-700/50 bg-amber-950/30 px-4 py-2.5 text-xs text-amber-300">
+          <div className="flex items-center gap-2">
+            <Bell className="h-3.5 w-3.5 animate-pulse" />
+            <span><strong>{newCount} new event{newCount !== 1 ? "s" : ""}</strong> available since you last loaded</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={refresh} className="px-3 py-1 rounded-card bg-amber-700/40 hover:bg-amber-700/60 font-semibold text-amber-200 transition-colors">
+              Refresh
+            </button>
+            <button onClick={dismiss} className="text-amber-500 hover:text-amber-300 transition-colors">✕</button>
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <Input
