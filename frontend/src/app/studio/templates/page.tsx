@@ -855,6 +855,14 @@ function StudioContent() {
   const [slideCustomBodies, setSlideCustomBodies] = useState<Record<number, string>>({});
   const [showInspector, setShowInspector] = useState(false);
   const [inspectorZoom, setInspectorZoom] = useState<number>(1.0);
+  const [englishBackup, setEnglishBackup] = useState<{
+    headline: string;
+    dek: string;
+    category: string;
+    country: string;
+    slideHeaders: Record<number, string>;
+    slideBodies: Record<number, string>;
+  } | null>(null);
 
   useEffect(() => {
     if (queryEventId) {
@@ -1052,6 +1060,73 @@ function StudioContent() {
   const composeMutation = useMutation({
     mutationFn: () => postsApi.compose({ event_id: selectedEventId, format, theme: themeId }),
     onSuccess: () => alert("Post composed and enqueued! View it in the Posts queue."),
+  });
+
+  const translateEditorialMutation = useMutation({
+    mutationFn: async (params?: { targetLang?: "am" | "en"; overrideHeadline?: string }) => {
+      const targetLang = params?.targetLang || "am";
+      const headlineToTranslate =
+        params?.overrideHeadline ||
+        (customHeadline && !isEthiopic(customHeadline) ? customHeadline : activeEvent?.title || SAMPLE.headline);
+      const dekToTranslate =
+        customDek && !isEthiopic(customDek) ? customDek : activeEvent?.summary || SAMPLE.dek || "";
+      const catToTranslate = customCategory || activeEvent?.primary_category || "News";
+
+      const headers = [1, 2, 3, 4, 5].map((idx) => slideCustomHeaders[idx] || "");
+      const bodies = [1, 2, 3, 4, 5].map((idx) => slideCustomBodies[idx] || "");
+
+      return postsApi.translateEditorial({
+        event_id: selectedEventId || undefined,
+        headline: headlineToTranslate,
+        dek: dekToTranslate,
+        category: catToTranslate,
+        target_language: targetLang,
+        format: format,
+        template: themeId === "breaking" ? "breaking" : postMode === "carousel" ? "carousel" : "single",
+        slide_headers: headers,
+        slide_bodies: bodies,
+      });
+    },
+    onSuccess: (data) => {
+      setSelectedLanguage("am");
+      setCustomHeadline(data.headline);
+      setCustomDek(data.dek);
+      setCustomCategory(data.category);
+
+      // Auto-highlight punchline words if returned
+      if (data.punchline_words && data.punchline_words.length > 0) {
+        const headlineWords = data.headline.trim().split(/\s+/);
+        const indices: number[] = [];
+        data.punchline_words.forEach((pw) => {
+          const cleanPw = pw.trim().toLowerCase();
+          headlineWords.forEach((hw, idx) => {
+            if (hw.toLowerCase().includes(cleanPw) || cleanPw.includes(hw.toLowerCase())) {
+              if (!indices.includes(idx)) indices.push(idx);
+            }
+          });
+        });
+        if (indices.length > 0) {
+          setHighlightMode("auto");
+          setManualHighlightIndices(indices);
+        }
+      }
+
+      // Update carousel slides if provided
+      if (data.slide_headers && data.slide_headers.length > 0) {
+        const newHeaders: Record<number, string> = {};
+        data.slide_headers.forEach((h, idx) => {
+          if (h) newHeaders[idx + 1] = h;
+        });
+        setSlideCustomHeaders((prev) => ({ ...prev, ...newHeaders }));
+      }
+      if (data.slide_bodies && data.slide_bodies.length > 0) {
+        const newBodies: Record<number, string> = {};
+        data.slide_bodies.forEach((b, idx) => {
+          if (b) newBodies[idx + 1] = b;
+        });
+        setSlideCustomBodies((prev) => ({ ...prev, ...newBodies }));
+      }
+    },
   });
 
   const isAmharicScript = isEthiopic(customHeadline) || isEthiopic(customDek) || selectedLanguage === "am";
@@ -1295,14 +1370,24 @@ function StudioContent() {
                         type="button"
                         onClick={() => {
                           setSelectedLanguage("en");
-                          if (activeEvent) {
+                          if (englishBackup) {
+                            setCustomHeadline(englishBackup.headline);
+                            setCustomDek(englishBackup.dek);
+                            setCustomCategory(englishBackup.category);
+                            setSelectedCountry(englishBackup.country);
+                            setSlideCustomHeaders(englishBackup.slideHeaders);
+                            setSlideCustomBodies(englishBackup.slideBodies);
+                            setManualHighlightIndices([]);
+                          } else if (activeEvent) {
                             setCustomHeadline(activeEvent.title);
                             setCustomDek(activeEvent.summary || "");
                             setCustomCategory(activeEvent.primary_category || "News");
+                            setManualHighlightIndices([]);
                           } else {
                             setCustomHeadline(SAMPLE.headline);
                             setCustomDek(SAMPLE.dek || "");
                             setCustomCategory(SAMPLE.category);
+                            setManualHighlightIndices([]);
                           }
                         }}
                         className={`px-2.5 py-1 rounded font-semibold transition-all ${
@@ -1316,24 +1401,43 @@ function StudioContent() {
                       </button>
                       <button
                         type="button"
+                        disabled={translateEditorialMutation.isPending}
                         onClick={() => {
+                          if (selectedLanguage === "en") {
+                            setEnglishBackup({
+                              headline: customHeadline || (activeEvent?.title ?? SAMPLE.headline),
+                              dek: customDek || (activeEvent?.summary ?? SAMPLE.dek),
+                              category: customCategory || (activeEvent?.primary_category ?? SAMPLE.category),
+                              country: selectedCountry,
+                              slideHeaders: { ...slideCustomHeaders },
+                              slideBodies: { ...slideCustomBodies },
+                            });
+                          }
                           setSelectedLanguage("am");
-                          const defaultAm = AMHARIC_PRESETS[0];
-                          setCustomHeadline(defaultAm.headline);
-                          setCustomDek(defaultAm.dek);
-                          setCustomCategory(defaultAm.category);
-                          setHighlightColor(defaultAm.highlightColor);
-                          setSelectedCountry(defaultAm.country);
+                          // If current headline is not Amharic yet or is empty, trigger contextual AI translation!
+                          if (!isEthiopic(customHeadline) || customHeadline.trim() === "") {
+                            translateEditorialMutation.mutate();
+                          }
                         }}
-                        className={`px-2.5 py-1 rounded font-semibold transition-all flex items-center gap-1 ${
+                        className={`px-2.5 py-1 rounded font-semibold transition-all flex items-center gap-1.5 ${
                           selectedLanguage === "am"
                             ? "bg-accent-green text-ink-950 shadow-sm"
                             : "text-paper-400 hover:text-paper-100"
                         }`}
-                        title="Amharic Broadcast News Mode"
+                        title="Translate & Adapt to Punchy Broadcast Amharic with AI"
                       >
-                        <Languages className="h-3 w-3" />
-                        አማርኛ (AM)
+                        {translateEditorialMutation.isPending ? (
+                          <>
+                            <RefreshCw className="h-3 w-3 animate-spin text-ink-950" />
+                            <span>በመተርጎም ላይ…</span>
+                          </>
+                        ) : (
+                          <>
+                            <Languages className="h-3 w-3" />
+                            <span>አማርኛ (AM)</span>
+                            <Sparkles className="h-2.5 w-2.5 text-amber-300" />
+                          </>
+                        )}
                       </button>
                     </div>
 
@@ -1367,43 +1471,74 @@ function StudioContent() {
                   </select>
                 </div>
 
-                {/* Amharic Broadcast Presets Grid */}
+                {/* Amharic Broadcast Header & AI Actions */}
                 {selectedLanguage === "am" && (
-                  <div className="space-y-1.5 p-3 rounded-card bg-ink-900/80 border border-ink-700/80 animate-in fade-in duration-150">
+                  <div className="space-y-2 p-3 rounded-card bg-ink-900/80 border border-ink-700/80 animate-in fade-in duration-150">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-mono uppercase tracking-wider text-accent-green font-bold flex items-center gap-1.5">
-                        <Sparkles className="h-3.5 w-3.5" />
-                        Amharic Broadcast Presets (Punchy 4-7 Words)
+                        <Sparkles className="h-3.5 w-3.5 text-accent-green" />
+                        AI Broadcast Amharic (Punchy 4-7 Words)
                       </span>
-                      <span className="text-[10px] text-paper-400">Habesha News Style</span>
+                      <button
+                        type="button"
+                        disabled={translateEditorialMutation.isPending}
+                        onClick={() => translateEditorialMutation.mutate()}
+                        className="px-2 py-0.5 text-[10px] font-semibold font-mono rounded bg-accent-green/15 text-accent-green hover:bg-accent-green/25 border border-accent-green/40 flex items-center gap-1 transition-all disabled:opacity-40"
+                        title="Re-translate active English text into fresh Amharic news copy with AI"
+                      >
+                        {translateEditorialMutation.isPending ? (
+                          <>
+                            <RefreshCw className="h-2.5 w-2.5 animate-spin" />
+                            በመተርጎም ላይ...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="h-2.5 w-2.5" />
+                            በAI እንደገና ተርጉም
+                          </>
+                        )}
+                      </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 pt-1">
-                      {AMHARIC_PRESETS.map((preset) => (
-                        <button
-                          key={preset.key}
-                          type="button"
-                          onClick={() => {
-                            setCustomHeadline(preset.headline);
-                            setCustomDek(preset.dek);
-                            setCustomCategory(preset.category);
-                            setHighlightColor(preset.highlightColor);
-                            setHighlightMode(preset.highlightMode || "auto");
-                            setManualHighlightIndices([]);
-                            setSelectedCountry(preset.country);
-                          }}
-                          className={`p-2.5 rounded-lg bg-ink-850 hover:bg-ink-800 text-left border transition-all text-xs ${
-                            customHeadline === preset.headline
-                              ? "border-accent-green bg-accent-green/10 text-paper-50"
-                              : "border-ink-700 hover:border-accent-green/50 text-paper-200"
-                          }`}
-                        >
-                          <div className="font-semibold text-paper-100 text-[11px] truncate flex items-center justify-between">
-                            <span>{preset.label}</span>
-                            {customHeadline === preset.headline && <Check className="h-3 w-3 text-accent-green" />}
-                          </div>
-                          <div className="text-[10px] text-paper-400 truncate mt-0.5">{preset.headline}</div>
-                        </button>
-                      ))}
+
+                    <div className="text-[11px] text-paper-400 flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-accent-green" />
+                      <span>Adapted to {format} layout ({postMode === "carousel" ? "5-slide carousel" : themeId === "breaking" ? "breaking alert" : "single image card"})</span>
+                    </div>
+
+                    <div className="pt-1.5 border-t border-ink-800">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[10px] font-mono uppercase tracking-wider text-paper-400">
+                          Or Choose Quick Habesha Presets:
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {AMHARIC_PRESETS.map((preset) => (
+                          <button
+                            key={preset.key}
+                            type="button"
+                            onClick={() => {
+                              setCustomHeadline(preset.headline);
+                              setCustomDek(preset.dek);
+                              setCustomCategory(preset.category);
+                              setHighlightColor(preset.highlightColor);
+                              setHighlightMode(preset.highlightMode || "auto");
+                              setManualHighlightIndices([]);
+                              setSelectedCountry(preset.country);
+                            }}
+                            className={`p-2 rounded-lg bg-ink-850 hover:bg-ink-800 text-left border transition-all text-xs ${
+                              customHeadline === preset.headline
+                                ? "border-accent-green bg-accent-green/10 text-paper-50"
+                                : "border-ink-700 hover:border-accent-green/50 text-paper-200"
+                            }`}
+                          >
+                            <div className="font-semibold text-paper-100 text-[11px] truncate flex items-center justify-between">
+                              <span>{preset.label}</span>
+                              {customHeadline === preset.headline && <Check className="h-3 w-3 text-accent-green" />}
+                            </div>
+                            <div className="text-[10px] text-paper-400 truncate mt-0.5">{preset.headline}</div>
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1421,6 +1556,7 @@ function StudioContent() {
                     </div>
                     <input
                       type="text"
+                      data-testid="headline-input"
                       value={customHeadline}
                       onChange={(e) => setCustomHeadline(e.target.value)}
                       placeholder={isAmharicScript ? "አጭር እና ግልጽ ዜና ርዕስ..." : "Short, punchy broadcast headline..."}
@@ -1506,6 +1642,7 @@ function StudioContent() {
                     </label>
                     <textarea
                       rows={2}
+                      data-testid="dek-input"
                       value={customDek}
                       onChange={(e) => setCustomDek(e.target.value)}
                       placeholder={isAmharicScript ? "ዝርዝር መግለጫ..." : "Subheading context..."}

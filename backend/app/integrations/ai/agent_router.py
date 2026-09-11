@@ -84,7 +84,7 @@ class AgentRouterTextProvider(AIProvider):
                 {"role": "user", "content": request.prompt},
             ],
             "temperature": request.temperature if request.temperature is not None else 0.1,
-            "max_tokens": request.max_tokens or 2048,
+            "max_tokens": request.max_tokens or 4096,
         }
 
         try:
@@ -100,7 +100,12 @@ class AgentRouterTextProvider(AIProvider):
                     raise ProviderResponseError(f"AgentRouter API error {res.status_code}: {res.text[:300]}")
 
                 data = res.json()
-                content = data["choices"][0]["message"]["content"]
+                msg = data["choices"][0]["message"]
+                content = msg.get("content")
+                if not content and msg.get("reasoning_content"):
+                    content = msg["reasoning_content"]
+                if not content:
+                    content = ""
                 return _extract_json_block(content)
         except (RateLimitError, ProviderResponseError):
             raise

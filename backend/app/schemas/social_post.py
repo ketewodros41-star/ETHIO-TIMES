@@ -135,4 +135,27 @@ class PhotoBrowseResponse(BaseModel):
     suggested_chips: list[str] = Field(default_factory=list)
 
 
+class EditorialTranslationRequest(BaseModel):
+    event_id: uuid.UUID | None = None
+    headline: str
+    dek: str | None = None
+    category: str | None = None
+    target_language: str = "am"
+    source_language: str = "en"
+    format: str = "portrait"
+    template: str = "single"
+    slide_headers: list[str] = Field(default_factory=list)
+    slide_bodies: list[str] = Field(default_factory=list)
+
+
+class EditorialTranslationResponse(BaseModel):
+    headline: str
+    dek: str
+    category: str
+    punchline_words: list[str] = Field(default_factory=list)
+    slide_headers: list[str] = Field(default_factory=list)
+    slide_bodies: list[str] = Field(default_factory=list)
+    translated_language: str = "am"
+
+
 

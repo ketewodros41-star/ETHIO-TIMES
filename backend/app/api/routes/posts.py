@@ -18,6 +18,8 @@ from app.repositories.visual_asset_repository import VisualAssetRepository
 from app.schemas.common import Page, PageMeta
 from app.schemas.social_post import (
     ComposeTaskResponse,
+    EditorialTranslationRequest,
+    EditorialTranslationResponse,
     EligibilityCheck,
     PhotoBrowseResponse,
     PhotoCandidate,
@@ -274,6 +276,19 @@ def get_asset_image(asset_id: uuid.UUID, session: Session = Depends(get_db)) -> 
     if not path.exists():
         raise HTTPException(status_code=404, detail="Asset image file not found")
     return FileResponse(path, media_type="image/png")
+
+
+@router.post("/translate-editorial", response_model=EditorialTranslationResponse)
+def translate_editorial_endpoint(
+    body: EditorialTranslationRequest,
+    session: Session = Depends(get_db),
+) -> EditorialTranslationResponse:
+    """Translate English news copy to concise, broadcast-ready Amharic tailored to layout."""
+    from app.integrations.ai.registry import get_text_provider
+    from app.services.social.translation_service import EditorialTranslationService
+
+    service = EditorialTranslationService(session, get_text_provider())
+    return service.translate_editorial(body)
 
 
 @router.get("/{post_id}/image")

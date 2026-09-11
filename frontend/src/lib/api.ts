@@ -190,6 +190,11 @@ export const postsApi = {
     request<import('./types').VisualAsset>(`/posts/assets/${asset_id}/select`, { method: "POST" }),
   deleteAsset: (asset_id: string) =>
     request<void>(`/posts/assets/${asset_id}`, { method: "DELETE" }),
+  translateEditorial: (body: import('./types').EditorialTranslationRequest) =>
+    request<import('./types').EditorialTranslationResponse>('/posts/translate-editorial', {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };
 
 

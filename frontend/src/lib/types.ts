@@ -430,4 +430,27 @@ export interface PhotoBrowseResponse {
   suggested_chips?: string[];
 }
 
+export interface EditorialTranslationRequest {
+  event_id?: string;
+  headline: string;
+  dek?: string;
+  category?: string;
+  target_language?: string;
+  source_language?: string;
+  format?: string;
+  template?: string;
+  slide_headers?: string[];
+  slide_bodies?: string[];
+}
+
+export interface EditorialTranslationResponse {
+  headline: string;
+  dek: string;
+  category: string;
+  punchline_words: string[];
+  slide_headers: string[];
+  slide_bodies: string[];
+  translated_language: string;
+}
+
 
