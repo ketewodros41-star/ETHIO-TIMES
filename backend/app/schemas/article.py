@@ -63,6 +63,7 @@ class ArticleRead(BaseModel):
     primary_region: str | None = None
     detected_language: str | None = None
     importance_score: float
+    event_id: uuid.UUID | None = None
 
 
 class ArticleDetail(ArticleRead):

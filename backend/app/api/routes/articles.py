@@ -24,6 +24,8 @@ def list_articles(
     source_id: uuid.UUID | None = Query(None),
     status_filter: ArticleStatus | None = Query(None, alias="status"),
     search: str | None = Query(None),
+    category: str | None = Query(None),
+    sort: str = Query("newest"),
 ) -> Page[ArticleRead]:
     service = ArticleService(session)
     items, total = service.list_articles(
@@ -32,6 +34,8 @@ def list_articles(
         source_id=source_id,
         status=status_filter,
         search=search,
+        category=category,
+        sort=sort,
     )
     return Page[ArticleRead](
         items=[ArticleRead.model_validate(i) for i in items],

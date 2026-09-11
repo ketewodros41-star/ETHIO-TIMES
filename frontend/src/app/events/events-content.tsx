@@ -40,15 +40,37 @@ const TREND_FILTERS: { value: TrendStatus | ""; label: string }[] = [
   { value: "low", label: "Low" },
 ];
 
+const NEWS_BEATS: { id: string; label: string; icon: string }[] = [
+  { id: "", label: "All Beats", icon: "🌐" },
+  { id: "politics", label: "Politics", icon: "🏛️" },
+  { id: "economy", label: "Economy & Business", icon: "📈" },
+  { id: "sports", label: "Sports", icon: "⚽" },
+  { id: "technology", label: "Tech & Innovation", icon: "🤖" },
+  { id: "culture", label: "Culture & Society", icon: "🎭" },
+  { id: "conflict", label: "Security & Conflict", icon: "🛡️" },
+  { id: "breaking", label: "Breaking", icon: "⚡" },
+  { id: "diplomacy", label: "Regional Diplomacy", icon: "🤝" },
+  { id: "humanitarian", label: "Humanitarian", icon: "🕊️" },
+];
+
+const SORT_OPTIONS: { value: string; label: string }[] = [
+  { value: "trend_score", label: "🔥 Hottest Trends" },
+  { value: "last_seen", label: "⏱️ Recently Updated" },
+  { value: "created_at", label: "🆕 Newest Detected" },
+  { value: "verification_score", label: "🛡️ Highest Verification" },
+  { value: "article_count", label: "📰 Most Covered (Depth)" },
+];
+
 export function EventsContent() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  const [category, setCategory] = useState("");
   const [verification, setVerification] = useState<EventVerificationStatus | "">("");
   const [trend, setTrend] = useState<TrendStatus | "">("");
   const [breakingOnly, setBreakingOnly] = useState(false);
   const [reviewOnly, setReviewOnly] = useState(false);
-  const [sort, setSort] = useState<"last_seen" | "trend_score">("last_seen");
+  const [sort, setSort] = useState<string>("trend_score");
   const [scope, setScope] = useState<"ethiopia" | "neighboring" | "all">("ethiopia");
 
   const { hasNew, newCount, dismiss, refresh } = useNewEventsPoller(() => {
@@ -56,12 +78,13 @@ export function EventsContent() {
   });
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
-    queryKey: ["events", search, page, verification, trend, breakingOnly, reviewOnly, sort, scope],
+    queryKey: ["events", search, page, category, verification, trend, breakingOnly, reviewOnly, sort, scope],
     queryFn: () =>
       api.listEvents({
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
         search: search || undefined,
+        category: category || undefined,
         verification_status: verification || undefined,
         trend_status: trend || undefined,
         review_required: reviewOnly ? true : undefined,
@@ -138,9 +161,47 @@ export function EventsContent() {
             🌐 All Coverage
           </button>
         </div>
-        <span className="text-xs text-paper-500 font-mono">
-          {total} events in view
+        <div className="flex items-center gap-2">
+          {category && (
+            <button
+              onClick={() => { setCategory(""); setPage(0); }}
+              className="text-xs text-accent-green hover:underline flex items-center gap-1 font-mono"
+            >
+              Reset Beat (×)
+            </button>
+          )}
+          <span className="text-xs text-paper-500 font-mono">
+            {total} events in view
+          </span>
+        </div>
+      </div>
+
+      {/* Newsroom Beat / Category Filter Bar */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none pt-0.5">
+        <span className="text-[11px] font-mono text-paper-500 uppercase tracking-wider shrink-0 mr-1">
+          Beats:
         </span>
+        {NEWS_BEATS.map((beat) => {
+          const isActive = category === beat.id;
+          return (
+            <button
+              key={beat.id}
+              type="button"
+              onClick={() => {
+                setCategory(beat.id);
+                setPage(0);
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all border ${
+                isActive
+                  ? "bg-accent-green text-ink-950 border-accent-green font-bold shadow-sm"
+                  : "bg-ink-850 hover:bg-ink-800 text-paper-300 hover:text-paper-100 border-ink-700/80"
+              }`}
+            >
+              <span>{beat.icon}</span>
+              <span>{beat.label}</span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -186,12 +247,15 @@ export function EventsContent() {
             value={sort}
             onChange={(e) => {
               setPage(0);
-              setSort(e.target.value as "last_seen" | "trend_score");
+              setSort(e.target.value);
             }}
-            className="h-9 rounded-card border border-ink-600 bg-ink-800 px-3 text-xs text-paper-300"
+            className="h-9 rounded-card border border-ink-600 bg-ink-800 px-3 text-xs text-paper-300 font-medium"
           >
-            <option value="trend_score">Sort by trend score</option>
-            <option value="last_seen">Sort by last seen</option>
+            {SORT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
           </select>
           <label className="inline-flex items-center gap-2 text-xs text-paper-300">
             <input

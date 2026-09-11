@@ -161,6 +161,12 @@ class Article(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         uselist=False,
     )
 
+    @property
+    def event_id(self) -> uuid.UUID | None:
+        if self.event_links:
+            return self.event_links[0].event_id
+        return None
+
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Article {self.id} {self.title!r}>"
 

@@ -70,7 +70,11 @@ export const api = {
     source_id?: string;
     status?: string;
     search?: string;
+    category?: string;
+    sort?: string;
   }) => request<Page<Article>>(`/articles${qs(params)}`),
+
+  getArticle: (id: string) => request<Article>(`/articles/${id}`),
 
   triggerIngest: (source_id?: string) =>
     request<IngestTriggerResponse>("/ingest/trigger", {
@@ -88,7 +92,7 @@ export const api = {
     review_required?: boolean;
     trend_status?: string;
     breaking?: boolean;
-    sort?: "last_seen" | "trend_score";
+    sort?: string;
     scope?: "ethiopia" | "neighboring" | "all";
   }) => request<Page<NewsEvent>>(`/events${qs(params)}`),
 

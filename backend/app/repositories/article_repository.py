@@ -5,14 +5,27 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import String, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.article import Article
 from app.models.enums import ArticleStatus, ProcessingStatus
 
 
+_ARTICLE_BEAT_SYNONYMS: dict[str, list[str]] = {
+    "politics": ["politics", "governance", "election", "parliament", "political", "government"],
+    "economy": ["economy", "business", "finance", "banking", "market", "trade", "investment", "economic", "fortune", "capital"],
+    "sports": ["sports", "sport", "football", "athletics", "olympic", "soccer", "marathon"],
+    "technology": ["technology", "tech", "telecom", "innovation", "digital", "ai", "software"],
+    "tech": ["technology", "tech", "telecom", "innovation", "digital", "ai", "software"],
+    "culture": ["culture", "society", "art", "heritage", "entertainment", "music", "diaspora", "community"],
+    "breaking": ["breaking", "urgent", "accident", "incident", "alert", "telegram"],
+    "conflict": ["conflict", "security", "military", "defense", "clash", "fano", "tplf", "war", "peace"],
+}
+
+
 class ArticleRepository:
+
     def __init__(self, session: Session) -> None:
         self.session = session
 
@@ -49,8 +62,10 @@ class ArticleRepository:
         source_id: uuid.UUID | None = None,
         status: ArticleStatus | None = None,
         search: str | None = None,
+        category: str | None = None,
+        sort: str = "newest",
     ) -> tuple[list[Article], int]:
-        stmt = select(Article)
+        stmt = select(Article).options(selectinload(Article.event_links))
         count_stmt = select(func.count()).select_from(Article)
 
         if source_id is not None:
@@ -63,16 +78,44 @@ class ArticleRepository:
             pattern = f"%{search.lower()}%"
             stmt = stmt.where(func.lower(Article.title).like(pattern))
             count_stmt = count_stmt.where(func.lower(Article.title).like(pattern))
+        if category:
+            cat_clean = category.strip().lower()
+            synonyms = _ARTICLE_BEAT_SYNONYMS.get(cat_clean, [cat_clean])
+            cat_filters = []
+            for syn in synonyms:
+                pattern = f"%{syn}%"
+                cat_filters.append(func.cast(Article.categories, String).ilike(pattern))
+                cat_filters.append(func.lower(Article.title).like(pattern))
+                cat_filters.append(func.lower(Article.summary).like(pattern))
+            cat_cond = or_(*cat_filters)
+            stmt = stmt.where(cat_cond)
+            count_stmt = count_stmt.where(cat_cond)
 
         total = self.session.scalar(count_stmt) or 0
-        stmt = (
-            stmt.order_by(
+        if sort == "oldest":
+            order = (
+                Article.published_at.asc().nullslast(),
+                Article.created_at.asc(),
+            )
+        elif sort == "relevance":
+            order = (
+                Article.ethiopia_relevance_score.desc().nullslast(),
                 Article.published_at.desc().nullslast(),
                 Article.created_at.desc(),
             )
-            .limit(limit)
-            .offset(offset)
-        )
+        elif sort == "importance":
+            order = (
+                Article.importance_score.desc().nullslast(),
+                Article.published_at.desc().nullslast(),
+                Article.created_at.desc(),
+            )
+        else:
+            order = (
+                Article.published_at.desc().nullslast(),
+                Article.created_at.desc(),
+            )
+
+        stmt = stmt.order_by(*order).limit(limit).offset(offset)
         items = list(self.session.scalars(stmt).all())
         return items, total
 

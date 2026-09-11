@@ -353,26 +353,44 @@ export function SourcesContent() {
                         View Feed
                       </Button>
                     </Link>
-                    {Boolean(ingestedMap[s.id] && Date.now() - (ingestedMap[s.id] || 0) < 60000) && (
-                      <Badge variant="green" className="flex items-center gap-1 text-[11px] animate-pulse">
-                        <Check className="h-3 w-3" /> Ingested
-                      </Badge>
-                    )}
-                    <Button
-                      variant="subtle"
-                      size="sm"
-                      disabled={!s.is_active || (ingestingId === s.id || ingestingId === "all")}
-                      onClick={() => ingestOne.mutate(s.id)}
-                      className="min-w-[70px] h-8"
-                    >
-                      {ingestingId === s.id || ingestingId === "all" ? (
-                        <span className="flex items-center gap-1 text-accent-green">
-                          <RefreshCw className="h-3 w-3 animate-spin" /> Ingesting…
-                        </span>
-                      ) : (
-                        "Ingest"
-                      )}
-                    </Button>
+                    {(() => {
+                      const isIngested = s.total_articles_ingested > 0 || Boolean(ingestedMap[s.id]);
+                      const isIngesting = ingestingId === s.id || ingestingId === "all";
+
+                      return (
+                        <Button
+                          variant={isIngested ? "outline" : "subtle"}
+                          size="sm"
+                          disabled={!s.is_active || isIngesting}
+                          onClick={() => ingestOne.mutate(s.id)}
+                          className={`group relative min-w-[92px] h-8 text-xs font-medium transition-all ${
+                            isIngested
+                              ? "border-emerald-600/40 text-emerald-400 bg-emerald-950/20 hover:bg-emerald-900/30 hover:border-emerald-500 hover:text-emerald-300"
+                              : "border-ink-700 text-paper-200 hover:text-paper-50"
+                          }`}
+                          title={isIngested ? "Ingested. Click to fetch new articles now." : "Ingest source"}
+                        >
+                          {isIngesting ? (
+                            <span className="flex items-center gap-1.5 text-accent-green font-semibold">
+                              <RefreshCw className="h-3 w-3 animate-spin" /> Ingesting…
+                            </span>
+                          ) : isIngested ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="inline-flex items-center gap-1 group-hover:hidden text-emerald-400 font-semibold">
+                                <Check className="h-3 w-3 text-emerald-400" /> Ingested
+                              </span>
+                              <span className="hidden group-hover:inline-flex items-center gap-1 text-paper-200">
+                                <RefreshCw className="h-3 w-3 text-paper-300" /> Re-ingest
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5">
+                              <Play className="h-3 w-3" /> Ingest
+                            </span>
+                          )}
+                        </Button>
+                      );
+                    })()}
                   </div>
                 </TD>
               </TR>

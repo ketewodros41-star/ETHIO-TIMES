@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import String, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
@@ -22,6 +22,18 @@ _NEIGHBORING_TERMS = [
     "eritrea", "somalia", "somaliland", "djibouti", "sudan", "south sudan", "kenya",
     "horn of africa", "red sea", "assab", "mogadishu", "nairobi", "khartoum", "asmara"
 ]
+_BEAT_SYNONYMS: dict[str, list[str]] = {
+    "politics": ["politics", "governance", "election", "parliament", "political", "government"],
+    "economy": ["economy", "business", "finance", "banking", "market", "trade", "investment", "economic"],
+    "sports": ["sports", "sport", "football", "athletics", "olympic", "soccer", "marathon"],
+    "technology": ["technology", "tech", "telecom", "innovation", "digital", "ai", "software"],
+    "culture": ["culture", "society", "art", "heritage", "entertainment", "music", "diaspora", "community"],
+    "conflict": ["conflict", "security", "military", "defense", "clash", "fano", "tplf", "war", "peace"],
+    "diplomacy": ["diplomacy", "international", "bilateral", "foreign", "embassy", "horn of africa"],
+    "breaking": ["breaking", "urgent", "accident", "incident", "alert"],
+    "humanitarian": ["humanitarian", "relief", "aid", "disaster", "drought", "refugee"],
+}
+
 
 
 class EventRepository:
@@ -129,8 +141,16 @@ class EventRepository:
             stmt = stmt.where(NewsEvent.status == status)
             count_stmt = count_stmt.where(NewsEvent.status == status)
         if category:
-            stmt = stmt.where(NewsEvent.primary_category == category)
-            count_stmt = count_stmt.where(NewsEvent.primary_category == category)
+            cat_clean = category.strip().lower()
+            synonyms = _BEAT_SYNONYMS.get(cat_clean, [cat_clean])
+            cat_filters = []
+            for syn in synonyms:
+                pattern = f"%{syn}%"
+                cat_filters.append(func.lower(NewsEvent.primary_category).like(pattern))
+                cat_filters.append(func.cast(NewsEvent.categories, String).ilike(pattern))
+            cat_cond = or_(*cat_filters)
+            stmt = stmt.where(cat_cond)
+            count_stmt = count_stmt.where(cat_cond)
         if search:
             pattern = f"%{search.lower()}%"
             stmt = stmt.where(func.lower(NewsEvent.title).like(pattern))
@@ -158,8 +178,25 @@ class EventRepository:
         total = self.session.scalar(count_stmt) or 0
         if sort == "trend_score":
             order = (
-                NewsEvent.trend_score.desc(),
+                NewsEvent.trend_score.desc().nullslast(),
                 NewsEvent.last_seen_at.desc().nullslast(),
+                NewsEvent.created_at.desc(),
+            )
+        elif sort in ("created_at", "newest"):
+            order = (
+                NewsEvent.created_at.desc(),
+                NewsEvent.last_seen_at.desc().nullslast(),
+            )
+        elif sort == "verification_score":
+            order = (
+                NewsEvent.verification_score.desc().nullslast(),
+                NewsEvent.trend_score.desc().nullslast(),
+                NewsEvent.created_at.desc(),
+            )
+        elif sort == "article_count":
+            order = (
+                NewsEvent.article_count.desc().nullslast(),
+                NewsEvent.trend_score.desc().nullslast(),
                 NewsEvent.created_at.desc(),
             )
         else:

@@ -28,6 +28,8 @@ class ArticleService:
         source_id: uuid.UUID | None,
         status: ArticleStatus | None,
         search: str | None,
+        category: str | None = None,
+        sort: str = "newest",
     ) -> tuple[list[Article], int]:
         return self.repo.list(
             limit=limit,
@@ -35,6 +37,8 @@ class ArticleService:
             source_id=source_id,
             status=status,
             search=search,
+            category=category,
+            sort=sort,
         )
 
     def get_article(self, article_id: uuid.UUID) -> Article:

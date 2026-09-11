@@ -823,6 +823,12 @@ function PhotoSearchDialog({
 function StudioContent() {
   const searchParams = useSearchParams();
   const queryEventId = searchParams.get("event_id") || "";
+  const queryArticleId = searchParams.get("article_id") || "";
+  const queryHeadline = searchParams.get("headline") || "";
+  const queryDek = searchParams.get("dek") || "";
+  const queryCategory = searchParams.get("category") || "";
+  const querySource = searchParams.get("source") || "";
+  const queryImageUrl = searchParams.get("image_url") || "";
   const queryClient = useQueryClient();
 
   const [selectedEventId, setSelectedEventId] = useState<string>(queryEventId);
@@ -836,9 +842,11 @@ function StudioContent() {
   const [manualHighlightIndices, setManualHighlightIndices] = useState<number[]>([]);
   const [customHexInput, setCustomHexInput] = useState<string>("");
   const [selectedCountry, setSelectedCountry] = useState<string>("Ethiopia");
-  const [customHeadline, setCustomHeadline] = useState<string>("");
-  const [customDek, setCustomDek] = useState<string>("");
-  const [customCategory, setCustomCategory] = useState<string>("");
+  const [customHeadline, setCustomHeadline] = useState<string>(queryHeadline || "");
+  const [customDek, setCustomDek] = useState<string>(queryDek || "");
+  const [customCategory, setCustomCategory] = useState<string>(queryCategory || "");
+  const [customSource, setCustomSource] = useState<string>(querySource || "");
+  const [customImageUrl, setCustomImageUrl] = useState<string>(queryImageUrl || "");
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [showPhotoSearch, setShowPhotoSearch] = useState(false);
   const [previewTarget, setPreviewTarget] = useState<number>(380);
@@ -848,7 +856,53 @@ function StudioContent() {
   const [showInspector, setShowInspector] = useState(false);
   const [inspectorZoom, setInspectorZoom] = useState<number>(1.0);
 
-  useEffect(() => { if (queryEventId) setSelectedEventId(queryEventId); }, [queryEventId]);
+  useEffect(() => {
+    if (queryEventId) {
+      setSelectedEventId(queryEventId);
+    } else if (queryHeadline || queryArticleId) {
+      if (queryHeadline) setCustomHeadline(queryHeadline);
+      if (queryDek) setCustomDek(queryDek);
+      if (queryCategory) setCustomCategory(queryCategory);
+      if (querySource) setCustomSource(querySource);
+      if (queryImageUrl) setCustomImageUrl(queryImageUrl);
+
+      const textToScan = `${queryHeadline} ${queryDek}`;
+      const code = resolveCountryCode(textToScan);
+      const matched = POPULAR_COUNTRIES.find((c) => c.code === code);
+      if (matched) {
+        setSelectedCountry(matched.label);
+      }
+    }
+  }, [queryEventId, queryHeadline, queryDek, queryCategory, querySource, queryImageUrl, queryArticleId]);
+
+  const { data: articleData } = useQuery({
+    queryKey: ["studio_article", queryArticleId],
+    queryFn: () => api.getArticle(queryArticleId),
+    enabled: !!queryArticleId && !queryEventId,
+  });
+
+  useEffect(() => {
+    if (articleData && !selectedEventId) {
+      if (articleData.event_id) {
+        setSelectedEventId(articleData.event_id);
+      } else {
+        if (articleData.title) setCustomHeadline(articleData.title);
+        if (articleData.summary) setCustomDek(articleData.summary);
+        if (articleData.categories && articleData.categories.length > 0) {
+          setCustomCategory(articleData.categories[0]);
+        }
+        if (articleData.image_url) {
+          setCustomImageUrl(articleData.image_url);
+        }
+        const textToScan = `${articleData.title || ""} ${articleData.summary || ""}`;
+        const code = resolveCountryCode(textToScan);
+        const matched = POPULAR_COUNTRIES.find((c) => c.code === code);
+        if (matched) {
+          setSelectedCountry(matched.label);
+        }
+      }
+    }
+  }, [articleData, selectedEventId]);
 
   const { data: eventsData } = useQuery({
     queryKey: ["studio_events"],
@@ -876,13 +930,13 @@ function StudioContent() {
       if (matched) {
         setSelectedCountry(matched.label);
       }
-    } else {
+    } else if (!queryHeadline && !queryArticleId) {
       setCustomHeadline("");
       setCustomDek("");
       setCustomCategory("");
       setManualHighlightIndices([]);
     }
-  }, [activeEvent]);
+  }, [activeEvent, queryHeadline, queryArticleId]);
 
   const { data: visualAssets = [], refetch: refetchAssets } = useQuery({
     queryKey: ["event_visual_assets", selectedEventId],
@@ -946,7 +1000,7 @@ function StudioContent() {
         category: customCategory || activeEvent.primary_category || (isAmharicScript ? "ዜና" : "News"),
         headline: customHeadline || activeEvent.title,
         dek: customDek || undefined,
-        source: "ETHIOPIAN TIMES",
+        source: customSource || "ETHIOPIAN TIMES",
         dateLabel: new Date(activeEvent.created_at)
           .toLocaleDateString(isAmharicScript ? "am-ET" : "en-US", { day: "numeric", month: "short", year: "numeric" })
           .toUpperCase(),
@@ -956,20 +1010,21 @@ function StudioContent() {
         highlightMode,
         highlightIndices: manualHighlightIndices.length > 0 ? manualHighlightIndices : undefined,
         country: selectedCountry,
-        imageUrl: currentAsset?.storage_url || undefined,
+        imageUrl: currentAsset?.storage_url || customImageUrl || undefined,
       }
     : {
         ...SAMPLE,
         category: customCategory || (isAmharicScript ? "ኢኮኖሚ" : SAMPLE.category),
         headline: customHeadline || SAMPLE.headline,
         dek: customDek || SAMPLE.dek,
+        source: customSource || SAMPLE.source,
         theme: themeId,
         accent: THEMES[themeId].accent,
         highlightColor,
         highlightMode,
         highlightIndices: manualHighlightIndices.length > 0 ? manualHighlightIndices : undefined,
         country: selectedCountry,
-        imageUrl: currentAsset?.storage_url || undefined,
+        imageUrl: currentAsset?.storage_url || customImageUrl || undefined,
       };
 
   const currentHeadlineText = customHeadline || (activeEvent?.title ?? SAMPLE.headline);

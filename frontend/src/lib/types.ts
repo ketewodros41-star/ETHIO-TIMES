@@ -176,6 +176,7 @@ export interface Article {
   primary_region?: string | null;
   detected_language?: string | null;
   importance_score: number;
+  event_id?: string | null;
 }
 
 export interface SourceRef {
