@@ -1,0 +1,221 @@
+import { Badge } from "@/components/ui/badge";
+import type {
+  ArticleRelationType,
+  ArticleStatus,
+  ContradictionSeverity,
+  EventStatus,
+  EventVerificationStatus,
+  ProcessingStatus,
+  RelevanceDecision,
+  SourceHealthStatus,
+  TrendStatus,
+  VerificationStatus,
+} from "@/lib/types";
+import { cn } from "@/lib/utils";
+
+const HEALTH_COLOR: Record<SourceHealthStatus, string> = {
+  healthy: "bg-accent-green",
+  degraded: "bg-accent-gold",
+  failing: "bg-signal-red",
+  disabled: "bg-paper-500",
+  unknown: "bg-ink-600",
+};
+
+export function HealthDot({ status }: { status: SourceHealthStatus }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className={cn("h-2 w-2 rounded-full", HEALTH_COLOR[status])} />
+      <span className="text-xs capitalize text-paper-300">{status}</span>
+    </span>
+  );
+}
+
+export function VerificationBadge({ status }: { status: VerificationStatus }) {
+  if (status === "verified") return <Badge variant="green">verified</Badge>;
+  if (status === "needs_verification")
+    return <Badge variant="gold">needs verification</Badge>;
+  return <Badge variant="muted">unverified</Badge>;
+}
+
+export function ArticleStatusBadge({ status }: { status: ArticleStatus }) {
+  const variant =
+    status === "normalized"
+      ? "green"
+      : status === "duplicate"
+        ? "muted"
+        : status === "discarded"
+          ? "red"
+          : "default";
+  return <Badge variant={variant}>{status}</Badge>;
+}
+
+export function ProcessingBadge({ status }: { status: ProcessingStatus }) {
+  const map: Record<ProcessingStatus, { variant: "green" | "gold" | "red" | "muted" | "default"; label: string }> = {
+    clustered: { variant: "green", label: "clustered" },
+    embedded: { variant: "default", label: "embedded" },
+    analyzed: { variant: "default", label: "analyzed" },
+    relevance_scored: { variant: "default", label: "scored" },
+    pending: { variant: "muted", label: "pending" },
+    skipped_irrelevant: { variant: "muted", label: "not relevant" },
+    failed: { variant: "gold", label: "failed" },
+    dead_letter: { variant: "red", label: "dead letter" },
+  };
+  const { variant, label } = map[status];
+  return <Badge variant={variant}>{label}</Badge>;
+}
+
+export function RelevanceBadge({
+  decision,
+  score,
+}: {
+  decision?: RelevanceDecision | null;
+  score?: number | null;
+}) {
+  if (decision == null) return <Badge variant="muted">—</Badge>;
+  const variant =
+    decision === "relevant" ? "green" : decision === "borderline" ? "gold" : "muted";
+  return (
+    <Badge variant={variant}>
+      {decision}
+      {score != null ? ` ${score}` : ""}
+    </Badge>
+  );
+}
+
+const EVENT_STATUS_VARIANT: Record<EventStatus, "green" | "gold" | "muted" | "default"> = {
+  confirmed: "green",
+  updated: "default",
+  developing: "gold",
+  dormant: "muted",
+  closed: "muted",
+};
+
+export function EventStatusBadge({ status }: { status: EventStatus }) {
+  return <Badge variant={EVENT_STATUS_VARIANT[status]}>{status}</Badge>;
+}
+
+const VERIFY_VARIANT: Record<
+  EventVerificationStatus,
+  "green" | "gold" | "red" | "muted" | "default"
+> = {
+  confirmed: "green",
+  partially_confirmed: "default",
+  developing: "gold",
+  unverified: "muted",
+  contradicted: "red",
+};
+
+export function EventVerificationBadge({
+  status,
+}: {
+  status: EventVerificationStatus;
+}) {
+  const labels: Record<EventVerificationStatus, string> = {
+    unverified: "unverified",
+    developing: "verify developing",
+    partially_confirmed: "partially confirmed",
+    confirmed: "confirmed",
+    contradicted: "contradicted",
+  };
+  return <Badge variant={VERIFY_VARIANT[status]}>{labels[status]}</Badge>;
+}
+
+const TREND_VARIANT: Record<
+  TrendStatus,
+  "green" | "gold" | "red" | "muted" | "default"
+> = {
+  breaking: "red",
+  high_priority: "gold",
+  trending: "green",
+  emerging: "default",
+  low: "muted",
+};
+
+export function TrendStatusBadge({ status }: { status: TrendStatus }) {
+  const labels: Record<TrendStatus, string> = {
+    low: "low",
+    emerging: "emerging",
+    trending: "trending",
+    high_priority: "high priority",
+    breaking: "breaking",
+  };
+  return <Badge variant={TREND_VARIANT[status]}>{labels[status]}</Badge>;
+}
+
+export function TrendScoreMeter({ score }: { score: number }) {
+  const color =
+    score >= 80
+      ? "bg-signal-red"
+      : score >= 60
+        ? "bg-accent-green"
+        : score >= 40
+          ? "bg-accent-gold"
+          : "bg-ink-600";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-ink-700">
+        <div
+          className={cn("h-full", color)}
+          style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
+        />
+      </div>
+      <span className="font-mono text-xs tabular-nums text-paper-500">
+        {Math.round(score)}
+      </span>
+    </div>
+  );
+}
+
+const SEVERITY_VARIANT: Record<ContradictionSeverity, "green" | "gold" | "red" | "muted" | "default"> = {
+  low: "muted",
+  medium: "gold",
+  high: "red",
+  critical: "red",
+};
+
+export function ContradictionSeverityBadge({
+  severity,
+}: {
+  severity: ContradictionSeverity;
+}) {
+  return <Badge variant={SEVERITY_VARIANT[severity]}>{severity}</Badge>;
+}
+
+export function VerificationScoreMeter({ score }: { score: number }) {
+  const color =
+    score >= 75 ? "bg-accent-green" : score >= 50 ? "bg-accent-gold" : score >= 30 ? "bg-ink-600" : "bg-signal-red";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-ink-700">
+        <div className={cn("h-full", color)} style={{ width: `${Math.max(0, Math.min(100, score))}%` }} />
+      </div>
+      <span className="font-mono text-xs tabular-nums text-paper-500">{score}</span>
+    </div>
+  );
+}
+
+const RELATION_VARIANT: Record<ArticleRelationType, "green" | "gold" | "red" | "muted" | "default"> = {
+  primary: "green",
+  duplicate: "red",
+  related: "default",
+  follow_up: "gold",
+  context: "muted",
+};
+
+export function RelationBadge({ relation }: { relation: ArticleRelationType }) {
+  return <Badge variant={RELATION_VARIANT[relation]}>{relation.replace("_", " ")}</Badge>;
+}
+
+export function RelevanceMeter({ score }: { score: number }) {
+  const pct = Math.round(score * 100);
+  const color =
+    score >= 0.8 ? "bg-accent-green" : score >= 0.5 ? "bg-accent-gold" : "bg-ink-600";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-ink-700">
+        <div className={cn("h-full", color)} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="font-mono text-xs text-paper-500">{pct}</span>
+    </div>
+  );
+}

@@ -1,0 +1,42 @@
+@import url("https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Condensed:ital,wght@0,700;0,800;0,900;1,800&family=Bebas+Neue&family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+Ethiopic:wght@400;500;600;700;800;900&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Font stacks */
+  --font-display: "Fraunces", "Playfair Display", Georgia, serif;
+  --font-sans: "Inter", "Neue Haas Grotesk", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-poster: "Anton", "Bebas Neue", "Barlow Condensed", "Impact", -apple-system, sans-serif;
+  --font-ethiopic: "Noto Sans Ethiopic", "Nyala", "Abyssinica SIL", sans-serif;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  background-color: #0b0c0e;
+  color: #f7f6f2;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Thin, terminal-like scrollbars for the newsroom aesthetic. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #262a31 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #262a31;
+  border-radius: 8px;
+}

@@ -1,0 +1,115 @@
+# =====================================================================
+# ETHIOTIMES — local development stack
+#
+# Brings up: Postgres (pgvector), Redis, FastAPI API, Celery worker,
+# Celery beat, and the Next.js dashboard.
+#
+# For production the database is Supabase (set DATABASE_URL to the pooler
+# URL in `.env`); the `db` service here is a convenience for local dev.
+# =====================================================================
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: ethiotimes-db
+    environment:
+      POSTGRES_USER: ethiotimes
+      POSTGRES_PASSWORD: ethiotimes
+      POSTGRES_DB: ethiotimes
+    ports:
+      - "5432:5432"
+    volumes:
+      - ethiotimes_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ethiotimes -d ethiotimes"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: ethiotimes-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ethiotimes-api
+    env_file: .env
+    environment:
+      # Override for in-network service discovery
+      DATABASE_URL: postgresql+psycopg://ethiotimes:ethiotimes@db:5432/ethiotimes
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ethiotimes-worker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://ethiotimes:ethiotimes@db:5432/ethiotimes
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    command: celery -A app.workers.celery_app.celery_app worker --loglevel=INFO -Q ingestion
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - api
+      - redis
+
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ethiotimes-beat
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://ethiotimes:ethiotimes@db:5432/ethiotimes
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    command: celery -A app.workers.celery_app.celery_app beat --loglevel=INFO
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - redis
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ethiotimes-web
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - api
+
+volumes:
+  ethiotimes_pgdata:
