@@ -40,6 +40,30 @@ def _safe_str(val: Any) -> str:
         return "<unprintable>"
 
 
+def _match_kw(keyword: str, haystack: str) -> bool:
+    if len(keyword) <= 6 and keyword.isascii() and " " not in keyword:
+        return bool(re.search(rf"\b{re.escape(keyword)}\b", haystack))
+    return keyword in haystack
+
+
+def clean_entity_name(s: str) -> str:
+    return re.sub(r"^(Former|The|An|A)\s+", "", s, flags=re.IGNORECASE).strip()
+
+
+def _is_name_subsumed(new_name: str, existing_names: list[str]) -> bool:
+    import unicodedata
+    def norm(s: str) -> str:
+        s = clean_entity_name(s)
+        s_ascii = unicodedata.normalize("NFKD", s).encode("ASCII", "ignore").decode("utf-8")
+        return re.sub(r"[^a-z0-9]", "", s_ascii.lower())
+    n_new = norm(new_name)
+    for ext in existing_names:
+        n_ext = norm(ext)
+        if n_new == n_ext or (len(n_new) >= 5 and n_new in n_ext) or (len(n_ext) >= 5 and n_ext in n_new):
+            return True
+    return False
+
+
 # User-Agent for free web image queries
 _BROWSER_HEADERS = {
     "User-Agent": (
@@ -156,8 +180,7 @@ class WebImageScraper:
 
         # -------------------------------------------------------------
         # Tier 3: City, Region & Landmark Atmosphere
-        # -------------------------------------------------------------
-        target_locs = entities.locations or [entities.default_city]
+        target_locs = [loc for loc in (entities.locations or ([entities.default_city] if entities.default_city else [])) if loc]
         for loc in target_locs[:2]:
             loc_cands = self._search_city_photos(
                 loc,
@@ -248,7 +271,10 @@ class WebImageScraper:
             if not url or not url.startswith("http") or any(url.lower().endswith(ext) for ext in _EXCLUDED_EXTENSIONS):
                 continue
 
-            source_name = getattr(art.source, "name", "News Source") if hasattr(art, "source") and art.source else "Original Story"
+            try:
+                source_name = getattr(art.source, "name", "News Source") if hasattr(art, "source") and art.source else "Original Story"
+            except Exception:
+                source_name = "Original Story"
             hd_url = upscale_news_cdn_url(url)
             candidates.append(
                 PhotoCandidate(
@@ -292,10 +318,10 @@ class WebImageScraper:
         ]
         us_med = ["united states", "america", "american", "washington", "new york", "california", "texas", "us dollar"]
         for k in us_strong:
-            if k in text:
+            if _match_kw(k, text):
                 scores["US"] += 4
         for k in us_med:
-            if k in text:
+            if _match_kw(k, text):
                 scores["US"] += 2
         for short in ("u.s.", "usa", "us"):
             if re.search(rf"\b{re.escape(short)}\b", text):
@@ -309,10 +335,10 @@ class WebImageScraper:
         ]
         et_med = ["ethiopia", "ethiopian", "birr", "ena", "habesha"]
         for k in et_strong:
-            if k in text:
+            if _match_kw(k, text):
                 scores["ET"] += 4
         for k in et_med:
-            if k in text:
+            if _match_kw(k, text):
                 # If "ethiopian migrants" or "ethiopian civilians" is mentioned as collateral victims in foreign strikes, discount weight
                 if re.search(r"ethiopian\s+(migrants|victims|civilians|passengers|refugees|nationals)", text):
                     scores["ET"] += 1
@@ -322,74 +348,92 @@ class WebImageScraper:
         # 3. Yemen indicators
         ye_strong = ["yemen", "yemeni", "sanaa", "houthi", "houthis", "aden", "red sea shipping"]
         for k in ye_strong:
-            if k in text:
+            if _match_kw(k, text):
                 scores["YE"] += 3
 
         # 4. Kenya indicators
         ke_strong = ["kenya", "kenyan", "nairobi", "ruto", "william ruto", "mombasa"]
         for k in ke_strong:
-            if k in text:
+            if _match_kw(k, text):
                 scores["KE"] += 3
 
         # 5. Sudan indicators
         sd_strong = ["sudan", "sudanese", "khartoum", "burhan", "hemeti", "rapid support forces", "port sudan"]
         for k in sd_strong:
-            if k in text:
+            if _match_kw(k, text):
                 scores["SD"] += 3
 
         # 6. Somalia indicators
         so_strong = ["somalia", "somali", "mogadishu", "hassan sheikh", "somaliland", "hargeisa"]
         for k in so_strong:
-            if k in text:
+            if _match_kw(k, text):
                 scores["SO"] += 3
 
         # 7. UK indicators
         gb_strong = ["united kingdom", "britain", "british", "london", "downing street", "westminster", "starmer", "sunak"]
         for k in gb_strong:
-            if k in text:
+            if _match_kw(k, text):
                 scores["GB"] += 3
 
         # 8. Egypt indicators
         eg_strong = ["egypt", "egyptian", "cairo", "sisi", "el-sisi", "suez canal", "alexandria"]
         for k in eg_strong:
-            if k in text:
+            if _match_kw(k, text):
                 scores["EG"] += 3
 
         # 9. China indicators
         cn_strong = ["china", "chinese", "beijing", "xi jinping", "shanghai"]
         for k in cn_strong:
-            if k in text:
+            if _match_kw(k, text):
                 scores["CN"] += 3
 
         # 10. South Africa indicators
         za_strong = ["south africa", "south african", "johannesburg", "cape town", "pretoria", "ramaphosa"]
         for k in za_strong:
-            if k in text:
+            if _match_kw(k, text):
                 scores["ZA"] += 3
 
         # Check explicit region if provided
-        if "ethiopia" in region:
-            scores["ET"] += 3
-        elif any(w in region for w in ["united states", "america", "usa", "us"]):
-            scores["US"] += 3
-        elif "kenya" in region:
-            scores["KE"] += 3
-        elif "sudan" in region:
-            scores["SD"] += 3
-        elif "somalia" in region:
-            scores["SO"] += 3
-        elif "yemen" in region:
-            scores["YE"] += 3
-        elif "uk" in region or "britain" in region:
-            scores["GB"] += 3
+        if region:
+            if "ethiopia" in region:
+                scores["ET"] += 3
+            elif any(w in region for w in ["united states", "america", "usa", "us"]):
+                scores["US"] += 3
+            elif "kenya" in region:
+                scores["KE"] += 3
+            elif "sudan" in region:
+                scores["SD"] += 3
+            elif "somalia" in region:
+                scores["SO"] += 3
+            elif "yemen" in region:
+                scores["YE"] += 3
+            elif "uk" in region or "britain" in region:
+                scores["GB"] += 3
+            elif "china" in region:
+                scores["CN"] += 3
+            elif "egypt" in region:
+                scores["EG"] += 3
+            elif "south africa" in region:
+                scores["ZA"] += 3
 
         # Decide top country
-        top_code = "ET"
-        top_score = scores["ET"]
+        top_code = None
+        top_score = 0
         for code, s in scores.items():
             if s > top_score:
                 top_code = code
                 top_score = s
+
+        # CRITICAL: If no explicit country indicators matched (e.g. sports, entertainment, global news),
+        # NEVER default to Ethiopia! Designate as Global / International.
+        if top_score == 0 or top_code is None:
+            return {
+                "country": "Global",
+                "country_code": "GLOBAL",
+                "default_city": "",
+                "default_institutions": [],
+                "default_concepts": [],
+            }
 
         profiles = {
             "US": {
@@ -464,7 +508,13 @@ class WebImageScraper:
             },
         }
 
-        return profiles.get(top_code, profiles["ET"])
+        return profiles.get(top_code, {
+            "country": "Global",
+            "country_code": "GLOBAL",
+            "default_city": "",
+            "default_institutions": [],
+            "default_concepts": [],
+        })
 
     def analyze_story_entities(
         self, event: NewsEvent, custom_query: str | None = None
@@ -530,7 +580,7 @@ class WebImageScraper:
         # -------------------------------------------------------------
         # 2. Multi-Country Knowledge Base (Deterministic & Fast)
         # -------------------------------------------------------------
-        # 2a. Prominent Leaders & Figures (Ethiopian + International)
+        # 2a. Prominent Leaders, Icons & Figures (Ethiopian + Global Sports/Tech/World)
         person_map = [
             # Ethiopian figures
             (["ዐቢይ", "አብይ", "ጠቅላይ ሚኒስትር", "abiy", "prime minister"], "Abiy Ahmed"),
@@ -550,7 +600,42 @@ class WebImageScraper:
             (["ኃይሌ ገብረስላሴ", "ሀይሌ", "haile gebrselassie"], "Haile Gebrselassie"),
             (["ቴዲ አፍሮ", "ቴዎድሮስ ካሳሁን", "teddy afro"], "Teddy Afro"),
             (["ዳንጎቴ", "dangote"], "Aliko Dangote"),
-            # International figures
+            # Global Football & Sports Icons
+            (["kylian mbappe", "kylian mbappé", "mbappe", "mbappé"], "Kylian Mbappé"),
+            (["ryan giggs", "giggs"], "Ryan Giggs"),
+            (["lionel messi", "messi", "leo messi"], "Lionel Messi"),
+            (["cristiano ronaldo", "ronaldo", "cr7"], "Cristiano Ronaldo"),
+            (["erling haaland", "haaland"], "Erling Haaland"),
+            (["mohamed salah", "mo salah", "salah"], "Mohamed Salah"),
+            (["vinicius junior", "vinicius jr", "vinicius"], "Vinicius Junior"),
+            (["jude bellingham", "bellingham"], "Jude Bellingham"),
+            (["harry kane", "kane"], "Harry Kane"),
+            (["neymar", "neymar jr"], "Neymar"),
+            (["alex ferguson", "ferguson", "sir alex"], "Alex Ferguson"),
+            (["pep guardiola", "guardiola"], "Pep Guardiola"),
+            (["jurgen klopp", "klopp"], "Jurgen Klopp"),
+            (["mikel arteta", "arteta"], "Mikel Arteta"),
+            (["erik ten hag", "ten hag"], "Erik ten Hag"),
+            (["carlo ancelotti", "ancelotti"], "Carlo Ancelotti"),
+            (["jose mourinho", "mourinho"], "Jose Mourinho"),
+            (["lebron james", "lebron"], "LeBron James"),
+            (["stephen curry", "steph curry", "curry"], "Stephen Curry"),
+            (["giannis antetokounmpo", "giannis"], "Giannis Antetokounmpo"),
+            (["novak djokovic", "djokovic"], "Novak Djokovic"),
+            (["carlos alcaraz", "alcaraz"], "Carlos Alcaraz"),
+            (["lewis hamilton", "hamilton"], "Lewis Hamilton"),
+            (["max verstappen", "verstappen"], "Max Verstappen"),
+            # Global Business & Tech Icons
+            (["elon musk", "musk"], "Elon Musk"),
+            (["satya nadella", "nadella"], "Satya Nadella"),
+            (["sundar pichai", "pichai"], "Sundar Pichai"),
+            (["sam altman", "altman"], "Sam Altman"),
+            (["mark zuckerberg", "zuckerberg"], "Mark Zuckerberg"),
+            (["jeff bezos", "bezos"], "Jeff Bezos"),
+            (["bill gates", "gates"], "Bill Gates"),
+            (["tim cook"], "Tim Cook"),
+            (["jensen huang"], "Jensen Huang"),
+            # International & Political figures
             (["joe biden", "biden", "president biden"], "Joe Biden"),
             (["donald trump", "trump"], "Donald Trump"),
             (["kamala harris", "kamala"], "Kamala Harris"),
@@ -564,6 +649,8 @@ class WebImageScraper:
             (["keir starmer", "starmer"], "Keir Starmer"),
             (["rishi sunak", "sunak"], "Rishi Sunak"),
             (["emmanuel macron", "macron"], "Emmanuel Macron"),
+            (["volodymyr zelenskyy", "zelenskyy", "zelensky"], "Volodymyr Zelenskyy"),
+            (["vladimir putin", "putin"], "Vladimir Putin"),
             (["benjamin netanyahu", "netanyahu"], "Benjamin Netanyahu"),
             (["antónio guterres", "guterres"], "António Guterres"),
         ]
@@ -614,18 +701,25 @@ class WebImageScraper:
             (["khartoum", "sudan", "port sudan"], "Khartoum"),
             (["mogadishu", "somalia", "hargeisa", "somaliland"], "Mogadishu"),
             (["london", "united kingdom", "westminster"], "London"),
+            (["manchester", "old trafford"], "Manchester"),
+            (["madrid", "santiago bernabeu"], "Madrid"),
+            (["barcelona", "camp nou"], "Barcelona"),
+            (["paris", "parc des princes"], "Paris"),
+            (["munich", "allianz arena"], "Munich"),
+            (["milan", "san siro"], "Milan"),
             (["cairo", "egypt"], "Cairo"),
             (["beijing", "china"], "Beijing"),
             (["johannesburg", "south africa", "pretoria", "cape town"], "Johannesburg"),
             (["gaza", "rafah"], "Gaza"),
             (["beirut", "lebanon"], "Beirut"),
         ]
+
         for keywords, loc_name in location_map:
-            if any(k in text for k in keywords):
+            if any(_match_kw(k, text) for k in keywords):
                 if loc_name not in locations:
                     locations.append(loc_name)
 
-        # 2c. Institutions & Organizations
+        # 2c. Institutions, Sports Clubs & Organizations
         institution_map = [
             # Ethiopian institutions
             (["ብሔራዊ ባንክ", "nbe", "national bank of ethiopia"], "National Bank of Ethiopia"),
@@ -637,6 +731,39 @@ class WebImageScraper:
             (["የህዝብ ተወካዮች ምክር ቤት", "ምክር ቤት", "parliament"], "Ethiopian Parliament"),
             (["ታላቁ የህዳሴ ግድብ", "ህዳሴ ግድብ", "ህዳሴ", "gerd", "renaissance dam"], "Grand Ethiopian Renaissance Dam"),
             (["የአፍሪካ ህብረት", "አፍሪካ ህብረት", "african union"], "African Union"),
+            # Global Football Clubs & Sports Organizations
+            (["manchester united", "man utd", "manchester utd", "mufc", "red devils"], "Manchester United F.C."),
+            (["real madrid", "los blancos"], "Real Madrid CF"),
+            (["fc barcelona", "barcelona", "barca", "barça", "blaugrana"], "FC Barcelona"),
+            (["arsenal", "arsenal fc", "the gunners"], "Arsenal F.C."),
+            (["liverpool", "liverpool fc", "the reds"], "Liverpool F.C."),
+            (["chelsea", "chelsea fc", "the blues"], "Chelsea F.C."),
+            (["manchester city", "man city", "mcfc"], "Manchester City F.C."),
+            (["bayern munich", "fc bayern", "bayern"], "FC Bayern Munich"),
+            (["paris saint-germain", "psg", "paris sg"], "Paris Saint-Germain F.C."),
+            (["juventus", "juve"], "Juventus FC"),
+            (["inter milan", "internazionale"], "Inter Milan"),
+            (["ac milan", "rossoneri"], "AC Milan"),
+            (["tottenham", "tottenham hotspur", "spurs"], "Tottenham Hotspur F.C."),
+            (["borussia dortmund", "dortmund", "bvb"], "Borussia Dortmund"),
+            (["fifa"], "FIFA"),
+            (["uefa", "uefa champions league", "champions league"], "UEFA"),
+            (["premier league", "epl", "english premier league"], "Premier League"),
+            (["la liga"], "La Liga"),
+            (["serie a"], "Serie A"),
+            (["bundesliga"], "Bundesliga"),
+            (["nba", "national basketball association"], "NBA"),
+            (["formula 1", "formula one", "f1"], "Formula 1"),
+            # Global Tech & Corporate Institutions
+            (["apple", "apple inc"], "Apple Inc."),
+            (["microsoft"], "Microsoft"),
+            (["google", "alphabet"], "Google"),
+            (["tesla"], "Tesla, Inc."),
+            (["openai"], "OpenAI"),
+            (["meta platforms", "meta"], "Meta Platforms"),
+            (["amazon"], "Amazon (company)"),
+            (["nvidia"], "Nvidia"),
+            (["spacex"], "SpaceX"),
             # International & US institutions
             (["the pentagon", "pentagon", "department of defense", "defense department", "dod"], "The Pentagon"),
             (["white house"], "White House"),
@@ -646,10 +773,14 @@ class WebImageScraper:
             (["wall street", "new york stock exchange", "nyse"], "Wall Street"),
             (["centcom", "us military", "u.s. military", "us central command"], "United States Armed Forces"),
             (["united nations", "un security council", "unsc"], "United Nations"),
+            (["imf", "international monetary fund"], "International Monetary Fund"),
+            (["world bank"], "World Bank"),
+            (["who", "world health organization"], "World Health Organization"),
+            (["nato", "north atlantic treaty organization"], "NATO"),
         ]
         for keywords, inst_name in institution_map:
-            if any(k in text for k in keywords):
-                if inst_name not in institutions:
+            if any(_match_kw(k, text) for k in keywords):
+                if not _is_name_subsumed(inst_name, institutions):
                     institutions.append(inst_name)
 
         # 2d. Concrete Photographic Concepts
@@ -661,6 +792,12 @@ class WebImageScraper:
             (["በረራ", "አውሮፕላን", "flight", "aviation", "airline", "aircraft"], ["Ethiopian Airlines aircraft", "Bole International Airport"]),
             (["ሰላም", "ስምምነት", "peace", "treaty", "diplomacy", "talks"], ["African Union Addis Ababa", "Ethiopian diplomacy"]),
             (["ትምህርት", "ዩኒቨርሲቲ", "university", "education", "school"], ["Addis Ababa University", "Ethiopia education"]),
+            # Sports & Entertainment concepts
+            (["football", "soccer", "champions league", "premier league", "match", "scouted", "transfer", "derby", "stadium", "striker", "coach", "teenage"], ["Football stadium match", "Soccer training session", "Premier League football"]),
+            (["basketball", "nba", "playoffs", "slam dunk"], ["NBA basketball arena", "Basketball game action"]),
+            (["formula 1", "f1", "grand prix", "racing car"], ["Formula 1 racing circuit", "F1 Grand Prix race"]),
+            (["tennis", "grand slam", "wimbledon"], ["Grand Slam tennis court", "Tennis match tournament"]),
+            (["artificial intelligence", "ai", "machine learning", "silicon valley"], ["Silicon Valley technology", "Artificial Intelligence tech"]),
             # US & International concepts
             (["pentagon", "strike", "airstrike", "drone strike", "civilian deaths", "military operation", "centcom"], ["The Pentagon building", "US Department of Defense press briefing", "Military aircraft"]),
             (["us election", "presidential election", "campaign", "ballot", "republican", "democrat"], ["United States presidential election", "United States Capitol"]),
@@ -669,10 +806,58 @@ class WebImageScraper:
             (["yemen", "houthi", "red sea", "shipping", "gulf of aden"], ["Yemen Sanaa", "Red Sea shipping"]),
         ]
         for keywords, conc_list in concept_map:
-            if any(k in text for k in keywords):
+            if any(_match_kw(k, text) for k in keywords):
                 for c in conc_list:
                     if c not in concepts:
                         concepts.append(c)
+
+        # -------------------------------------------------------------
+        # 2e. Heuristic Named Entity Recognition (Deterministic NLP fallback)
+        # -------------------------------------------------------------
+        raw_title = event.title or ""
+        raw_text = f"{raw_title}. {event.summary or ''}"
+        _NER_STOPWORDS = {
+            "The", "A", "An", "In", "On", "At", "By", "For", "With", "About", "Against", "Between",
+            "Into", "Through", "During", "Before", "After", "Above", "Below", "To", "From", "Up", "Down",
+            "News", "Report", "Breaking", "Exclusive", "Update", "Watch", "Live", "Says", "Said", "Says,",
+            "Revealed", "Confirmed", "Warns", "Claims", "Urges", "Former", "New", "Latest", "Why", "How",
+            "What", "When", "Where", "Who", "Could", "Should", "Would", "May", "Might", "Must", "Will",
+            "Can", "Is", "Are", "Was", "Were", "Be", "Been", "Being", "Have", "Has", "Had", "Do", "Does",
+            "Did", "But", "And", "Or", "Nor", "So", "Yet", "Both", "Either", "Neither", "Not", "Only",
+            "Own", "Same", "Than", "Too", "Very", "Just", "Don't", "Didn't", "Won't", "Can't", "Following",
+            "More", "Some", "Many", "Most", "All", "Each", "Every", "Other", "Another", "Such", "French",
+            "English", "American", "British", "German", "Spanish", "Italian", "European", "African"
+        }
+
+        # Attribution patterns: "says Ryan Giggs", "revealed by Ryan Giggs"
+        for m in re.finditer(r"(?:says|said|revealed|claimed|told|according to)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)", raw_text):
+            p = m.group(1).strip()
+            if p and p not in _NER_STOPWORDS and not _is_name_subsumed(p, persons):
+                persons.append(p)
+                if not main_person:
+                    main_person = p
+
+        # Action patterns: "scouted Mbappe", "signed Mbappe"
+        for m in re.finditer(r"(?:scouted|signed|monitored|targeted|benched|coached|managed|praised|hired|interviewed|defeated|beat)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)", raw_text):
+            p = m.group(1).strip()
+            if p and p not in _NER_STOPWORDS and not _is_name_subsumed(p, persons):
+                persons.append(p)
+                if not main_person:
+                    main_person = p
+
+        # Role patterns: "manager Ryan Giggs", "coach Ryan Giggs"
+        for m in re.finditer(r"(?:manager|assistant manager|coach|assistant coach|player|striker|forward|midfielder|defender|goalkeeper|legend|star)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)", raw_text):
+            p = m.group(1).strip()
+            if p and p not in _NER_STOPWORDS and not _is_name_subsumed(p, persons):
+                persons.append(p)
+                if not main_person:
+                    main_person = p
+
+        # Institution patterns: "Manchester United", "Real Madrid", "Arsenal FC"
+        for m in re.finditer(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:United|City|F\.C\.|FC|Club|Real|Hotspur|Saint-Germain|Munich|Bank|Airlines|Telecom|Corporation|Ministry|Department|Agency|Federation|Association))\b", raw_text):
+            inst = clean_entity_name(m.group(1).strip())
+            if inst and inst not in _NER_STOPWORDS and not _is_name_subsumed(inst, institutions):
+                institutions.append(inst)
 
         # -------------------------------------------------------------
         # 3. LLM Extraction Enhancement (when available)
@@ -682,15 +867,15 @@ class WebImageScraper:
                 prompt = (
                     "You are a visual photo editor for an international newsdesk.\n"
                     "Analyze this news story and identify the PRIMARY country, key photographic entities, and concrete visual queries.\n"
-                    "CRITICAL RULE: If the story is about the United States, Yemen, Kenya, Sudan, Europe, or other international affairs, "
+                    "CRITICAL RULE: If the story is about the United States, Yemen, Kenya, Sudan, Europe, sports, or other international affairs, "
                     "do NOT inject Ethiopian landmarks (e.g. do NOT suggest Addis Ababa, Meskel Square, or Ethiopian institutions unless they are a primary focus).\n\n"
                     f"Headline: {event.title}\n"
                     f"Summary: {(event.summary or '')[:500]}\n"
                     f"Category: {event.primary_category or 'General'}, Region: {event.primary_region or 'International'}\n\n"
                     "Output JSON ONLY:\n"
                     "{\n"
-                    '  "country": "Primary country name (e.g. United States, Ethiopia, Kenya, Yemen, United Kingdom)",\n'
-                    '  "country_code": "2-letter ISO code (e.g. US, ET, KE, YE, GB)",\n'
+                    '  "country": "Primary country name (e.g. United States, Ethiopia, Kenya, Yemen, United Kingdom, Global)",\n'
+                    '  "country_code": "2-letter ISO code (e.g. US, ET, KE, YE, GB, GLOBAL)",\n'
                     '  "topic": "Concise 2-4 word editorial topic",\n'
                     '  "searchable_concepts": ["2-3 word photographic noun query 1", "query 2"],\n'
                     '  "persons": ["Full English name of key figures or officials mentioned"],\n'
@@ -708,7 +893,7 @@ class WebImageScraper:
                     llm_cc = str(parsed.get("country_code") or "").strip().upper()
                     if llm_c and llm_c.lower() not in ("null", "none"):
                         country = llm_c
-                        if llm_cc and len(llm_cc) == 2:
+                        if llm_cc and len(llm_cc) >= 2:
                             country_code = llm_cc
                     t = str(parsed.get("topic") or "").strip()
                     if t:
@@ -741,17 +926,43 @@ class WebImageScraper:
             except Exception as exc:
                 logger.warning("llm_story_entities_failed", error=_safe_str(exc))
 
+        # Ensure locations has no empty strings
+        locations = [loc for loc in locations if loc and loc.strip()]
+
         # Defaults if empty
         if not locations:
-            locations = [event.primary_region] if (event.primary_region and event.primary_region.lower() != "international") else [default_city]
-        if not concepts:
-            concepts = list(ctx.get("default_concepts") or [f"{locations[0]} {country}"])
+            if event.primary_region and event.primary_region.lower() not in ("international", "global", "none"):
+                locations = [event.primary_region]
+            elif default_city:
+                locations = [default_city]
+            else:
+                locations = []
+
         if not institutions and ctx.get("default_institutions"):
             institutions = list(ctx["default_institutions"][:2])
 
-        if not topic or topic in ("Ethiopian News", f"{country} News"):
-            if persons:
-                topic = f"{persons[0]} & Leadership"
+        if not concepts:
+            if ctx.get("default_concepts"):
+                concepts = list(ctx["default_concepts"])
+            elif persons and institutions:
+                is_sports = any(w in text for w in ["football", "soccer", "match", "club", "league", "coach", "scouted"])
+                concepts = [f"{persons[0]} {institutions[0]}", f"{institutions[0]} stadium" if is_sports else institutions[0]]
+            elif persons:
+                concepts = [f"{persons[0]}", f"{persons[0]} portrait"]
+            elif institutions:
+                concepts = [f"{institutions[0]}", f"{institutions[0]} news"]
+            elif locations:
+                concepts = [f"{locations[0]} {country}" if country_code not in ("GLOBAL", "ET") else locations[0]]
+            else:
+                concepts = [event.title[:50]]
+
+        if not topic or topic in ("Ethiopian News", f"{country} News", "Global News", " Global", f" {country}"):
+            if persons and institutions:
+                topic = f"{persons[0]} & {institutions[0]}"
+            elif len(persons) >= 2:
+                topic = f"{persons[0]} & {persons[1]}"
+            elif persons:
+                topic = f"{persons[0]}"
             elif institutions:
                 topic = institutions[0]
             elif concepts:
@@ -759,27 +970,40 @@ class WebImageScraper:
             elif locations:
                 topic = f"{locations[0]} News"
             else:
-                topic = f"{country} News"
+                topic = "World News" if country_code == "GLOBAL" else f"{country} News"
 
         # Build search queries if not already populated from LLM
         if not queries:
             queries = []
             if persons:
-                queries.append(f"{persons[0]}")
+                queries.extend(persons[:2])
             if institutions:
-                queries.append(f"{institutions[0]}")
+                queries.extend(institutions[:2])
             if concepts:
-                queries.append(concepts[0])
-            queries.append(f"{locations[0]} {country}" if country_code != "ET" else f"{locations[0]} Ethiopia")
+                queries.extend(concepts[:2])
+            if locations:
+                for loc in locations[:2]:
+                    if loc:
+                        queries.append(f"{loc} {country}" if country_code not in ("GLOBAL", "ET") else (f"{loc} Ethiopia" if country_code == "ET" else loc))
+
+        # Clean queries (no duplicates, no empty)
+        clean_queries = []
+        for q in queries:
+            q_clean = q.strip()
+            if q_clean and q_clean not in clean_queries:
+                clean_queries.append(q_clean)
+        queries = clean_queries or [event.title[:50]]
 
         # Build suggested chips
         if not chips:
-            chips.append(country)
-            for group in (persons, locations, institutions, concepts):
+            chips = []
+            if country_code != "GLOBAL" and country and country != "Global":
+                chips.append(country)
+            for group in (persons, institutions, locations, concepts):
                 for item in group:
-                    if item and item not in chips:
-                        chips.append(item)
-                        break
+                    item_clean = item.strip() if item else ""
+                    if item_clean and item_clean not in chips and len(item_clean) > 2:
+                        chips.append(item_clean)
 
         entities = StoryVisualEntities(
             topic=topic,
@@ -890,8 +1114,8 @@ class WebImageScraper:
             candidates.append(wiki_direct)
 
         # 2. Wikimedia Commons cityscape search
-        ctx = country_context if (country_context and country_context.lower() not in ("unknown", "global")) else "Ethiopia"
-        queries = [f"{city_name} skyline", f"{city_name} {ctx}", f"{city_name} landmark"]
+        ctx = f" {country_context}" if (country_context and country_context.lower() not in ("unknown", "global")) else ""
+        queries = [f"{city_name} skyline", f"{city_name}{ctx}".strip(), f"{city_name} landmark"]
         for q in queries[:2]:
             if len(candidates) >= limit:
                 break
@@ -903,7 +1127,7 @@ class WebImageScraper:
 
         # 3. Openverse search
         if len(candidates) < limit:
-            ov_res = self._search_openverse_photos(f"{city_name} {ctx}", seen_urls, limit=4)
+            ov_res = self._search_openverse_photos(f"{city_name}{ctx}".strip(), seen_urls, limit=4)
             for cand in ov_res:
                 cand.entity_type = "location"
                 cand.entity_name = city_name
@@ -926,7 +1150,11 @@ class WebImageScraper:
             candidates.append(wiki_direct)
 
         # 2. Wikimedia Commons search
-        c_res = self._search_wikimedia_topic_photos(f"{inst_name} building", seen_urls, limit=4)
+        is_sports_club = any(s in inst_name.lower() for s in ["fc", "f.c.", "united", "city", "real", "club", "barcelona", "arsenal", "chelsea", "liverpool", "bayern", "psg", "juventus", "madrid", "milan", "dortmund"])
+        search_term = f"{inst_name} stadium" if is_sports_club else f"{inst_name} building"
+        c_res = self._search_wikimedia_topic_photos(search_term, seen_urls, limit=4)
+        if not c_res and is_sports_club:
+            c_res = self._search_wikimedia_topic_photos(inst_name, seen_urls, limit=4)
         for cand in c_res:
             cand.entity_type = "institution"
             cand.entity_name = inst_name
