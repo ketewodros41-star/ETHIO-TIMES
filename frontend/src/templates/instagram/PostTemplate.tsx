@@ -3,6 +3,7 @@ import type { VisualStyle } from "@/lib/design-tokens";
 import { FORMATS, type InstagramFormat } from "./formats";
 
 import type { ThemeId } from "./themes";
+import type { HighlightMode } from "./headline-highlighter";
 
 export type PostTemplateData = {
   category: string;
@@ -15,6 +16,8 @@ export type PostTemplateData = {
   style?: VisualStyle;
   theme?: ThemeId;
   highlightColor?: string;
+  highlightMode?: HighlightMode;
+  highlightIndices?: number[];
   country?: string;
 };
 
@@ -50,9 +53,9 @@ export function PostTemplate({
 }) {
   if (data.theme) {
     switch (data.theme) {
-      case "broadcast_impact": return <BroadcastImpactPost format={format} data={data} highlightColor={data.highlightColor} />;
-      case "country_spotlight": return <CountrySpotlightPost format={format} data={data} highlightColor={data.highlightColor} country={data.country} />;
-      case "headline_impact": return <HeadlineImpactPost format={format} data={data} highlightColor={data.highlightColor} />;
+      case "broadcast_impact": return <BroadcastImpactPost format={format} data={data} highlightColor={data.highlightColor} highlightMode={data.highlightMode} highlightIndices={data.highlightIndices} />;
+      case "country_spotlight": return <CountrySpotlightPost format={format} data={data} highlightColor={data.highlightColor} highlightMode={data.highlightMode} highlightIndices={data.highlightIndices} country={data.country} />;
+      case "headline_impact": return <HeadlineImpactPost format={format} data={data} highlightColor={data.highlightColor} highlightMode={data.highlightMode} highlightIndices={data.highlightIndices} />;
       case "verified_brief": return <VerifiedBriefPost format={format} data={data} />;
       case "breaking": return <BreakingPost format={format} data={data} flashText={data.dek} />;
       case "politics_sensitive": return <PoliticsSensitivePost format={format} data={data} />;

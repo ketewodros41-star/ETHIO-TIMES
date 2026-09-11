@@ -19,6 +19,8 @@ import {
   type InstagramFormat, type ThemeId, type PostTemplateData, type CarouselSlideData,
 } from "@/templates/instagram";
 import { isEthiopic } from "@/templates/instagram/primitives";
+import { HIGHLIGHT_PALETTES, type HighlightColorToken } from "@/lib/design-tokens";
+import { parseHeadlineSegments, type HighlightMode } from "@/templates/instagram/headline-highlighter";
 import { POPULAR_COUNTRIES, resolveCountryCode } from "@/components/country-flag";
 import type { VisualAsset, PhotoCandidate } from "@/lib/types";
 
@@ -31,7 +33,8 @@ const SAMPLE: PostTemplateData = {
   accent: "green",
   style: "Premium Magazine",
   theme: "broadcast_impact",
-  highlightColor: "#52B8ED",
+  highlightColor: "#00F0FF",
+  highlightMode: "auto",
 };
 
 const AMHARIC_PRESETS = [
@@ -41,7 +44,8 @@ const AMHARIC_PRESETS = [
     category: "ስፖርት",
     headline: "ማንቸስተር ዩናይትድ ኪሊያን ምባፔን ሊያስፈርም ነበር",
     dek: "ዩናይትድ በታዳጊነቱ ሊያስፈርመው ይችል እንደነበር ራያን ጊግስ ይፋ አደረገ።",
-    highlightColor: "#52B8ED",
+    highlightColor: "#D4FF00",
+    highlightMode: "auto" as HighlightMode,
     country: "United Kingdom",
   },
   {
@@ -50,7 +54,8 @@ const AMHARIC_PRESETS = [
     category: "ኢኮኖሚ",
     headline: "ብሔራዊ ባንክ የውጭ ምንዛሪ አሠራርን አሻሻለ",
     dek: "የኢኮኖሚ ማሻሻያውን ተከትሎ የዋጋ ግሽበት እያሽቆለቆለ መምጣቱ ተገለጸ።",
-    highlightColor: "#4ADE80",
+    highlightColor: "#FFB800",
+    highlightMode: "auto" as HighlightMode,
     country: "Ethiopia",
   },
   {
@@ -59,7 +64,8 @@ const AMHARIC_PRESETS = [
     category: "ሰበር ዜና",
     headline: "በአዲስ አበባ አዲስ የትራንስፖርት ታሪፍ ወጣ",
     dek: "ከነገ ጀምሮ በሁሉም የከተማዋ መስመሮች አዲሱ የታሪፍ ማስተካከያ ተግባራዊ ይሆናል።",
-    highlightColor: "#F87171",
+    highlightColor: "#FF385C",
+    highlightMode: "auto" as HighlightMode,
     country: "Ethiopia",
   },
   {
@@ -68,7 +74,8 @@ const AMHARIC_PRESETS = [
     category: "ቴክኖሎጂ",
     headline: "ኢትዮጵያ አርቴፊሻል ኢንተለጀንስን ልታሰማራ ነው",
     dek: "በግብርና እና ጤና ዘርፍ ምርታማነትን ለማሳደግ አዲስ ሥርዓት ይዘረጋል።",
-    highlightColor: "#FBBF24",
+    highlightColor: "#00F5A0",
+    highlightMode: "auto" as HighlightMode,
     country: "Ethiopia",
   },
 ];
@@ -824,7 +831,10 @@ function StudioContent() {
   const [carouselSlideIndex, setCarouselSlideIndex] = useState(0);
   const [format, setFormat] = useState<InstagramFormat>("portrait");
   const [themeId, setThemeId] = useState<ThemeId>("broadcast_impact");
-  const [highlightColor, setHighlightColor] = useState<string>("#52B8ED");
+  const [highlightColor, setHighlightColor] = useState<string>("#00F0FF");
+  const [highlightMode, setHighlightMode] = useState<HighlightMode>("auto");
+  const [manualHighlightIndices, setManualHighlightIndices] = useState<number[]>([]);
+  const [customHexInput, setCustomHexInput] = useState<string>("");
   const [selectedCountry, setSelectedCountry] = useState<string>("Ethiopia");
   const [customHeadline, setCustomHeadline] = useState<string>("");
   const [customDek, setCustomDek] = useState<string>("");
@@ -858,6 +868,7 @@ function StudioContent() {
       setCustomHeadline(activeEvent.title);
       setCustomDek(activeEvent.summary || "");
       setCustomCategory(activeEvent.primary_category || "News");
+      setManualHighlightIndices([]);
       // Intelligently auto-detect country from event title, region, summary
       const textToScan = `${activeEvent.title} ${activeEvent.primary_region || ""} ${activeEvent.summary || ""}`;
       const code = resolveCountryCode(textToScan);
@@ -869,6 +880,7 @@ function StudioContent() {
       setCustomHeadline("");
       setCustomDek("");
       setCustomCategory("");
+      setManualHighlightIndices([]);
     }
   }, [activeEvent]);
 
@@ -888,8 +900,6 @@ function StudioContent() {
     mutationFn: () => postsApi.generateAsset(selectedEventId),
     onSuccess: () => {
       setTimeout(() => refetchAssets(), 3000);
-      setTimeout(() => refetchAssets(), 8000);
-      setTimeout(() => refetchAssets(), 15000);
     },
   });
 
@@ -943,6 +953,8 @@ function StudioContent() {
         theme: themeId,
         accent: THEMES[themeId].accent,
         highlightColor,
+        highlightMode,
+        highlightIndices: manualHighlightIndices.length > 0 ? manualHighlightIndices : undefined,
         country: selectedCountry,
         imageUrl: currentAsset?.storage_url || undefined,
       }
@@ -954,9 +966,17 @@ function StudioContent() {
         theme: themeId,
         accent: THEMES[themeId].accent,
         highlightColor,
+        highlightMode,
+        highlightIndices: manualHighlightIndices.length > 0 ? manualHighlightIndices : undefined,
         country: selectedCountry,
         imageUrl: currentAsset?.storage_url || undefined,
       };
+
+  const currentHeadlineText = customHeadline || (activeEvent?.title ?? SAMPLE.headline);
+  const parsedHeadlineInfo = parseHeadlineSegments(currentHeadlineText, {
+    mode: highlightMode,
+    customIndices: manualHighlightIndices.length > 0 ? manualHighlightIndices : undefined,
+  });
 
   // Generate short, punchy copy for 5-page broadcast carousel
   const rawDek = customDek || (activeEvent?.summary ? activeEvent.summary.split(/[.!?]/)[0] + "." : previewData.dek) || (isAmharicScript ? "ቁልፍ የፖሊሲ መመሪያ ወዲያውኑ ተግባራዊ እንዲሆን ተወሰነ።" : "Key policy directive issued with immediate regional enforcement.");
@@ -1246,6 +1266,8 @@ function StudioContent() {
                             setCustomDek(preset.dek);
                             setCustomCategory(preset.category);
                             setHighlightColor(preset.highlightColor);
+                            setHighlightMode(preset.highlightMode || "auto");
+                            setManualHighlightIndices([]);
                             setSelectedCountry(preset.country);
                           }}
                           className={`p-2.5 rounded-lg bg-ink-850 hover:bg-ink-800 text-left border transition-all text-xs ${
@@ -1287,6 +1309,75 @@ function StudioContent() {
                       }}
                       className="w-full h-9 rounded-card border border-ink-700 bg-ink-800 px-3 text-sm text-paper-100 focus:border-accent-green focus:outline-none"
                     />
+
+                    {/* Interactive Click-to-Highlight Word Chips */}
+                    {parsedHeadlineInfo.segments.length > 0 && (
+                      <div className="space-y-1.5 pt-2.5">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-[11px] uppercase tracking-label text-paper-400 font-mono flex items-center gap-1.5">
+                            <Sparkles className="h-3 w-3 text-accent-green" />
+                            Interactive Word Highlighter (Click to Toggle)
+                          </label>
+                          <div className="flex items-center gap-2">
+                            {manualHighlightIndices.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setManualHighlightIndices([])}
+                                className="text-[10px] text-paper-400 hover:text-paper-200 underline font-mono"
+                              >
+                                Reset to {highlightMode.toUpperCase()}
+                              </button>
+                            )}
+                            <span className="text-[10px] font-mono text-paper-500">
+                              Mode: <strong className="text-accent-green">{parsedHeadlineInfo.detectedMode}</strong>
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 p-2 rounded-card bg-ink-900 border border-ink-700/80">
+                          {parsedHeadlineInfo.segments.map((seg) => {
+                            const isHighlighted = seg.isHighlight;
+                            return (
+                              <button
+                                key={seg.wordIndex}
+                                type="button"
+                                onClick={() => {
+                                  let currentIndices = manualHighlightIndices.length > 0
+                                    ? [...manualHighlightIndices]
+                                    : [...parsedHeadlineInfo.highlightIndices];
+
+                                  if (currentIndices.includes(seg.wordIndex)) {
+                                    currentIndices = currentIndices.filter((idx) => idx !== seg.wordIndex);
+                                  } else {
+                                    currentIndices.push(seg.wordIndex);
+                                  }
+                                  setManualHighlightIndices(currentIndices.sort((a, b) => a - b));
+                                }}
+                                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all border ${
+                                  isHighlighted
+                                    ? "shadow-sm"
+                                    : "border-ink-700 bg-ink-800 text-paper-400 hover:bg-ink-750 hover:text-paper-200"
+                                }`}
+                                style={{
+                                  borderColor: isHighlighted ? highlightColor : undefined,
+                                  backgroundColor: isHighlighted ? `${highlightColor}22` : undefined,
+                                  color: isHighlighted ? (highlightColor === "#FFFFFF" ? "#FFFFFF" : highlightColor) : undefined,
+                                }}
+                              >
+                                {seg.text}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="text-[10px] text-paper-500 flex items-center justify-between">
+                          <span>💡 Wrap words in <code className="text-paper-300 font-mono font-bold">{"{braces}"}</code> in text to highlight anywhere.</span>
+                          {parsedHeadlineInfo.highlightedWords.length > 0 && (
+                            <span className="text-paper-400 font-mono">
+                              Highlighted: <span style={{ color: highlightColor }} className="font-bold">{parsedHeadlineInfo.highlightedWords.join(" ")}</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs uppercase tracking-label text-paper-500 mb-1 font-mono">
@@ -1513,35 +1604,124 @@ function StudioContent() {
                   </div>
                 </div>
                 {(themeId === "broadcast_impact" || themeId === "headline_impact" || themeId === "country_spotlight") && (
-                  <div>
-                    <label className="block text-xs uppercase tracking-label text-paper-500 mb-2 font-mono">
-                      Punchline Highlight Color
-                    </label>
-                    <div className="flex flex-wrap gap-2 items-center">
-                      {[
-                        { color: "#52B8ED", label: "Electric Cyan (Broadcast)" },
-                        { color: "#4ADE80", label: "Mint Green" },
-                        { color: "#FBBF24", label: "Gold" },
-                        { color: "#F87171", label: "Crimson Red" },
-                        { color: "#FFFFFF", label: "Stark White" },
-                      ].map((swatch) => (
-                        <button
-                          key={swatch.color}
-                          type="button"
-                          onClick={() => setHighlightColor(swatch.color)}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-card text-xs transition-colors ${
-                            highlightColor === swatch.color
-                              ? "bg-ink-700 text-paper-50 border border-accent-green font-medium"
-                              : "bg-ink-800 text-paper-400 border border-ink-700 hover:bg-ink-700 hover:text-paper-200"
-                          }`}
-                        >
-                          <span
-                            className="w-3 h-3 rounded-full border border-black/30"
-                            style={{ backgroundColor: swatch.color }}
+                  <div className="space-y-3 p-3 rounded-card bg-ink-900/90 border border-ink-700/80">
+                    {/* A. Non-generic curated editorial highlight palette */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-xs uppercase tracking-label text-paper-400 font-mono flex items-center gap-1.5 font-bold">
+                          <Palette className="h-3.5 w-3.5 text-accent-green" />
+                          Curated Broadcast Highlight Palette
+                        </label>
+                        <span className="text-[10px] font-mono text-paper-500">
+                          9 Editorial Tones
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {HIGHLIGHT_PALETTES.map((swatch) => {
+                          const isSelected = highlightColor.toLowerCase() === swatch.hex.toLowerCase();
+                          return (
+                            <button
+                              key={swatch.id}
+                              type="button"
+                              onClick={() => {
+                                setHighlightColor(swatch.hex);
+                                setCustomHexInput("");
+                              }}
+                              className={`flex flex-col items-start p-2 rounded-lg text-left transition-all border ${
+                                isSelected
+                                  ? "bg-ink-800 border-accent-green shadow-sm ring-1 ring-accent-green/40"
+                                  : "bg-ink-850 border-ink-700/80 hover:border-ink-600 hover:bg-ink-800"
+                              }`}
+                              title={`${swatch.name} — ${swatch.mood}`}
+                            >
+                              <div className="flex items-center justify-between w-full mb-1">
+                                <span
+                                  className="w-3.5 h-3.5 rounded-full border border-black/40 shadow-inner shrink-0"
+                                  style={{ backgroundColor: swatch.hex }}
+                                />
+                                <span className="text-[9px] font-mono text-paper-400 truncate ml-1">
+                                  {swatch.category}
+                                </span>
+                              </div>
+                              <span className="text-xs font-semibold text-paper-100 truncate w-full">
+                                {swatch.name}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Custom Hex Color Picker Bar */}
+                      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-ink-800/80">
+                        <label className="text-[10px] uppercase font-mono text-paper-400 shrink-0">Custom Hex:</label>
+                        <div className="flex items-center gap-1.5 bg-ink-950 border border-ink-700 rounded-md px-2 py-0.5 w-full">
+                          <input
+                            type="color"
+                            value={highlightColor.startsWith("#") && highlightColor.length === 7 ? highlightColor : "#00F0FF"}
+                            onChange={(e) => {
+                              setHighlightColor(e.target.value);
+                              setCustomHexInput(e.target.value);
+                            }}
+                            className="w-5 h-5 rounded cursor-pointer bg-transparent border-0 p-0"
+                            title="Color picker"
                           />
-                          <span>{swatch.label}</span>
-                        </button>
-                      ))}
+                          <input
+                            type="text"
+                            value={customHexInput || highlightColor}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCustomHexInput(val);
+                              if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
+                                setHighlightColor(val);
+                              }
+                            }}
+                            placeholder="#00F0FF"
+                            className="text-xs font-mono bg-transparent text-paper-100 focus:outline-none w-full uppercase"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* B. Highlight Position & Strategy Selector */}
+                    <div className="pt-2 border-t border-ink-800">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-xs uppercase tracking-label text-paper-400 font-mono font-bold">
+                          Highlight Placement Strategy
+                        </label>
+                        <span className="text-[10px] font-mono text-accent-green">
+                          {highlightMode === "auto" && "Keyword / Verb AI"}
+                          {highlightMode === "middle" && "Center Pivot"}
+                          {highlightMode === "end" && "Classic Punchline"}
+                          {highlightMode === "start" && "Lead Subject"}
+                          {highlightMode === "none" && "Monochrome White"}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-5 gap-1">
+                        {[
+                          { id: "auto" as HighlightMode, label: "🤖 Smart", desc: "Keyword / action-verb detection" },
+                          { id: "middle" as HighlightMode, label: "🎯 Middle", desc: "Highlights central pivot words" },
+                          { id: "end" as HighlightMode, label: "🔻 End", desc: "Bottom punchline highlight" },
+                          { id: "start" as HighlightMode, label: "👤 Start", desc: "Lead subject / actor focus" },
+                          { id: "none" as HighlightMode, label: "⚪ Plain", desc: "All white typography" },
+                        ].map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => {
+                              setHighlightMode(m.id);
+                              setManualHighlightIndices([]);
+                            }}
+                            className={`py-1.5 px-1 rounded text-center text-xs font-semibold transition-all border ${
+                              highlightMode === m.id
+                                ? "bg-ink-750 text-paper-50 border-accent-green font-bold shadow-sm"
+                                : "bg-ink-850 text-paper-400 border-ink-700 hover:bg-ink-800 hover:text-paper-200"
+                            }`}
+                            title={m.desc}
+                          >
+                            {m.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 )}

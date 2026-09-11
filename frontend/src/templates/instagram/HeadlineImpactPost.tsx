@@ -2,64 +2,59 @@ import { tokens } from "@/lib/design-tokens";
 import type { PostTemplateData } from "./PostTemplate";
 import { FORMATS, type InstagramFormat } from "./formats";
 import { isEthiopic } from "./primitives";
+import { parseHeadlineSegments, type HighlightMode } from "./headline-highlighter";
 
 /**
- * Headline Impact Post Theme (Phase 7 - Inspired by Habesha Diaspora / Modern News Broadcast).
+ * Headline Impact Post Theme (Mega Text Dominance).
  *
- * Features:
- * 1. Full-bleed dramatic editorial background photo in the upper 60%.
- * 2. Seamless deep ink-black horizon fade.
- * 3. Prestigious ET hexagonal monogram badge + stacked "ETHIOPIAN TIMES" brandmark.
- * 4. Mega-scale bold condensed uppercase headline with dual-tone punchline highlight.
- * 5. Minimalist bottom-left "↓ Read the caption" call-to-action.
+ * Visual Specifications:
+ * 1. Speaker / Subject photo fills the upper canvas (64%-74%).
+ * 2. 3-stage dark horizon scrim with linear falloff into solid black.
+ * 3. Left-aligned ET Hexagon Monogram Emblem + stacked bold condensed "ETHIOPIAN / TIMES".
+ * 4. Ultra-bold condensed Anton/Impact poster typography (fontSize: ~118px, lineHeight: 0.90).
+ *    In Amharic: Noto Sans Ethiopic Weight 900 (Black) with 1.14 line-height & diacritic clearance.
+ * 5. Dual-tone color split: crisp white (#FFFFFF) setup text + curated punchline highlights.
+ * 6. Bottom-left crimson downward arrow (↓) with stacked "Read the / caption" (መግለጫውን / ያንብቡ) call to action.
  */
 export function HeadlineImpactPost({
   format,
   data,
   highlightColor,
+  highlightMode,
+  highlightIndices,
 }: {
   format: InstagramFormat;
   data: PostTemplateData;
   highlightColor?: string;
+  highlightMode?: HighlightMode;
+  highlightIndices?: number[];
 }) {
   const { width, height, safeMargin } = FORMATS[format];
   const isAmharic = isEthiopic(data.headline) || isEthiopic(data.dek);
 
-  // Dynamic Headline dual-color split:
-  // White for primary context, electric highlight for the punchline / final words
-  const words = (data.headline || "").trim().split(/\s+/);
-  let whiteWords: string[] = [];
-  let highlightWords: string[] = [];
-
-  if (words.length <= 2) {
-    whiteWords = [words[0] || ""];
-    highlightWords = words.slice(1);
-  } else if (words.length <= 4) {
-    whiteWords = words.slice(0, words.length - 1);
-    highlightWords = words.slice(words.length - 1);
-  } else if (words.length <= 8) {
-    whiteWords = words.slice(0, words.length - 2);
-    highlightWords = words.slice(words.length - 2);
-  } else {
-    // For longer headlines (e.g. 9+ words), highlight the last 3 words
-    whiteWords = words.slice(0, words.length - 3);
-    highlightWords = words.slice(words.length - 3);
-  }
-
-  // Accent color: defaults to electric sky cyan (#52B8ED) or post accent
+  // Accent color: defaults to electric cyan (#00F0FF) or post accent
   const defaultHighlight =
     data.accent === "gold"
-      ? "#FBBF24"
+      ? "#FFB800"
       : data.accent === "red"
-      ? "#F87171"
+      ? "#FF385C"
       : data.accent === "green"
-      ? "#4ADE80"
-      : "#52B8ED";
+      ? "#00F5A0"
+      : "#00F0FF";
 
   const activeHighlight = highlightColor || defaultHighlight;
 
+  // Multi-position headline segmentation
+  const effectiveMode = highlightMode || data.highlightMode || "auto";
+  const effectiveIndices = highlightIndices || data.highlightIndices;
+
+  const { segments, cleanHeadline } = parseHeadlineSegments(data.headline, {
+    mode: effectiveMode,
+    customIndices: effectiveIndices,
+  });
+
   // Responsive headline typography per format
-  const totalLength = (data.headline || "").length;
+  const totalLength = cleanHeadline.length;
   let baseFontSize = 118;
   if (totalLength > 80) {
     baseFontSize = 96;
@@ -265,12 +260,17 @@ export function HeadlineImpactPost({
             wordBreak: "break-word",
           }}
         >
-          <span style={{ color: "#FFFFFF" }}>
-            {whiteWords.join(" ")}{" "}
-          </span>
-          <span style={{ color: activeHighlight }}>
-            {highlightWords.join(" ")}
-          </span>
+          {segments.map((seg, idx) => (
+            <span
+              key={idx}
+              style={{
+                color: seg.isHighlight ? activeHighlight : "#FFFFFF",
+              }}
+            >
+              {seg.text}
+              {idx < segments.length - 1 ? " " : ""}
+            </span>
+          ))}
         </h1>
       </div>
 

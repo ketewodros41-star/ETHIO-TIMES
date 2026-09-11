@@ -3,72 +3,66 @@ import type { PostTemplateData } from "./PostTemplate";
 import { FORMATS, type InstagramFormat } from "./formats";
 import { CountryFlagBadge, resolveCountryCode } from "@/components/country-flag";
 import { isEthiopic } from "./primitives";
+import { parseHeadlineSegments, type HighlightMode } from "./headline-highlighter";
 
 /**
- * Country Spotlight Theme (Exact Replica of Habesha Diaspora Country-Flag Broadcast Style).
+ * Country Spotlight Post Theme (Phase 7 - National / Pan-African Identity).
  *
  * Visual Specifications:
- * 1. Dramatic subject portrait in upper canvas with atmospheric lighting and depth.
- * 2. Signature Circular Country Flag Badge with crisp white border ring and floating shadow.
+ * 1. Full-bleed speaker / subject photo in the upper canvas (64%-74%).
+ * 2. 3-stage dark horizon scrim with linear falloff into solid black.
  * 3. Left-aligned ET Hexagon Monogram Emblem + stacked bold condensed "ETHIOPIAN / TIMES".
- * 4. Anton/Impact heavy poster headline with white context + electric cyan action/venue.
- *    In Amharic: Noto Sans Ethiopic 900 with 1.14 line-height & diacritic clearance.
- * 5. Format-responsive photo bleed and progressive horizon scrim (no flat voids or bottom stacking).
- * 6. Bottom-left crimson downward arrow (↓) with stacked "Read the / caption" (መግለጫውን / ያንብቡ).
+ * 4. National flag indicator chip highlighting country focus (e.g. 🇪🇹 Ethiopia, 🇰🇪 Kenya, 🇷🇼 Rwanda).
+ * 5. Ultra-bold condensed Anton/Impact poster typography (fontSize: ~118px, lineHeight: 0.90).
+ *    In Amharic: Noto Sans Ethiopic Weight 900 (Black) with 1.14 line-height & diacritic clearance.
+ * 6. Dual-tone color split: crisp white (#FFFFFF) setup text + curated punchline highlights.
+ * 7. Bottom-left crimson downward arrow (↓) with stacked "Read the / caption" (መግለጫውን / ያንብቡ) call to action.
  */
 export function CountrySpotlightPost({
   format,
   data,
   highlightColor,
+  highlightMode,
+  highlightIndices,
   country,
 }: {
   format: InstagramFormat;
   data: PostTemplateData;
   highlightColor?: string;
+  highlightMode?: HighlightMode;
+  highlightIndices?: number[];
   country?: string;
 }) {
   const { width, height } = FORMATS[format];
   const isAmharic = isEthiopic(data.headline) || isEthiopic(data.dek);
 
   // Signature electric cyan / sky blue from broadcast reference
-  const defaultCyan = "#52B8ED";
+  const defaultCyan = "#00F0FF";
   const activeHighlight =
     highlightColor ||
     (data.accent === "gold"
-      ? "#FBBF24"
+      ? "#FFB800"
       : data.accent === "red"
-      ? "#F87171"
+      ? "#FF385C"
       : data.accent === "green"
-      ? "#4ADE80"
+      ? "#00F5A0"
       : defaultCyan);
 
   // Country resolution: prop > data.country > detected from headline/category
   const detectedCountry = country || data.country || `${data.headline || ""} ${data.category || ""}`;
   const countryCode = resolveCountryCode(detectedCountry);
 
-  // Dynamic Headline dual-color split:
-  // Context/subject words in white, key action/location in electric cyan
-  const words = (data.headline || "").trim().split(/\s+/).filter(Boolean);
-  let whiteWords: string[] = [];
-  let highlightWords: string[] = [];
+  // Multi-position headline segmentation
+  const effectiveMode = highlightMode || data.highlightMode || "auto";
+  const effectiveIndices = highlightIndices || data.highlightIndices;
 
-  if (words.length <= 2) {
-    whiteWords = [words[0] || ""];
-    highlightWords = words.slice(1);
-  } else if (words.length <= 4) {
-    whiteWords = words.slice(0, words.length - 1);
-    highlightWords = words.slice(words.length - 1);
-  } else if (words.length <= 7) {
-    whiteWords = words.slice(0, words.length - 2);
-    highlightWords = words.slice(words.length - 2);
-  } else {
-    // 8+ words: highlight the final 3 words (often location or punchline, e.g. "IN ADDIS ABABA")
-    whiteWords = words.slice(0, words.length - 3);
-    highlightWords = words.slice(words.length - 3);
-  }
+  const { segments, cleanHeadline } = parseHeadlineSegments(data.headline, {
+    mode: effectiveMode,
+    customIndices: effectiveIndices,
+  });
 
   // Responsive headline font sizing based on length
-  const totalLength = (data.headline || "").length;
+  const totalLength = cleanHeadline.length;
   let baseFontSize = 118;
   if (totalLength > 80) {
     baseFontSize = 96;
@@ -303,12 +297,17 @@ export function CountrySpotlightPost({
             wordBreak: "break-word",
           }}
         >
-          <span style={{ color: "#FFFFFF" }}>
-            {whiteWords.join(" ")}{" "}
-          </span>
-          <span style={{ color: activeHighlight }}>
-            {highlightWords.join(" ")}
-          </span>
+          {segments.map((seg, idx) => (
+            <span
+              key={idx}
+              style={{
+                color: seg.isHighlight ? activeHighlight : "#FFFFFF",
+              }}
+            >
+              {seg.text}
+              {idx < segments.length - 1 ? " " : ""}
+            </span>
+          ))}
         </h1>
 
         {/* 6. Footer: Crimson Downward Arrow + "Read the caption" / "መግለጫውን ያንብቡ" */}

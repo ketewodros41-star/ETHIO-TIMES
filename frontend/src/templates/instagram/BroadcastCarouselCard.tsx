@@ -2,6 +2,7 @@ import { tokens } from "@/lib/design-tokens";
 import { FORMATS, type InstagramFormat } from "./formats";
 import type { CarouselSlideData } from "./CarouselCard";
 import { isEthiopic } from "./primitives";
+import { parseHeadlineSegments, type HighlightMode, type HeadlineSegment } from "./headline-highlighter";
 
 /**
  * Broadcast Impact Carousel Slide (5-Page Deck).
@@ -16,9 +17,9 @@ import { isEthiopic } from "./primitives";
 export function BroadcastCarouselCard({
   format = "portrait",
   slide,
-  category = "ETHIOPIAN TIMES",
+  category,
   dateLabel,
-  highlightColor = "#52B8ED",
+  highlightColor = "#00F0FF",
 }: {
   format?: InstagramFormat;
   slide: CarouselSlideData;
@@ -36,21 +37,11 @@ export function BroadcastCarouselCard({
 
   const padSlide = (n: number) => String(n).padStart(2, "0");
 
-  // Dynamic Headline split for cover or slide headers
-  const words = (slide.header || "").trim().split(/\s+/).filter(Boolean);
-  let whiteWords: string[] = [];
-  let highlightWords: string[] = [];
-
-  if (words.length <= 2) {
-    whiteWords = [words[0] || ""];
-    highlightWords = words.slice(1);
-  } else if (words.length <= 5) {
-    whiteWords = words.slice(0, words.length - 1);
-    highlightWords = words.slice(words.length - 1);
-  } else {
-    whiteWords = words.slice(0, words.length - 2);
-    highlightWords = words.slice(words.length - 2);
-  }
+  // Multi-position headline segmentation
+  const { segments } = parseHeadlineSegments(slide.header, {
+    mode: (slide as any).highlightMode || "auto",
+    customIndices: (slide as any).highlightIndices,
+  });
 
   // Type-specific slide badges
   const slideBadges: Record<string, string> = {
@@ -300,8 +291,17 @@ export function BroadcastCarouselCard({
             wordBreak: "break-word",
           }}
         >
-          <span style={{ color: "#FFFFFF" }}>{whiteWords.join(" ")} </span>
-          <span style={{ color: activeHighlight }}>{highlightWords.join(" ")}</span>
+          {segments.map((seg, idx) => (
+            <span
+              key={idx}
+              style={{
+                color: seg.isHighlight ? activeHighlight : "#FFFFFF",
+              }}
+            >
+              {seg.text}
+              {idx < segments.length - 1 ? " " : ""}
+            </span>
+          ))}
         </h1>
 
         {/* Short Statement / Body Text (Slides 2, 4, 5) */}

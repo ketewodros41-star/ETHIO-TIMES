@@ -2,6 +2,7 @@ import { tokens } from "@/lib/design-tokens";
 import type { PostTemplateData } from "./PostTemplate";
 import { FORMATS, type InstagramFormat } from "./formats";
 import { isEthiopic } from "./primitives";
+import { parseHeadlineSegments, type HighlightMode } from "./headline-highlighter";
 
 /**
  * Broadcast Impact Post Theme (Exact Replica of Habesha Diaspora Broadcast Style).
@@ -12,52 +13,45 @@ import { isEthiopic } from "./primitives";
  * 3. Left-aligned ET Hexagon Monogram Emblem + stacked bold condensed "ETHIOPIAN / TIMES".
  * 4. Ultra-bold condensed Anton/Impact poster typography (fontSize: ~124px, lineHeight: 0.88).
  *    In Amharic: Noto Sans Ethiopic Weight 900 (Black) with 1.14 line-height & diacritic clearance.
- * 5. Dual-tone color split: crisp white (#FFFFFF) setup text + electric cyan (#52B8ED) punchline.
+ * 5. Dual-tone color split: crisp white (#FFFFFF) setup text + curated punchline highlights.
  * 6. Bottom-left crimson downward arrow (↓) with stacked "Read the / caption" (መግለጫውን / ያንብቡ) call to action.
  */
 export function BroadcastImpactPost({
   format,
   data,
   highlightColor,
+  highlightMode,
+  highlightIndices,
 }: {
   format: InstagramFormat;
   data: PostTemplateData;
   highlightColor?: string;
+  highlightMode?: HighlightMode;
+  highlightIndices?: number[];
 }) {
   const { width, height } = FORMATS[format];
   const isAmharic = isEthiopic(data.headline) || isEthiopic(data.dek);
 
   // Signature electric cyan/sky blue from the reference post
-  const defaultCyan = "#52B8ED";
+  const defaultCyan = "#00F0FF";
   const activeHighlight =
     highlightColor ||
     (data.accent === "gold"
-      ? "#FBBF24"
+      ? "#FFB800"
       : data.accent === "red"
-      ? "#F87171"
+      ? "#FF385C"
       : data.accent === "green"
-      ? "#4ADE80"
+      ? "#00F5A0"
       : defaultCyan);
 
-  // Dynamic word splitting into white setup + highlighted punchline
-  const words = (data.headline || "").trim().split(/\s+/).filter(Boolean);
-  let whiteWords: string[] = [];
-  let highlightWords: string[] = [];
+  // Multi-position headline segmentation
+  const effectiveMode = highlightMode || data.highlightMode || "auto";
+  const effectiveIndices = highlightIndices || data.highlightIndices;
 
-  if (words.length <= 2) {
-    whiteWords = [words[0] || ""];
-    highlightWords = words.slice(1);
-  } else if (words.length <= 4) {
-    whiteWords = words.slice(0, words.length - 1);
-    highlightWords = words.slice(words.length - 1);
-  } else if (words.length <= 8) {
-    whiteWords = words.slice(0, words.length - 2);
-    highlightWords = words.slice(words.length - 2);
-  } else {
-    // For longer headlines (e.g. 9+ words), highlight the punchline (last 2 or 3 words)
-    whiteWords = words.slice(0, words.length - 3);
-    highlightWords = words.slice(words.length - 3);
-  }
+  const { segments, cleanHeadline } = parseHeadlineSegments(data.headline, {
+    mode: effectiveMode,
+    customIndices: effectiveIndices,
+  });
 
   // Responsive headline font sizing based on length
   const totalLength = (data.headline || "").length;
@@ -268,12 +262,17 @@ export function BroadcastImpactPost({
             wordBreak: "break-word",
           }}
         >
-          <span style={{ color: "#FFFFFF" }}>
-            {whiteWords.join(" ")}{" "}
-          </span>
-          <span style={{ color: activeHighlight }}>
-            {highlightWords.join(" ")}
-          </span>
+          {segments.map((seg, idx) => (
+            <span
+              key={idx}
+              style={{
+                color: seg.isHighlight ? activeHighlight : "#FFFFFF",
+              }}
+            >
+              {seg.text}
+              {idx < segments.length - 1 ? " " : ""}
+            </span>
+          ))}
         </h1>
 
         {/* 5. Footer: Crimson Downward Arrow + "Read the caption" / "መግለጫውን ያንብቡ" */}
