@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.enums import SourceHealthStatus, SourceType
@@ -44,8 +44,12 @@ class SourceRepository:
             count_stmt = count_stmt.where(NewsSource.source_type == source_type)
         if search:
             pattern = f"%{search.lower()}%"
-            stmt = stmt.where(func.lower(NewsSource.name).like(pattern))
-            count_stmt = count_stmt.where(func.lower(NewsSource.name).like(pattern))
+            criteria = or_(
+                func.lower(NewsSource.name).like(pattern),
+                func.lower(NewsSource.slug).like(pattern),
+            )
+            stmt = stmt.where(criteria)
+            count_stmt = count_stmt.where(criteria)
 
         total = self.session.scalar(count_stmt) or 0
         stmt = stmt.order_by(NewsSource.name).limit(limit).offset(offset)

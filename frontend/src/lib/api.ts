@@ -29,7 +29,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let detail = res.statusText;
     try {
       const body = await res.json();
-      detail = body.detail ?? detail;
+      if (typeof body.detail === "string") {
+        detail = body.detail;
+      } else if (Array.isArray(body.detail)) {
+        detail = body.detail
+          .map((err: { msg?: string; message?: string }) => err.msg || err.message || JSON.stringify(err))
+          .join("; ");
+      } else if (body.detail) {
+        detail = JSON.stringify(body.detail);
+      }
     } catch {
       /* ignore */
     }
@@ -113,6 +121,8 @@ export const api = {
     name: string;
     website?: string;
     rss_url?: string;
+    telegram_username?: string;
+    telegram_url?: string;
     source_type: string;
     crawl_frequency_minutes?: number;
     is_active?: boolean;

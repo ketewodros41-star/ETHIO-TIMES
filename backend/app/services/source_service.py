@@ -54,9 +54,18 @@ class SourceService:
 
         data = payload.model_dump()
         slug = payload.slug or re.sub(r"[^a-z0-9]+", "-", payload.name.lower()).strip("-")
+        if not slug:
+            slug = f"source-{uuid.uuid4().hex[:8]}"
+
+        original_slug = slug
+        counter = 1
+        while self.repo.get_by_slug(slug) is not None:
+            slug = f"{original_slug[:220]}-{uuid.uuid4().hex[:6]}"
+            counter += 1
+            if counter > 10:
+                break
         data["slug"] = slug
-        if self.repo.get_by_slug(slug) is not None:
-            raise SourceAlreadyExistsError(slug)
+
         source = NewsSource(**data)
         try:
             self.repo.create(source)

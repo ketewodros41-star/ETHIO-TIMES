@@ -5,9 +5,81 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import SourceHealthStatus, SourceType, VerificationStatus
+
+_SOURCE_TYPE_ALIASES: dict[str, SourceType] = {
+    # RSS and web media
+    "rss_feed": SourceType.independent_media,
+    "rss": SourceType.independent_media,
+    "feed": SourceType.independent_media,
+    "news_site": SourceType.independent_media,
+    "website": SourceType.independent_media,
+    "web": SourceType.independent_media,
+    "fact_checker": SourceType.independent_media,
+    "blog": SourceType.independent_media,
+    "online_media": SourceType.independent_media,
+    # Telegram channels
+    "telegram": SourceType.telegram_channel,
+    "tg": SourceType.telegram_channel,
+    "telegram_channel": SourceType.telegram_channel,
+    "tg_channel": SourceType.telegram_channel,
+    # Government and ministries
+    "government_portal": SourceType.government,
+    "gov": SourceType.government,
+    "government": SourceType.government,
+    "ministry": SourceType.government,
+    "agency": SourceType.government_agency,
+    "government_agency": SourceType.government_agency,
+    # Public broadcasters & state media
+    "public_broadcaster": SourceType.public_broadcaster,
+    "broadcaster": SourceType.public_broadcaster,
+    "tv": SourceType.public_broadcaster,
+    "radio": SourceType.public_broadcaster,
+    "state_media": SourceType.public_broadcaster,
+    # National agencies
+    "national_news_agency": SourceType.national_news_agency,
+    "national_agency": SourceType.national_news_agency,
+    "ena": SourceType.national_news_agency,
+    # Business and finance
+    "business_media": SourceType.business_media,
+    "business": SourceType.business_media,
+    "economy": SourceType.business_media,
+    "finance": SourceType.business_media,
+    "commercial": SourceType.business_media,
+    # International media & wires
+    "international_wire": SourceType.international_wire,
+    "wire": SourceType.international_wire,
+    "international_media": SourceType.international_media,
+    "international": SourceType.international_media,
+    # Research & financial institutions
+    "research_institution": SourceType.research_institution,
+    "research": SourceType.research_institution,
+    "academic": SourceType.research_institution,
+    "financial_institution": SourceType.financial_institution,
+    "bank": SourceType.financial_institution,
+    "social_signal": SourceType.social_signal,
+    "social": SourceType.social_signal,
+}
+
+
+def normalize_source_type_value(v: Any) -> Any:
+    if v is None:
+        return None
+    if isinstance(v, SourceType):
+        return v
+    if isinstance(v, str):
+        clean = v.strip().lower()
+        if clean in _SOURCE_TYPE_ALIASES:
+            return _SOURCE_TYPE_ALIASES[clean]
+        try:
+            return SourceType(clean)
+        except ValueError:
+            return SourceType.independent_media
+    return v
 
 
 class SourceBase(BaseModel):
@@ -31,6 +103,11 @@ class SourceBase(BaseModel):
     verification_notes: str | None = None
     is_active: bool = True
     crawl_frequency_minutes: int = 30
+
+    @field_validator("source_type", mode="before")
+    @classmethod
+    def validate_source_type(cls, v: Any) -> Any:
+        return normalize_source_type_value(v)
 
 
 class SourceCreate(SourceBase):
@@ -59,6 +136,11 @@ class SourceUpdate(BaseModel):
     verification_notes: str | None = None
     is_active: bool | None = None
     crawl_frequency_minutes: int | None = None
+
+    @field_validator("source_type", mode="before")
+    @classmethod
+    def validate_source_type(cls, v: Any) -> Any:
+        return normalize_source_type_value(v)
 
 
 class SourceRead(SourceBase):

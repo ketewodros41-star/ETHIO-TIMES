@@ -12,7 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { HealthDot, VerificationBadge } from "@/components/status";
 import { relativeTime } from "@/lib/utils";
-import type { Source } from "@/lib/types";
+import type { Source, SourceType } from "@/lib/types";
 
 export function SourcesContent() {
   const qc = useQueryClient();
@@ -26,7 +26,8 @@ export function SourcesContent() {
   const [newName, setNewName] = useState("");
   const [newWebsite, setNewWebsite] = useState("");
   const [newRssUrl, setNewRssUrl] = useState("");
-  const [newType, setNewType] = useState("rss_feed");
+  const [newTelegram, setNewTelegram] = useState("");
+  const [newType, setNewType] = useState<SourceType>("independent_media");
   const [newFreq, setNewFreq] = useState(30);
 
   const { data, isLoading } = useQuery({
@@ -76,22 +77,33 @@ export function SourcesContent() {
   });
 
   const createSource = useMutation({
-    mutationFn: () =>
-      api.createSource({
+    mutationFn: () => {
+      let tgUsername: string | undefined = undefined;
+      let tgUrl: string | undefined = undefined;
+      if (newTelegram.trim()) {
+        const clean = newTelegram.trim().replace(/^@/, "").replace(/^https?:\/\/t\.me\//, "");
+        tgUsername = clean;
+        tgUrl = `https://t.me/${clean}`;
+      }
+      return api.createSource({
         name: newName.trim(),
         website: newWebsite.trim() || undefined,
         rss_url: newRssUrl.trim() || undefined,
+        telegram_username: tgUsername,
+        telegram_url: tgUrl,
         source_type: newType,
         crawl_frequency_minutes: Number(newFreq) || 30,
         is_active: true,
-      }),
+      });
+    },
     onSuccess: (src) => {
       setShowAddModal(false);
       setNewName("");
       setNewWebsite("");
       setNewRssUrl("");
+      setNewTelegram("");
       flash(`Source "${src.name}" added successfully.`);
-      void qc.invalidateQueries({ queryKey: ["sources"] });
+      scheduleSync();
     },
     onError: (e: Error) => flash(`Failed to add source: ${e.message}`),
   });
@@ -186,13 +198,20 @@ export function SourcesContent() {
                   <select
                     className="w-full h-9 rounded-card border border-ink-600 bg-ink-800 px-3 text-sm text-paper-50 focus:outline-none focus:border-accent-green"
                     value={newType}
-                    onChange={(e) => setNewType(e.target.value)}
+                    onChange={(e) => setNewType(e.target.value as SourceType)}
                   >
-                    <option value="rss_feed">RSS Feed</option>
-                    <option value="news_site">News Site</option>
-                    <option value="telegram_channel">Telegram Channel</option>
-                    <option value="government_portal">Government Portal</option>
-                    <option value="fact_checker">Fact Checker</option>
+                    <option value="independent_media">Independent Media / News Site</option>
+                    <option value="national_news_agency">National News Agency (e.g. ENA)</option>
+                    <option value="public_broadcaster">Public Broadcaster (e.g. EBC, FBC, OBN)</option>
+                    <option value="business_media">Business & Financial (e.g. Fortune, Capital)</option>
+                    <option value="telegram_channel">Telegram Channel (e.g. Tikvah Ethiopia)</option>
+                    <option value="government">Government / Ministry Portal</option>
+                    <option value="government_agency">Government Agency / Commission</option>
+                    <option value="international_wire">International Wire (Reuters, AP, AFP)</option>
+                    <option value="international_media">International Media (BBC, Al Jazeera)</option>
+                    <option value="research_institution">Research / Policy Think Tank</option>
+                    <option value="financial_institution">Financial Institution (NBE, Commercial)</option>
+                    <option value="social_signal">Social Signal / Community</option>
                   </select>
                 </div>
 
@@ -210,9 +229,39 @@ export function SourcesContent() {
                 </div>
               </div>
 
+              {newType === "telegram_channel" ? (
+                <div>
+                  <label className="block text-xs uppercase font-mono tracking-label text-paper-400 mb-1">
+                    Telegram Channel / Username *
+                  </label>
+                  <Input
+                    placeholder="@tikvahethiopia or https://t.me/tikvahethiopia"
+                    value={newTelegram}
+                    onChange={(e) => setNewTelegram(e.target.value)}
+                  />
+                  <span className="text-[11px] text-paper-500 mt-1 block">
+                    Public Telegram channel handle or invitation link
+                  </span>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs uppercase font-mono tracking-label text-paper-400 mb-1">
+                    RSS Feed URL (optional)
+                  </label>
+                  <Input
+                    placeholder="https://addisstandard.com/feed"
+                    value={newRssUrl}
+                    onChange={(e) => setNewRssUrl(e.target.value)}
+                  />
+                  <span className="text-[11px] text-paper-500 mt-1 block">
+                    Direct XML/RSS endpoint for automated live sync
+                  </span>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs uppercase font-mono tracking-label text-paper-400 mb-1">
-                  Website URL
+                  Website URL {newType === "telegram_channel" ? "(optional)" : ""}
                 </label>
                 <Input
                   placeholder="https://addisstandard.com"
@@ -221,16 +270,11 @@ export function SourcesContent() {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs uppercase font-mono tracking-label text-paper-400 mb-1">
-                  RSS Feed URL (optional)
-                </label>
-                <Input
-                  placeholder="https://addisstandard.com/feed"
-                  value={newRssUrl}
-                  onChange={(e) => setNewRssUrl(e.target.value)}
-                />
-              </div>
+              {createSource.isError && (
+                <div className="p-3 rounded-card bg-red-950/40 border border-red-800/60 text-xs text-red-300">
+                  {createSource.error.message}
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
@@ -243,7 +287,11 @@ export function SourcesContent() {
               </Button>
               <Button
                 size="sm"
-                disabled={!newName.trim() || createSource.isPending}
+                disabled={
+                  !newName.trim() ||
+                  (newType === "telegram_channel" && !newTelegram.trim()) ||
+                  createSource.isPending
+                }
                 onClick={() => createSource.mutate()}
               >
                 {createSource.isPending ? "Adding…" : "Add Source"}
