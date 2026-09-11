@@ -76,6 +76,11 @@ export const api = {
 
   getArticle: (id: string) => request<Article>(`/articles/${id}`),
 
+  ensureArticleEvent: (articleId: string) =>
+    request<NewsEvent>(`/articles/${articleId}/ensure-event`, {
+      method: "POST",
+    }),
+
   triggerIngest: (source_id?: string) =>
     request<IngestTriggerResponse>("/ingest/trigger", {
       method: "POST",

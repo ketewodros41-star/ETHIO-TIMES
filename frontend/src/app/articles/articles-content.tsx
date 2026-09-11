@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, ExternalLink, Palette, Radio, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
@@ -36,10 +37,27 @@ const ARTICLE_SORTS: { value: string; label: string }[] = [
 ];
 
 export function ArticlesContent() {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [category, setCategory] = useState("");
   const [sort, setSort] = useState("newest");
+  const [connectingArticleId, setConnectingArticleId] = useState<string | null>(null);
+
+  const handleStudioNavigate = async (e: React.MouseEvent, article: any, fallbackUrl: string) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+    if (article.event_id) return;
+    e.preventDefault();
+    setConnectingArticleId(article.id);
+    try {
+      const event = await api.ensureArticleEvent(article.id);
+      router.push(`/studio/templates?event_id=${event.id}`);
+    } catch {
+      router.push(fallbackUrl);
+    } finally {
+      setConnectingArticleId(null);
+    }
+  };
 
   const { data: sourcesData } = useQuery({
     queryKey: ["sources"],
@@ -207,7 +225,11 @@ export function ArticlesContent() {
                       <Badge variant="muted">{a.detected_language}</Badge>
                     )}
                   </div>
-                  <Link href={studioUrl} className="group inline-block">
+                  <Link
+                    href={studioUrl}
+                    onClick={(e) => handleStudioNavigate(e, a, studioUrl)}
+                    className="group inline-block"
+                  >
                     <h3 className="font-display text-lg font-medium leading-snug text-paper-50 group-hover:text-accent-green transition-colors">
                       {a.title ?? "(untitled)"}
                     </h3>
@@ -243,11 +265,23 @@ export function ArticlesContent() {
                     <div className="flex items-center gap-2">
                       <Link
                         href={studioUrl}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-accent-green/10 text-accent-green hover:bg-accent-green hover:text-ink-950 border border-accent-green/30 text-xs font-semibold transition-all shadow-xs"
+                        onClick={(e) => handleStudioNavigate(e, a, studioUrl)}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-accent-green/10 text-accent-green hover:bg-accent-green hover:text-ink-950 border border-accent-green/30 text-xs font-semibold transition-all shadow-xs ${
+                          connectingArticleId === a.id ? "opacity-75 cursor-wait" : ""
+                        }`}
                         title="Open and compose 4K social card in Photo Studio"
                       >
-                        <Palette className="h-3.5 w-3.5" />
-                        <span>Photo Studio →</span>
+                        {connectingArticleId === a.id ? (
+                          <>
+                            <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                            <span>Connecting…</span>
+                          </>
+                        ) : (
+                          <>
+                            <Palette className="h-3.5 w-3.5" />
+                            <span>Photo Studio →</span>
+                          </>
+                        )}
                       </Link>
                     </div>
                   </div>

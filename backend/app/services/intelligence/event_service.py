@@ -66,25 +66,42 @@ class EventService:
         self._recompute(event)
         return event
 
+    def ensure_event_for_article(self, article: Article) -> NewsEvent:
+        """Return the event the article belongs to, or create a new event anchored on it."""
+        existing = self.repo.event_for_article(article.id)
+        if existing is not None:
+            return existing
+        event = self._create_event(article)
+        self.session.commit()
+        return event
+
     # -- creation & attachment --------------------------------------------- #
     def _create_event(self, primary: Article) -> NewsEvent:
         existing = self.repo.event_for_article(primary.id)
         if existing is not None:
             return existing
 
-        category = primary.analysis.category if primary.analysis else None
-        entities = list(primary.analysis.entity_names) if primary.analysis else []
+        category = (
+            primary.analysis.category
+            if primary.analysis and primary.analysis.category
+            else (primary.categories[0] if primary.categories else None)
+        )
+        entities = list(primary.analysis.entity_names) if primary.analysis and primary.analysis.entity_names else []
         occurred = _event_time(primary)
         event = NewsEvent(
             title=primary.title or "(untitled event)",
-            summary=(primary.analysis.summary if primary.analysis else primary.summary),
+            summary=(
+                primary.analysis.summary
+                if primary.analysis and primary.analysis.summary
+                else primary.summary
+            ),
             slug=_slugify(primary.title or ""),
             status=EventStatus.developing,
             primary_category=category,
             primary_region=primary.primary_region,
-            categories=[category] if category else [],
+            categories=primary.categories if primary.categories else ([category] if category else []),
             key_entities=entities[:25],
-            significance_score=float(primary.importance_score or 0.0),
+            significance_score=float(primary.importance_score or primary.relevance_score or 0.0),
             cluster_confidence=1.0,
             first_seen_at=occurred,
             last_seen_at=occurred,

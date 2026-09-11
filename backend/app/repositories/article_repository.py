@@ -35,7 +35,11 @@ class ArticleRepository:
     def get_with_source(self, article_id: uuid.UUID) -> Article | None:
         return self.session.scalar(
             select(Article)
-            .options(selectinload(Article.source), selectinload(Article.analysis))
+            .options(
+                selectinload(Article.source),
+                selectinload(Article.analysis),
+                selectinload(Article.event_links),
+            )
             .where(Article.id == article_id)
         )
 

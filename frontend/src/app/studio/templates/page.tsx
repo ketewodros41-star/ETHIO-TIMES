@@ -881,8 +881,41 @@ function StudioContent() {
     enabled: !!queryArticleId && !queryEventId,
   });
 
+  const { data: ensuredEvent, isLoading: isEnsuringEvent } = useQuery({
+    queryKey: ["studio_ensure_article_event", queryArticleId],
+    queryFn: () => api.ensureArticleEvent(queryArticleId),
+    enabled: !!queryArticleId && !queryEventId,
+  });
+
   useEffect(() => {
-    if (articleData && !selectedEventId) {
+    if (ensuredEvent && !selectedEventId) {
+      setSelectedEventId(ensuredEvent.id);
+      if (ensuredEvent.title && !customHeadline) {
+        setCustomHeadline(ensuredEvent.title);
+      }
+      if (ensuredEvent.summary && !customDek) {
+        setCustomDek(ensuredEvent.summary);
+      }
+      if (ensuredEvent.primary_category && !customCategory) {
+        setCustomCategory(ensuredEvent.primary_category);
+      }
+      const textToScan = `${ensuredEvent.title || ""} ${ensuredEvent.summary || ""}`;
+      const code = resolveCountryCode(textToScan);
+      const matched = POPULAR_COUNTRIES.find((c) => c.code === code);
+      if (matched) {
+        setSelectedCountry(matched.label);
+      }
+    }
+  }, [ensuredEvent, selectedEventId, customHeadline, customDek, customCategory]);
+
+  useEffect(() => {
+    if (articleData?.image_url && !customImageUrl) {
+      setCustomImageUrl(articleData.image_url);
+    }
+  }, [articleData, customImageUrl]);
+
+  useEffect(() => {
+    if (articleData && !selectedEventId && !ensuredEvent) {
       if (articleData.event_id) {
         setSelectedEventId(articleData.event_id);
       } else {
@@ -902,7 +935,7 @@ function StudioContent() {
         }
       }
     }
-  }, [articleData, selectedEventId]);
+  }, [articleData, selectedEventId, ensuredEvent]);
 
   const { data: eventsData } = useQuery({
     queryKey: ["studio_events"],
@@ -950,15 +983,31 @@ function StudioContent() {
     visualAssets.find((a) => a.is_selected) ||
     visualAssets[0];
 
+  const resolveTargetEventId = async (): Promise<string> => {
+    if (selectedEventId) return selectedEventId;
+    if (queryArticleId) {
+      const res = await api.ensureArticleEvent(queryArticleId);
+      setSelectedEventId(res.id);
+      return res.id;
+    }
+    throw new Error("Please select a news event first");
+  };
+
   const generateVisualMutation = useMutation({
-    mutationFn: () => postsApi.generateAsset(selectedEventId),
+    mutationFn: async () => {
+      const evId = await resolveTargetEventId();
+      return postsApi.generateAsset(evId);
+    },
     onSuccess: () => {
       setTimeout(() => refetchAssets(), 3000);
     },
   });
 
   const fetchRealPhotoMutation = useMutation({
-    mutationFn: () => postsApi.fetchArticlePhoto(selectedEventId),
+    mutationFn: async () => {
+      const evId = await resolveTargetEventId();
+      return postsApi.fetchArticlePhoto(evId);
+    },
     onSuccess: (data) => {
       if (data?.post_id) {
         setSelectedAssetId(data.post_id);
@@ -968,6 +1017,18 @@ function StudioContent() {
       setTimeout(() => refetchAssets(), 1200);
     },
   });
+
+  const handleOpenPhotoSearch = async () => {
+    if (!selectedEventId && queryArticleId) {
+      try {
+        const res = await api.ensureArticleEvent(queryArticleId);
+        setSelectedEventId(res.id);
+      } catch (err) {
+        console.error("Failed to ensure event for photo search:", err);
+      }
+    }
+    setShowPhotoSearch(true);
+  };
 
   const selectAssetMutation = useMutation({
     mutationFn: (assetId: string) => postsApi.selectAsset(assetId),
@@ -1293,6 +1354,11 @@ function StudioContent() {
                     className="w-full h-10 rounded-card border border-ink-600 bg-ink-800 px-3 text-sm text-paper-50 focus:border-accent-green focus:outline-none"
                   >
                     <option value="">-- Choose an Event ({events.length} available) --</option>
+                    {activeEvent && !events.some((e) => e.id === activeEvent.id) && (
+                      <option value={activeEvent.id}>
+                        [{activeEvent.primary_category || "General"}] {activeEvent.title.slice(0, 65)}... (Score: {activeEvent.verification_score})
+                      </option>
+                    )}
                     {events.map((e) => (
                       <option key={e.id} value={e.id}>
                         [{e.primary_category || "General"}] {e.title.slice(0, 65)}... (Score: {e.verification_score})
@@ -1485,68 +1551,86 @@ function StudioContent() {
               <CardContent className="space-y-4">
 
                 {/* PRIMARY 2-BUTTON IMAGE SOURCE ROW */}
-                <div className="grid grid-cols-2 gap-3">
+                {(() => {
+                  const canActOnVisuals = Boolean(selectedEventId || queryArticleId);
+                  return (
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* LEFT: AI Generate button */}
+                      <button
+                        disabled={!canActOnVisuals || isLoadingImage || isEnsuringEvent}
+                        onClick={() => generateVisualMutation.mutate()}
+                        className={`flex flex-col items-start gap-2 px-4 py-3.5 rounded-card border-2 transition-all text-left w-full ${
+                          generateVisualMutation.isPending || isEnsuringEvent
+                            ? "border-purple-600 bg-purple-950/30 cursor-wait"
+                            : "border-ink-600 hover:border-purple-500 hover:bg-purple-950/20 active:scale-[0.98] cursor-pointer"
+                        } ${!canActOnVisuals ? "opacity-40 cursor-not-allowed" : ""}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          {generateVisualMutation.isPending || isEnsuringEvent ? (
+                            <RefreshCw className="h-4 w-4 animate-spin text-purple-400 shrink-0" />
+                          ) : (
+                            <Bot className="h-4 w-4 text-purple-400 shrink-0" />
+                          )}
+                          <span className="text-xs font-semibold text-paper-100">
+                            {generateVisualMutation.isPending
+                              ? "Generating..."
+                              : isEnsuringEvent
+                              ? "Connecting..."
+                              : "AI Generate"}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-paper-500 leading-relaxed">
+                          Story-matched image via FLUX. Prompt built from story location, subject & mood.
+                        </p>
+                        <span className="text-[9px] font-mono text-purple-400 bg-purple-900/30 px-1.5 py-0.5 rounded">
+                          ~7-10 sec · Free · FLUX
+                        </span>
+                      </button>
 
-                  {/* LEFT: AI Generate button */}
-                  <button
-                    disabled={!selectedEventId || isLoadingImage}
-                    onClick={() => generateVisualMutation.mutate()}
-                    className={`flex flex-col items-start gap-2 px-4 py-3.5 rounded-card border-2 transition-all text-left w-full ${
-                      generateVisualMutation.isPending
-                        ? "border-purple-600 bg-purple-950/30 cursor-wait"
-                        : "border-ink-600 hover:border-purple-500 hover:bg-purple-950/20 active:scale-[0.98] cursor-pointer"
-                    } ${!selectedEventId ? "opacity-40 cursor-not-allowed" : ""}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      {generateVisualMutation.isPending
-                        ? <RefreshCw className="h-4 w-4 animate-spin text-purple-400 shrink-0" />
-                        : <Bot className="h-4 w-4 text-purple-400 shrink-0" />
-                      }
-                      <span className="text-xs font-semibold text-paper-100">
-                        {generateVisualMutation.isPending ? "Generating..." : "AI Generate"}
-                      </span>
+                      {/* RIGHT: Real photo buttons (stacked) */}
+                      <div className="flex flex-col gap-2">
+                        <button
+                          disabled={!canActOnVisuals || isLoadingImage || isEnsuringEvent}
+                          onClick={() => fetchRealPhotoMutation.mutate()}
+                          className={`flex items-center gap-2.5 px-3 py-3 rounded-card border-2 transition-all w-full text-left ${
+                            fetchRealPhotoMutation.isPending || isEnsuringEvent
+                              ? "border-emerald-600 bg-emerald-950/30 cursor-wait"
+                              : "border-ink-600 hover:border-emerald-500 hover:bg-emerald-950/20 active:scale-[0.98] cursor-pointer"
+                          } ${!canActOnVisuals ? "opacity-40 cursor-not-allowed" : ""}`}
+                        >
+                          {fetchRealPhotoMutation.isPending || isEnsuringEvent ? (
+                            <RefreshCw className="h-4 w-4 animate-spin text-emerald-400 shrink-0" />
+                          ) : (
+                            <Newspaper className="h-4 w-4 text-emerald-400 shrink-0" />
+                          )}
+                          <div>
+                            <div className="text-xs font-semibold text-paper-100">
+                              {fetchRealPhotoMutation.isPending
+                                ? "Fetching Photo..."
+                                : isEnsuringEvent
+                                ? "Connecting..."
+                                : "Article Photo"}
+                            </div>
+                            <div className="text-[9px] text-paper-500">From news source feed</div>
+                          </div>
+                        </button>
+                        <button
+                          disabled={!canActOnVisuals || isLoadingImage}
+                          onClick={handleOpenPhotoSearch}
+                          className={`flex items-center gap-2.5 px-3 py-3 rounded-card border-2 transition-all w-full text-left border-ink-600 hover:border-blue-500 hover:bg-blue-950/20 active:scale-[0.98] cursor-pointer ${
+                            !canActOnVisuals ? "opacity-40 cursor-not-allowed" : ""
+                          }`}
+                        >
+                          <Globe className="h-4 w-4 text-blue-400 shrink-0" />
+                          <div>
+                            <div className="text-xs font-semibold text-paper-100">Browse Real Photos</div>
+                            <div className="text-[9px] text-paper-500">Multi-tier entity cascade</div>
+                          </div>
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-[10px] text-paper-500 leading-relaxed">
-                      Story-matched image via FLUX. Prompt built from story location, subject & mood.
-                    </p>
-                    <span className="text-[9px] font-mono text-purple-400 bg-purple-900/30 px-1.5 py-0.5 rounded">
-                      ~7-10 sec · Free · FLUX
-                    </span>
-                  </button>
-
-                  {/* RIGHT: Real photo buttons (stacked) */}
-                  <div className="flex flex-col gap-2">
-                    <button
-                      disabled={!selectedEventId || isLoadingImage}
-                      onClick={() => fetchRealPhotoMutation.mutate()}
-                      className={`flex items-center gap-2.5 px-3 py-3 rounded-card border-2 transition-all w-full text-left ${
-                        fetchRealPhotoMutation.isPending
-                          ? "border-emerald-600 bg-emerald-950/30 cursor-wait"
-                          : "border-ink-600 hover:border-emerald-500 hover:bg-emerald-950/20 active:scale-[0.98] cursor-pointer"
-                      } ${!selectedEventId ? "opacity-40 cursor-not-allowed" : ""}`}
-                    >
-                      {fetchRealPhotoMutation.isPending
-                        ? <RefreshCw className="h-4 w-4 animate-spin text-emerald-400 shrink-0" />
-                        : <Newspaper className="h-4 w-4 text-emerald-400 shrink-0" />
-                      }
-                      <div>
-                        <div className="text-xs font-semibold text-paper-100">Article Photo</div>
-                        <div className="text-[9px] text-paper-500">From news source feed</div>
-                      </div>
-                    </button>
-                    <button
-                      disabled={!selectedEventId || isLoadingImage}
-                      onClick={() => setShowPhotoSearch(true)}
-                      className={`flex items-center gap-2.5 px-3 py-3 rounded-card border-2 transition-all w-full text-left border-ink-600 hover:border-blue-500 hover:bg-blue-950/20 active:scale-[0.98] cursor-pointer ${!selectedEventId ? "opacity-40 cursor-not-allowed" : ""}`}
-                    >
-                      <Globe className="h-4 w-4 text-blue-400 shrink-0" />
-                      <div>
-                        <div className="text-xs font-semibold text-paper-100">Browse Real Photos</div>
-                        <div className="text-[9px] text-paper-500">Multi-tier entity cascade</div>
-                      </div>
-                    </button>
-                  </div>
-                </div>
+                  );
+                })()}
 
                 {/* Source legend */}
                 <div className="flex items-center gap-4 text-[10px] text-paper-600 font-mono">
@@ -1556,9 +1640,14 @@ function StudioContent() {
                 </div>
 
                 {/* Asset gallery */}
-                {!selectedEventId ? (
+                {!selectedEventId && !queryArticleId ? (
                   <div className="py-6 text-center text-xs text-paper-500">
                     Select a news event above to view or generate visual imagery.
+                  </div>
+                ) : isEnsuringEvent ? (
+                  <div className="py-6 text-center text-xs text-paper-400 flex items-center justify-center gap-2">
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-accent-green" />
+                    <span>Connecting article to visual studio…</span>
                   </div>
                 ) : visualAssets.length === 0 ? (
                   <div className="py-6 text-center space-y-2 rounded-card border border-dashed border-ink-700 bg-ink-900/50 p-4">

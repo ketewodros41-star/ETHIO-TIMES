@@ -11,6 +11,7 @@ from app.api.deps import get_db
 from app.models.enums import ArticleStatus
 from app.schemas.article import ArticleDetail, ArticleRead
 from app.schemas.common import Page, PageMeta
+from app.schemas.event import EventRead
 from app.services.article_service import ArticleNotFoundError, ArticleService
 
 router = APIRouter(prefix="/articles", tags=["articles"])
@@ -52,3 +53,30 @@ def get_article(article_id: uuid.UUID, session: Session = Depends(get_db)) -> Ar
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Article not found"
         ) from exc
+
+
+@router.post("/{article_id}/ensure-event", response_model=EventRead)
+def ensure_article_event(
+    article_id: uuid.UUID,
+    session: Session = Depends(get_db),
+) -> EventRead:
+    """Ensure the article is associated with a NewsEvent.
+
+    If already linked to an event, returns that event.
+    If unclustered, automatically provisions a single-article NewsEvent,
+    anchored on this article, and links it.
+    """
+    from app.schemas.event import EventRead
+    from app.services.intelligence.event_service import EventService
+
+    service = ArticleService(session)
+    try:
+        article = service.get_article(article_id)
+    except ArticleNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Article not found"
+        ) from exc
+
+    event_service = EventService(session)
+    event = event_service.ensure_event_for_article(article)
+    return EventRead.model_validate(event)
