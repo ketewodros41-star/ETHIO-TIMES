@@ -2,6 +2,7 @@ import { tokens } from "@/lib/design-tokens";
 import type { PostTemplateData } from "./PostTemplate";
 import { FORMATS, type InstagramFormat } from "./formats";
 import { CountryFlagBadge, resolveCountryCode } from "@/components/country-flag";
+import { isEthiopic } from "./primitives";
 
 /**
  * Country Spotlight Theme (Exact Replica of Habesha Diaspora Country-Flag Broadcast Style).
@@ -11,8 +12,9 @@ import { CountryFlagBadge, resolveCountryCode } from "@/components/country-flag"
  * 2. Signature Circular Country Flag Badge with crisp white border ring and floating shadow.
  * 3. Left-aligned ET Hexagon Monogram Emblem + stacked bold condensed "ETHIOPIAN / TIMES".
  * 4. Anton/Impact heavy poster headline with white context + electric cyan action/venue.
+ *    In Amharic: Noto Sans Ethiopic 900 with 1.14 line-height & diacritic clearance.
  * 5. Format-responsive photo bleed and progressive horizon scrim (no flat voids or bottom stacking).
- * 6. Bottom-left crimson downward arrow (↓) with stacked "Read the / caption".
+ * 6. Bottom-left crimson downward arrow (↓) with stacked "Read the / caption" (መግለጫውን / ያንብቡ).
  */
 export function CountrySpotlightPost({
   format,
@@ -26,6 +28,7 @@ export function CountrySpotlightPost({
   country?: string;
 }) {
   const { width, height } = FORMATS[format];
+  const isAmharic = isEthiopic(data.headline) || isEthiopic(data.dek);
 
   // Signature electric cyan / sky blue from broadcast reference
   const defaultCyan = "#52B8ED";
@@ -285,15 +288,15 @@ export function CountrySpotlightPost({
           </div>
         </div>
 
-        {/* 5. Ultra-Bold Condensed Anton/Impact Headline with Dual Split */}
+        {/* 5. Ultra-Bold Condensed Headline (Anton for Latin, Noto Sans Ethiopic 900 for Amharic) */}
         <h1
           style={{
-            fontFamily: tokens.font.poster,
+            fontFamily: isAmharic ? tokens.font.amharicPoster : tokens.font.poster,
             fontWeight: 900,
-            fontSize: layoutConfig.headlineSize,
-            lineHeight: 1.02,
-            letterSpacing: "-0.005em",
-            textTransform: "uppercase",
+            fontSize: isAmharic ? Math.round(layoutConfig.headlineSize * 0.94) : layoutConfig.headlineSize,
+            lineHeight: isAmharic ? 1.14 : 1.02,
+            letterSpacing: isAmharic ? "0em" : "-0.005em",
+            textTransform: isAmharic ? "none" : "uppercase",
             margin: "2px 0 0",
             padding: 0,
             maxWidth: "100%",
@@ -308,7 +311,7 @@ export function CountrySpotlightPost({
           </span>
         </h1>
 
-        {/* 6. Footer: Crimson Downward Arrow + "Read the caption" */}
+        {/* 6. Footer: Crimson Downward Arrow + "Read the caption" / "መግለጫውን ያንብቡ" */}
         <div
           style={{
             display: "flex",
@@ -341,15 +344,15 @@ export function CountrySpotlightPost({
               style={{
                 display: "flex",
                 flexDirection: "column",
-                fontFamily: tokens.font.sans,
-                lineHeight: 1.15,
+                fontFamily: isAmharic ? tokens.font.amharicSans : tokens.font.sans,
+                lineHeight: isAmharic ? 1.25 : 1.15,
               }}
             >
-              <span style={{ fontSize: 22, color: "#94A3B8", fontWeight: 500 }}>
-                Read the
+              <span style={{ fontSize: isAmharic ? 20 : 22, color: "#94A3B8", fontWeight: 500 }}>
+                {isAmharic ? "መግለጫውን" : "Read the"}
               </span>
-              <span style={{ fontSize: 22, color: "#FFFFFF", fontWeight: 700 }}>
-                caption
+              <span style={{ fontSize: isAmharic ? 20 : 22, color: "#FFFFFF", fontWeight: 700 }}>
+                {isAmharic ? "ያንብቡ" : "caption"}
               </span>
             </div>
           </div>

@@ -1,6 +1,14 @@
 import type { Metadata } from "next";
+import { Noto_Sans_Ethiopic } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
+
+const notoSansEthiopic = Noto_Sans_Ethiopic({
+  subsets: ["ethiopic"],
+  weight: ["400", "500", "600", "700", "800", "900"],
+  variable: "--font-ethiopic",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "ETHIOPIAN TIMES — News Intelligence & Publishing",
@@ -14,7 +22,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className={`dark ${notoSansEthiopic.variable}`}>
       <body>
         <Providers>{children}</Providers>
       </body>

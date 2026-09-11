@@ -1,16 +1,17 @@
 import { tokens } from "@/lib/design-tokens";
 import { FORMATS, type InstagramFormat } from "./formats";
 import type { CarouselSlideData } from "./CarouselCard";
+import { isEthiopic } from "./primitives";
 
 /**
  * Broadcast Impact Carousel Slide (5-Page Deck).
  *
  * Implements the Habesha broadcast aesthetic across all 5 slide types:
- * - Slide 1 (Cover): Full-bleed photo, ET monogram, Anton poster font, cyan punchline.
+ * - Slide 1 (Cover): Full-bleed photo, ET monogram, Anton poster font (or Noto Sans Ethiopic 900), cyan punchline.
  * - Slide 2 (The Facts): Big condensed headline, 1 short high-impact statement.
  * - Slide 3 (Key Points): 2-3 punchy numeric bullet points with highlighted keywords.
  * - Slide 4 (Why It Matters): Short strategic impact statement.
- * - Slide 5 (Sources & CTA): Verified source tags + signature red downward arrow "Read the caption".
+ * - Slide 5 (Sources & CTA): Verified source tags + signature red downward arrow "Read the caption" ("መግለጫውን ያንብቡ").
  */
 export function BroadcastCarouselCard({
   format = "portrait",
@@ -27,6 +28,11 @@ export function BroadcastCarouselCard({
 }) {
   const { width, height } = FORMATS[format] ?? FORMATS.portrait;
   const activeHighlight = slide.highlightColor || highlightColor;
+
+  const isAmharic =
+    isEthiopic(slide.header) ||
+    isEthiopic(slide.body_text) ||
+    Boolean(slide.bullet_points && slide.bullet_points.some((p) => isEthiopic(p)));
 
   const padSlide = (n: number) => String(n).padStart(2, "0");
 
@@ -55,7 +61,17 @@ export function BroadcastCarouselCard({
     sources: "05 · NEWS DESK VERIFIED",
   };
 
-  const badgeText = slideBadges[slide.slide_type] || `${padSlide(slide.slide_number)} · BRIEF`;
+  const amharicSlideBadges: Record<string, string> = {
+    cover: "01 · ሰበር መረጃ",
+    what_happened: "02 · ዋና ዋና ነጥቦች",
+    key_facts: "03 · የተረጋገጡ ዝርዝሮች",
+    why_it_matters: "04 · ለምን አሳሳቢ ሆነ?",
+    sources: "05 · የተረጋገጠ መረጃ",
+  };
+
+  const badgeText = isAmharic
+    ? amharicSlideBadges[slide.slide_type] || `${padSlide(slide.slide_number)} · አጭር መግለጫ`
+    : slideBadges[slide.slide_type] || `${padSlide(slide.slide_number)} · BRIEF`;
 
   // Dynamic slide font sizing (stays punchy and never overflows)
   const isCover = slide.slide_type === "cover";
@@ -272,12 +288,12 @@ export function BroadcastCarouselCard({
         {/* Header / Headline */}
         <h1
           style={{
-            fontFamily: tokens.font.poster,
+            fontFamily: isAmharic ? tokens.font.amharicPoster : tokens.font.poster,
             fontWeight: 900,
-            fontSize: layoutConfig.headerFontSize,
-            lineHeight: 1.02,
-            letterSpacing: "-0.005em",
-            textTransform: "uppercase",
+            fontSize: isAmharic ? Math.round(layoutConfig.headerFontSize * 0.94) : layoutConfig.headerFontSize,
+            lineHeight: isAmharic ? 1.14 : 1.02,
+            letterSpacing: isAmharic ? "0em" : "-0.005em",
+            textTransform: isAmharic ? "none" : "uppercase",
             margin: 0,
             padding: 0,
             maxWidth: "100%",
@@ -292,10 +308,10 @@ export function BroadcastCarouselCard({
         {slide.body_text && !isCover && (
           <p
             style={{
-              fontFamily: tokens.font.sans,
+              fontFamily: isAmharic ? tokens.font.amharicSans : tokens.font.sans,
               fontSize: 36,
               fontWeight: 600,
-              lineHeight: 1.38,
+              lineHeight: isAmharic ? 1.48 : 1.38,
               color: tokens.color.paper[50],
               margin: "6px 0 0 0",
               maxWidth: "96%",
@@ -334,10 +350,10 @@ export function BroadcastCarouselCard({
                 </span>
                 <span
                   style={{
-                    fontFamily: tokens.font.sans,
+                    fontFamily: isAmharic ? tokens.font.amharicSans : tokens.font.sans,
                     fontSize: 30,
                     fontWeight: 600,
-                    lineHeight: 1.35,
+                    lineHeight: isAmharic ? 1.45 : 1.35,
                     color: tokens.color.paper[50],
                   }}
                 >
@@ -381,15 +397,15 @@ export function BroadcastCarouselCard({
               style={{
                 display: "flex",
                 flexDirection: "column",
-                fontFamily: tokens.font.sans,
+                fontFamily: isAmharic ? tokens.font.amharicSans : tokens.font.sans,
                 lineHeight: 1.2,
               }}
             >
               <span style={{ fontSize: 22, color: "#94A3B8", fontWeight: 500 }}>
-                Read complete investigative report
+                {isAmharic ? "ሙሉውን ዝርዝር ዘገባ" : "Read complete investigative report"}
               </span>
               <span style={{ fontSize: 26, color: "#FFFFFF", fontWeight: 800 }}>
-                in the caption below
+                {isAmharic ? "ከታች ባለው መግለጫ ያንብቡ" : "in the caption below"}
               </span>
             </div>
           </div>
@@ -415,15 +431,15 @@ export function BroadcastCarouselCard({
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span
                 style={{
-                  fontFamily: tokens.font.sans,
+                  fontFamily: isAmharic ? tokens.font.amharicSans : tokens.font.sans,
                   fontSize: 22,
                   fontWeight: 700,
                   letterSpacing: "0.04em",
                   color: "#FFFFFF",
-                  textTransform: "uppercase",
+                  textTransform: isAmharic ? "none" : "uppercase",
                 }}
               >
-                Swipe to read
+                {isAmharic ? "ለማንበብ ወደ ግራ ይሳቡ" : "Swipe to read"}
               </span>
               <span style={{ fontSize: 24, color: activeHighlight, fontWeight: 900 }}>
                 →
@@ -434,26 +450,26 @@ export function BroadcastCarouselCard({
               <span style={{ fontSize: 22, color: "#EF4444", fontWeight: 900 }}>↓</span>
               <span
                 style={{
-                  fontFamily: tokens.font.sans,
+                  fontFamily: isAmharic ? tokens.font.amharicSans : tokens.font.sans,
                   fontSize: 20,
                   fontWeight: 700,
                   color: "#FFFFFF",
                 }}
               >
-                Read caption
+                {isAmharic ? "መግለጫውን ያንብቡ" : "Read caption"}
               </span>
             </div>
           ) : (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span
                 style={{
-                  fontFamily: tokens.font.sans,
+                  fontFamily: isAmharic ? tokens.font.amharicSans : tokens.font.sans,
                   fontSize: 20,
                   fontWeight: 600,
                   color: "#94A3B8",
                 }}
               >
-                Next slide
+                {isAmharic ? "ቀጣይ ገጽ" : "Next slide"}
               </span>
               <span style={{ fontSize: 20, color: activeHighlight }}>→</span>
             </div>

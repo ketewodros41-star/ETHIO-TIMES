@@ -13,6 +13,8 @@ export const tokens = {
     sans: "var(--font-sans)",
     mono: "var(--font-mono)",
     poster: "var(--font-poster, 'Anton', 'Bebas Neue', 'Barlow Condensed', 'Impact', sans-serif)",
+    amharicPoster: "var(--font-ethiopic, 'Noto Sans Ethiopic', 'Nyala', 'Abyssinica SIL', sans-serif)",
+    amharicSans: "var(--font-ethiopic, 'Noto Sans Ethiopic', 'Nyala', 'Abyssinica SIL', sans-serif)",
   },
 } as const;
 

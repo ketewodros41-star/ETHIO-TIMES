@@ -6,12 +6,20 @@
  */
 import { tokens } from "@/lib/design-tokens";
 
+/** Helper to detect Ge'ez / Ethiopic Unicode characters */
+export function isEthiopic(text?: string | null): boolean {
+  if (!text) return false;
+  return /[\u1200-\u137F\u1380-\u139F\u2D80-\u2DDF\uAB00-\uAB2F]/.test(text);
+}
+
 interface AccentProps {
   accent?: string;
 }
 
 /** Category pill — outlined, uppercase, small caps */
 export function Pill({ children, accent = tokens.color.accent.green }: AccentProps & { children: React.ReactNode }) {
+  const textContent = typeof children === "string" ? children : "";
+  const ethiopic = isEthiopic(textContent);
   return (
     <span style={{
       display: "inline-block",
@@ -21,9 +29,9 @@ export function Pill({ children, accent = tokens.color.accent.green }: AccentPro
       padding: "10px 24px",
       fontSize: 26,
       fontWeight: 600,
-      letterSpacing: "0.10em",
-      textTransform: "uppercase" as const,
-      fontFamily: tokens.font.sans,
+      letterSpacing: ethiopic ? "0.02em" : "0.10em",
+      textTransform: ethiopic ? "none" : ("uppercase" as const),
+      fontFamily: ethiopic ? tokens.font.amharicSans : tokens.font.sans,
     }}>
       {children}
     </span>
@@ -32,16 +40,19 @@ export function Pill({ children, accent = tokens.color.accent.green }: AccentPro
 
 /** Display headline */
 export function Headline({ children, size = 104 }: { children: React.ReactNode; size?: number }) {
+  const textContent = typeof children === "string" ? children : "";
+  const ethiopic = isEthiopic(textContent);
   return (
     <h1 style={{
-      fontFamily: tokens.font.display,
-      fontWeight: 600,
-      fontSize: size,
-      lineHeight: 1.02,
-      letterSpacing: "-0.01em",
+      fontFamily: ethiopic ? tokens.font.amharicPoster : tokens.font.display,
+      fontWeight: ethiopic ? 900 : 600,
+      fontSize: ethiopic ? Math.round(size * 0.94) : size,
+      lineHeight: ethiopic ? 1.15 : 1.02,
+      letterSpacing: ethiopic ? "0em" : "-0.01em",
       margin: "28px 0 0",
       maxWidth: "94%",
       color: tokens.color.paper[50],
+      wordBreak: "break-word",
     }}>
       {children}
     </h1>
@@ -50,14 +61,17 @@ export function Headline({ children, size = 104 }: { children: React.ReactNode; 
 
 /** Deck / subheadline */
 export function Dek({ children }: { children: React.ReactNode }) {
+  const textContent = typeof children === "string" ? children : "";
+  const ethiopic = isEthiopic(textContent);
   return (
     <p style={{
       fontSize: 38,
-      lineHeight: 1.35,
+      lineHeight: ethiopic ? 1.48 : 1.35,
       color: tokens.color.paper[300],
       margin: "22px 0 0",
       maxWidth: "88%",
-      fontFamily: tokens.font.sans,
+      fontFamily: ethiopic ? tokens.font.amharicSans : tokens.font.sans,
+      letterSpacing: ethiopic ? "0.01em" : "normal",
     }}>
       {children}
     </p>

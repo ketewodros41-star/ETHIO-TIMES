@@ -35,6 +35,14 @@ class EditorialBrief:
     content_format: ContentFormat
     carousel_slides: list[dict] = field(default_factory=list)
 
+
+def is_geez_script(text: str | None) -> bool:
+    """Check if text contains Ge'ez / Ethiopic Unicode characters."""
+    if not text:
+        return False
+    return any("\u1200" <= ch <= "\u137f" for ch in text)
+
+
 class EditorialEngine:
     def __init__(self, provider: AIProvider) -> None:
         self.provider = provider
@@ -65,23 +73,38 @@ class EditorialEngine:
             return ContentFormat.data_visual
         return ContentFormat.single_image_post
 
-    def _fallback(self, event: NewsEvent) -> EditorialBrief:
-        headline = event.title
-        short_summary = (event.summary or "")[:280]
-        full_summary = event.summary or ""
-        why_it_matters = "This story is important for Ethiopia."
-        evidenced_claims = [c for c in getattr(event, "claims", []) if c.evidence]
-        key_facts = [c.claim_text for c in evidenced_claims][:5]
-        
-        cat = (event.primary_category or "News").title()
-        hashtags = ["#Ethiopia", "#EthiopianTimes", f"#{cat}"]
-        
-        # Build source attribution
-        sources = set()
-        for al in getattr(event, "article_links", []):
-            if al.article and al.article.source:
-                sources.add(al.article.source.name)
-        source_attribution = "Sources: " + ", ".join(sources) if sources else "Source: Ethiopian Times"
+    def _fallback(self, event: NewsEvent, language: str = "en") -> EditorialBrief:
+        is_am = language == "am" or is_geez_script(event.title)
+
+        if is_am:
+            if is_geez_script(event.title):
+                words = event.title.split()
+                headline = " ".join(words[:7]) if len(words) > 7 else event.title
+            else:
+                headline = f"ሰበር ዜና: {event.title}"
+            short_summary = (event.summary or "ዝርዝር መረጃው በመጣራት ላይ ይገኛል።")[:280]
+            full_summary = event.summary or ""
+            why_it_matters = "ይህ ዜና ለቀጣናው እና ለወቅታዊ ሁኔታዎች ከፍተኛ ተጽዕኖ አለው።"
+            evidenced_claims = [c for c in getattr(event, "claims", []) if c.evidence]
+            key_facts = [c.claim_text for c in evidenced_claims][:4]
+            hashtags = ["#ኢትዮጵያ", "#EthioTimes", "#አዲስ_አበባ", "#Ethiopia"]
+            source_attribution = "ምንጭ: ETHIOPIAN TIMES የዜና ክፍል"
+        else:
+            headline = event.title
+            short_summary = (event.summary or "")[:280]
+            full_summary = event.summary or ""
+            why_it_matters = "This story is important for Ethiopia."
+            evidenced_claims = [c for c in getattr(event, "claims", []) if c.evidence]
+            key_facts = [c.claim_text for c in evidenced_claims][:5]
+            cat = (event.primary_category or "News").title()
+            hashtags = ["#Ethiopia", "#EthiopianTimes", f"#{cat}"]
+
+            # Build source attribution
+            sources = set()
+            for al in getattr(event, "article_links", []):
+                if al.article and al.article.source:
+                    sources.add(al.article.source.name)
+            source_attribution = "Sources: " + ", ".join(sources) if sources else "Source: Ethiopian Times"
 
         theme = self._auto_theme(event)
         fmt = self._auto_format(event)
@@ -90,10 +113,10 @@ class EditorialEngine:
         # Build basic caption
         cap_parts = [headline, short_summary]
         if key_facts:
-            cap_parts.append("Key facts:\\n" + "\\n".join(f"- {f}" for f in key_facts))
+            cap_parts.append(("ዋና ዋና ነጥቦች:\n" if is_am else "Key facts:\n") + "\n".join(f"- {f}" for f in key_facts))
         cap_parts.append(source_attribution)
         cap_parts.append(" ".join(hashtags))
-        caption = "\\n\\n".join(cap_parts)[:2200]
+        caption = "\n\n".join(cap_parts)[:2200]
 
         brief = EditorialBrief(
             headline=headline,
@@ -120,6 +143,8 @@ class EditorialEngine:
         elif brief.suggested_theme in {"data_chart", "politics_sensitive", "official_statement", "culture_photo"}:
             accent = "gold"
 
+        is_am = is_geez_script(brief.headline) or is_geez_script(brief.short_summary)
+
         raw_slides = []
         # 1. Cover
         raw_slides.append({
@@ -130,11 +155,11 @@ class EditorialEngine:
             "source_attribution": brief.source_attribution,
             "accent": accent,
         })
-        # 2. What Happened
+        # 2. What Happened / The Facts
         if brief.full_summary:
             raw_slides.append({
                 "slide_type": "what_happened",
-                "header": "What Happened",
+                "header": "ዋና ዋና ነጥቦች" if is_am else "What Happened",
                 "body_text": brief.full_summary[:380],
                 "bullet_points": [],
                 "source_attribution": None,
@@ -144,7 +169,7 @@ class EditorialEngine:
         if brief.key_facts:
             raw_slides.append({
                 "slide_type": "key_facts",
-                "header": "Key Facts",
+                "header": "የተረጋገጡ ዝርዝሮች" if is_am else "Key Facts",
                 "body_text": None,
                 "bullet_points": brief.key_facts[:4],
                 "source_attribution": None,
@@ -154,7 +179,7 @@ class EditorialEngine:
         if brief.why_it_matters:
             raw_slides.append({
                 "slide_type": "why_it_matters",
-                "header": "Why It Matters",
+                "header": "ለምን አሳሳቢ ሆነ?" if is_am else "Why It Matters",
                 "body_text": brief.why_it_matters,
                 "bullet_points": [],
                 "source_attribution": None,
@@ -164,7 +189,7 @@ class EditorialEngine:
         if brief.what_happens_next:
             raw_slides.append({
                 "slide_type": "what_next",
-                "header": "What's Next",
+                "header": "ቀጣይ እርምጃዎች" if is_am else "What's Next",
                 "body_text": brief.what_happens_next,
                 "bullet_points": [],
                 "source_attribution": None,
@@ -173,8 +198,12 @@ class EditorialEngine:
         # 6. Verified Sources
         raw_slides.append({
             "slide_type": "sources",
-            "header": "Verified Coverage",
-            "body_text": "Story verified across multiple independent and primary sources by the ETHIOPIAN TIMES intelligence engine.",
+            "header": "የተረጋገጠ መረጃ" if is_am else "Verified Coverage",
+            "body_text": (
+                "ይህ ዘገባ በETHIOPIAN TIMES የዜና ማረጋገጫ ክፍል በተለያዩ ገለልተኛ ምንጮች ተረጋግጧል።"
+                if is_am
+                else "Story verified across multiple independent and primary sources by the ETHIOPIAN TIMES intelligence engine."
+            ),
             "bullet_points": [brief.source_attribution] if brief.source_attribution else [],
             "source_attribution": brief.source_attribution,
             "accent": accent,
@@ -190,29 +219,49 @@ class EditorialEngine:
             })
         return slides
 
-    def compose(self, event: NewsEvent) -> EditorialBrief:
+    def compose(self, event: NewsEvent, language: str = "en") -> EditorialBrief:
         if not self.provider.is_available():
-            return self._fallback(event)
-            
+            return self._fallback(event, language=language)
+
         try:
-            prompt = f"Summarize this event for Instagram. Title: {event.title}. Summary: {event.summary}"
+            is_am = language == "am" or is_geez_script(event.title)
+            if is_am:
+                prompt = (
+                    "You are an expert Ethiopian broadcast news editor. Formulate an ultra-punchy, concise broadcast news card in Amharic (Ge'ez script).\n"
+                    "STRICT RULES:\n"
+                    "1. HEADLINE: Must be 4 to 7 words MAXIMUM. Active broadcast voice. State the actor + high-impact action directly. "
+                    "The final 2-3 words must contain the punchline action verb/event (e.g. 'ማን ዩናይትድ ምባፔን ሊያስፈርም ነበር' or 'ብሔራዊ ባንክ አዲስ መመሪያ አወጣ'). "
+                    "Never use bureaucratic filler phrases like 'የተገለጸ መሆኑ ታውቋል' or 'በሰጡት ማብራሪያ'.\n"
+                    "2. SHORT_SUMMARY: Exactly 1 concise active sentence (12-18 words max).\n"
+                    "3. WHY_IT_MATTERS: 1 short sentence on strategic impact.\n"
+                    "4. KEY_FACTS: Up to 3 concise bullet points (each under 12 words).\n"
+                    f"Story Title: {event.title}\nStory Summary: {event.summary}"
+                )
+            else:
+                prompt = f"Summarize this event for Instagram. Title: {event.title}. Summary: {event.summary}"
+
             result = self.provider.generate_json(prompt)
-            
+
             theme = self._auto_theme(event)
             fmt = self._auto_format(event)
             cfmt = self._auto_content_format(event, theme)
-            
+
+            default_title = event.title
+            default_summary = (event.summary or "")[:280]
+            default_hashtags = ["#ኢትዮጵያ", "#EthioTimes", "#አዲስ_አበባ"] if is_am else ["#Ethiopia", "#EthiopianTimes"]
+            default_source = "ምንጭ: ETHIOPIAN TIMES" if is_am else "Ethiopian Times"
+
             brief = EditorialBrief(
-                headline=result.get("headline", event.title),
+                headline=result.get("headline", default_title),
                 subheadline=result.get("subheadline"),
-                short_summary=result.get("short_summary", (event.summary or "")[:280]),
+                short_summary=result.get("short_summary", default_summary),
                 full_summary=result.get("full_summary", event.summary or ""),
-                why_it_matters=result.get("why_it_matters", "Important for Ethiopia."),
+                why_it_matters=result.get("why_it_matters", "ይህ ዜና ለቀጣናው ከፍተኛ ጠቀሜታ አለው።" if is_am else "Important for Ethiopia."),
                 key_facts=result.get("key_facts", []),
                 what_happens_next=result.get("what_happens_next"),
                 instagram_caption=result.get("instagram_caption", "")[:2200],
-                hashtags=result.get("hashtags", ["#Ethiopia", "#EthiopianTimes"]),
-                source_attribution=result.get("source_attribution", "Ethiopian Times"),
+                hashtags=result.get("hashtags", default_hashtags),
+                source_attribution=result.get("source_attribution", default_source),
                 suggested_theme=theme,
                 suggested_format=fmt,
                 content_format=cfmt,
@@ -220,4 +269,4 @@ class EditorialEngine:
             brief.carousel_slides = self.generate_carousel_slides(event, brief)
             return brief
         except Exception:
-            return self._fallback(event)
+            return self._fallback(event, language=language)

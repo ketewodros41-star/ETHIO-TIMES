@@ -1,6 +1,7 @@
 import { tokens } from "@/lib/design-tokens";
 import type { PostTemplateData } from "./PostTemplate";
 import { FORMATS, type InstagramFormat } from "./formats";
+import { isEthiopic } from "./primitives";
 
 /**
  * Headline Impact Post Theme (Phase 7 - Inspired by Habesha Diaspora / Modern News Broadcast).
@@ -22,6 +23,7 @@ export function HeadlineImpactPost({
   highlightColor?: string;
 }) {
   const { width, height, safeMargin } = FORMATS[format];
+  const isAmharic = isEthiopic(data.headline) || isEthiopic(data.dek);
 
   // Dynamic Headline dual-color split:
   // White for primary context, electric highlight for the punchline / final words
@@ -249,15 +251,15 @@ export function HeadlineImpactPost({
           </div>
         </div>
 
-        {/* Mega Impact Bold Condensed Headline */}
+        {/* Mega Impact Bold Condensed Headline (Anton for Latin, Noto Sans Ethiopic 900 for Amharic) */}
         <h1
           style={{
-            fontFamily: tokens.font.poster,
+            fontFamily: isAmharic ? tokens.font.amharicPoster : tokens.font.poster,
             fontWeight: 900,
-            fontSize: layoutConfig.headlineSize,
-            lineHeight: 1.02,
-            letterSpacing: "-0.005em",
-            textTransform: "uppercase",
+            fontSize: isAmharic ? Math.round(layoutConfig.headlineSize * 0.94) : layoutConfig.headlineSize,
+            lineHeight: isAmharic ? 1.14 : 1.02,
+            letterSpacing: isAmharic ? "0em" : "-0.005em",
+            textTransform: isAmharic ? "none" : "uppercase",
             margin: "2px 0 0",
             maxWidth: "100%",
             wordBreak: "break-word",
@@ -272,7 +274,7 @@ export function HeadlineImpactPost({
         </h1>
       </div>
 
-      {/* Footer Line: "↓ Read the caption" Call-To-Action */}
+      {/* Footer Line: "↓ Read the caption" / "መግለጫውን ያንብቡ" Call-To-Action */}
       <div
         style={{
           position: "relative",
@@ -307,14 +309,16 @@ export function HeadlineImpactPost({
             style={{
               display: "flex",
               flexDirection: "column",
-              lineHeight: 1.1,
-              fontFamily: tokens.font.sans,
+              lineHeight: isAmharic ? 1.25 : 1.1,
+              fontFamily: isAmharic ? tokens.font.amharicSans : tokens.font.sans,
               color: tokens.color.paper[300],
             }}
           >
-            <span style={{ fontSize: 24, fontWeight: 600 }}>Read the</span>
-            <span style={{ fontSize: 24, fontWeight: 700, color: "#FFFFFF" }}>
-              caption
+            <span style={{ fontSize: isAmharic ? 20 : 24, fontWeight: 600 }}>
+              {isAmharic ? "መግለጫውን" : "Read the"}
+            </span>
+            <span style={{ fontSize: isAmharic ? 20 : 24, fontWeight: 700, color: "#FFFFFF" }}>
+              {isAmharic ? "ያንብቡ" : "caption"}
             </span>
           </div>
         </div>

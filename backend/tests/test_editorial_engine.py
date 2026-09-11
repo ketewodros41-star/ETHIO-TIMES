@@ -67,3 +67,55 @@ def test_generate_carousel_slides():
     assert "Investment totals 5B USD" in key_facts_slide["bullet_points"]
 
 
+def test_is_geez_script():
+    from app.services.social.editorial_engine import is_geez_script
+
+    assert is_geez_script("ማንቸስተር ዩናይትድ") is True
+    assert is_geez_script("ብሔራዊ ባንክ አዲስ መመሪያ አወጣ") is True
+    assert is_geez_script("Manchester United Mbappe") is False
+    assert is_geez_script("") is False
+    assert is_geez_script(None) is False
+
+
+def test_compose_amharic_fallback():
+    provider = FakeAIProvider(available=False)
+    engine = EditorialEngine(provider)
+    event = NewsEvent(
+        title="ማንቸስተር ዩናይትድ ኪሊያን ምባፔን ሊያስፈርም ነበር",
+        summary="ዩናይትድ በታዳጊነቱ ሊያስፈርመው ይችል እንደነበር ራያን ጊግስ ይፋ አደረገ።",
+        primary_category="sports",
+    )
+    brief = engine.compose(event, language="am")
+    assert "ማንቸስተር" in brief.headline
+    assert "ETHIOPIAN TIMES" in brief.source_attribution
+    assert any("ኢትዮጵያ" in tag for tag in brief.hashtags)
+
+
+def test_compose_amharic_carousel_slides():
+    provider = FakeAIProvider(available=False)
+    engine = EditorialEngine(provider)
+    event = NewsEvent(
+        title="ብሔራዊ ባንክ አዲስ መመሪያ አወጣ",
+        summary="የውጭ ምንዛሪ አሠራርን አስመልክቶ አዲስ መመሪያ ይፋ ተደርጓል።",
+        primary_category="economy",
+    )
+    claim = EventClaim(claim_text="የባንኮች ካፒታል አድጓል", claim_type=ClaimType.financial)
+    claim.evidence.append(ClaimEvidence(excerpt="የካፒታል መጠን ጨምሯል", article_id=uuid.uuid4()))
+    event.claims.append(claim)
+
+    brief = engine.compose(event, language="am")
+    slides = brief.carousel_slides
+    assert len(slides) >= 4
+
+    # Check Amharic slide headers
+    what_happened_slide = next(s for s in slides if s["slide_type"] == "what_happened")
+    assert what_happened_slide["header"] == "ዋና ዋና ነጥቦች"
+
+    key_facts_slide = next(s for s in slides if s["slide_type"] == "key_facts")
+    assert key_facts_slide["header"] == "የተረጋገጡ ዝርዝሮች"
+
+    sources_slide = next(s for s in slides if s["slide_type"] == "sources")
+    assert sources_slide["header"] == "የተረጋገጠ መረጃ"
+
+
+

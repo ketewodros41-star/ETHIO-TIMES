@@ -11,13 +11,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ImageIcon, Sparkles, RefreshCw, Check, Palette, CheckCircle2,
   Search, Camera, Bot, Globe, X, Newspaper, Trash2, ChevronLeft, ChevronRight, User,
-  Maximize2, ZoomIn, ZoomOut, MapPin, Building2,
+  Maximize2, ZoomIn, ZoomOut, MapPin, Building2, Languages,
 } from "lucide-react";
 import {
   FORMATS, PortraitPost, SquarePost, StoryPost, CarouselCard,
   THEMES, THEME_IDS,
   type InstagramFormat, type ThemeId, type PostTemplateData, type CarouselSlideData,
 } from "@/templates/instagram";
+import { isEthiopic } from "@/templates/instagram/primitives";
 import { POPULAR_COUNTRIES, resolveCountryCode } from "@/components/country-flag";
 import type { VisualAsset, PhotoCandidate } from "@/lib/types";
 
@@ -32,6 +33,45 @@ const SAMPLE: PostTemplateData = {
   theme: "broadcast_impact",
   highlightColor: "#52B8ED",
 };
+
+const AMHARIC_PRESETS = [
+  {
+    key: "mbappe",
+    label: "⚽ ምባፔ እና ማን ዩናይትድ",
+    category: "ስፖርት",
+    headline: "ማንቸስተር ዩናይትድ ኪሊያን ምባፔን ሊያስፈርም ነበር",
+    dek: "ዩናይትድ በታዳጊነቱ ሊያስፈርመው ይችል እንደነበር ራያን ጊግስ ይፋ አደረገ።",
+    highlightColor: "#52B8ED",
+    country: "United Kingdom",
+  },
+  {
+    key: "economy",
+    label: "📈 የብር ምንዛሪ ማሻሻያ",
+    category: "ኢኮኖሚ",
+    headline: "ብሔራዊ ባንክ የውጭ ምንዛሪ አሠራርን አሻሻለ",
+    dek: "የኢኮኖሚ ማሻሻያውን ተከትሎ የዋጋ ግሽበት እያሽቆለቆለ መምጣቱ ተገለጸ።",
+    highlightColor: "#4ADE80",
+    country: "Ethiopia",
+  },
+  {
+    key: "breaking",
+    label: "🚨 ሰበር የትራንስፖርት ታሪፍ",
+    category: "ሰበር ዜና",
+    headline: "በአዲስ አበባ አዲስ የትራንስፖርት ታሪፍ ወጣ",
+    dek: "ከነገ ጀምሮ በሁሉም የከተማዋ መስመሮች አዲሱ የታሪፍ ማስተካከያ ተግባራዊ ይሆናል።",
+    highlightColor: "#F87171",
+    country: "Ethiopia",
+  },
+  {
+    key: "tech",
+    label: "🤖 አርቴፊሻል ኢንተለጀንስ",
+    category: "ቴክኖሎጂ",
+    headline: "ኢትዮጵያ አርቴፊሻል ኢንተለጀንስን ልታሰማራ ነው",
+    dek: "በግብርና እና ጤና ዘርፍ ምርታማነትን ለማሳደግ አዲስ ሥርዓት ይዘረጋል።",
+    highlightColor: "#FBBF24",
+    country: "Ethiopia",
+  },
+];
 
 function ScaledPreview({ width, height, target, children }: {
   width: number; height: number; target: number; children: React.ReactNode;
@@ -779,6 +819,7 @@ function StudioContent() {
   const queryClient = useQueryClient();
 
   const [selectedEventId, setSelectedEventId] = useState<string>(queryEventId);
+  const [selectedLanguage, setSelectedLanguage] = useState<"en" | "am">("en");
   const [postMode, setPostMode] = useState<"single" | "carousel">("single");
   const [carouselSlideIndex, setCarouselSlideIndex] = useState(0);
   const [format, setFormat] = useState<InstagramFormat>("portrait");
@@ -888,14 +929,16 @@ function StudioContent() {
     onSuccess: () => alert("Post composed and enqueued! View it in the Posts queue."),
   });
 
+  const isAmharicScript = isEthiopic(customHeadline) || isEthiopic(customDek) || selectedLanguage === "am";
+
   const previewData: PostTemplateData = activeEvent
     ? {
-        category: customCategory || activeEvent.primary_category || "News",
+        category: customCategory || activeEvent.primary_category || (isAmharicScript ? "ዜና" : "News"),
         headline: customHeadline || activeEvent.title,
         dek: customDek || undefined,
         source: "ETHIOPIAN TIMES",
         dateLabel: new Date(activeEvent.created_at)
-          .toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })
+          .toLocaleDateString(isAmharicScript ? "am-ET" : "en-US", { day: "numeric", month: "short", year: "numeric" })
           .toUpperCase(),
         theme: themeId,
         accent: THEMES[themeId].accent,
@@ -903,10 +946,20 @@ function StudioContent() {
         country: selectedCountry,
         imageUrl: currentAsset?.storage_url || undefined,
       }
-    : { ...SAMPLE, theme: themeId, accent: THEMES[themeId].accent, highlightColor, country: selectedCountry, imageUrl: currentAsset?.storage_url || undefined };
+    : {
+        ...SAMPLE,
+        category: customCategory || (isAmharicScript ? "ኢኮኖሚ" : SAMPLE.category),
+        headline: customHeadline || SAMPLE.headline,
+        dek: customDek || SAMPLE.dek,
+        theme: themeId,
+        accent: THEMES[themeId].accent,
+        highlightColor,
+        country: selectedCountry,
+        imageUrl: currentAsset?.storage_url || undefined,
+      };
 
   // Generate short, punchy copy for 5-page broadcast carousel
-  const rawDek = customDek || (activeEvent?.summary ? activeEvent.summary.split(/[.!?]/)[0] + "." : previewData.dek) || "Key policy directive issued with immediate regional enforcement.";
+  const rawDek = customDek || (activeEvent?.summary ? activeEvent.summary.split(/[.!?]/)[0] + "." : previewData.dek) || (isAmharicScript ? "ቁልፍ የፖሊሲ መመሪያ ወዲያውኑ ተግባራዊ እንዲሆን ተወሰነ።" : "Key policy directive issued with immediate regional enforcement.");
   const shortFact = rawDek.length > 115 ? rawDek.slice(0, 110).trim() + "..." : rawDek;
 
   // Extract short 10-12 word claims for Slide 3
@@ -920,14 +973,22 @@ function StudioContent() {
     });
   }
   if (shortBullets.length === 0) {
-    shortBullets = [
-      "Directive takes immediate effect under ministry supervision.",
-      "Applies directly across key commerce and retail sectors.",
-      "Field teams deployed to verify compliance and stability.",
-    ];
+    shortBullets = isAmharicScript
+      ? [
+          "መመሪያው ወዲያውኑ በሁሉም ዘርፎች ተግባራዊ መሆን ይጀምራል።",
+          "የቁጥጥር ቡድኖች በዋና ዋና የንግድ ማዕከላት ተሰማርተዋል።",
+          "የአፈጻጸም ሂደቱ በየጊዜው ክትትል እንደሚደረግበት ተገልጿል።",
+        ]
+      : [
+          "Directive takes immediate effect under ministry supervision.",
+          "Applies directly across key commerce and retail sectors.",
+          "Field teams deployed to verify compliance and stability.",
+        ];
   }
 
-  const shortWhy = "Critical implications for regional trade dynamics, bilateral market ties, and ongoing economic reforms.";
+  const shortWhy = isAmharicScript
+    ? "ውሳኔው በገበያ መረጋጋት እና በቀጣይ የኢኮኖሚ እንቅስቃሴዎች ላይ ከፍተኛ አዎንታዊ ተጽዕኖ ይኖረዋል።"
+    : "Critical implications for regional trade dynamics, bilateral market ties, and ongoing economic reforms.";
 
   const carouselSlides: CarouselSlideData[] = [
     {
@@ -947,7 +1008,7 @@ function StudioContent() {
       slide_number: 2,
       total_slides: 5,
       slide_type: "what_happened",
-      header: slideCustomHeaders[2] || "THE CORE FACTS",
+      header: slideCustomHeaders[2] || (isAmharicScript ? "ዋና ዋና ነጥቦች" : "THE CORE FACTS"),
       body_text: slideCustomBodies[2] || shortFact,
       bullet_points: [],
       source_attribution: previewData.source,
@@ -960,7 +1021,7 @@ function StudioContent() {
       slide_number: 3,
       total_slides: 5,
       slide_type: "key_facts",
-      header: slideCustomHeaders[3] || "KEY DEVELOPMENTS",
+      header: slideCustomHeaders[3] || (isAmharicScript ? "የተረጋገጡ ዝርዝሮች" : "KEY DEVELOPMENTS"),
       body_text: null,
       bullet_points: shortBullets,
       source_attribution: previewData.source,
@@ -973,7 +1034,7 @@ function StudioContent() {
       slide_number: 4,
       total_slides: 5,
       slide_type: "why_it_matters",
-      header: slideCustomHeaders[4] || "STRATEGIC IMPACT",
+      header: slideCustomHeaders[4] || (isAmharicScript ? "ለምን አሳሳቢ ሆነ?" : "STRATEGIC IMPACT"),
       body_text: slideCustomBodies[4] || shortWhy,
       bullet_points: [],
       source_attribution: previewData.source,
@@ -986,8 +1047,8 @@ function StudioContent() {
       slide_number: 5,
       total_slides: 5,
       slide_type: "sources",
-      header: slideCustomHeaders[5] || "VERIFIED DESK",
-      body_text: slideCustomBodies[5] || "Corroborated across authorized monitoring desks and field dispatches.",
+      header: slideCustomHeaders[5] || (isAmharicScript ? "የተረጋገጠ መረጃ" : "VERIFIED DESK"),
+      body_text: slideCustomBodies[5] || (isAmharicScript ? "መረጃው በETHIOPIAN TIMES የዜና ማረጋገጫ ክፍል በተለያዩ ገለልተኛ ምንጮች ተረጋግጧል።" : "Corroborated across authorized monitoring desks and field dispatches."),
       bullet_points: [],
       source_attribution: previewData.source || "ETHIOPIAN TIMES Intelligence",
       accent: THEMES[themeId].accent as "green" | "red" | "gold",
@@ -1091,11 +1152,61 @@ function StudioContent() {
                     <Palette className="h-4 w-4 text-accent-green" />
                     News Story & Editorial Direction
                   </CardTitle>
-                  {activeEvent && (
-                    <Badge variant={activeEvent.verification_score >= 75 ? "green" : "gold"}>
-                      Score: {activeEvent.verification_score}
-                    </Badge>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {/* Language Switcher Toggle */}
+                    <div className="flex items-center gap-1 bg-ink-950 border border-ink-700 rounded-lg p-0.5 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedLanguage("en");
+                          if (activeEvent) {
+                            setCustomHeadline(activeEvent.title);
+                            setCustomDek(activeEvent.summary || "");
+                            setCustomCategory(activeEvent.primary_category || "News");
+                          } else {
+                            setCustomHeadline(SAMPLE.headline);
+                            setCustomDek(SAMPLE.dek || "");
+                            setCustomCategory(SAMPLE.category);
+                          }
+                        }}
+                        className={`px-2.5 py-1 rounded font-semibold transition-all ${
+                          selectedLanguage === "en"
+                            ? "bg-accent-green text-ink-950 shadow-sm"
+                            : "text-paper-400 hover:text-paper-100"
+                        }`}
+                        title="English Broadcast Mode"
+                      >
+                        English (EN)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedLanguage("am");
+                          const defaultAm = AMHARIC_PRESETS[0];
+                          setCustomHeadline(defaultAm.headline);
+                          setCustomDek(defaultAm.dek);
+                          setCustomCategory(defaultAm.category);
+                          setHighlightColor(defaultAm.highlightColor);
+                          setSelectedCountry(defaultAm.country);
+                        }}
+                        className={`px-2.5 py-1 rounded font-semibold transition-all flex items-center gap-1 ${
+                          selectedLanguage === "am"
+                            ? "bg-accent-green text-ink-950 shadow-sm"
+                            : "text-paper-400 hover:text-paper-100"
+                        }`}
+                        title="Amharic Broadcast News Mode"
+                      >
+                        <Languages className="h-3 w-3" />
+                        አማርኛ (AM)
+                      </button>
+                    </div>
+
+                    {activeEvent && (
+                      <Badge variant={activeEvent.verification_score >= 75 ? "green" : "gold"}>
+                        Score: {activeEvent.verification_score}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -1114,33 +1225,103 @@ function StudioContent() {
                     ))}
                   </select>
                 </div>
-                {activeEvent && (
-                  <div className="space-y-3 pt-2 border-t border-ink-700">
-                    <div>
-                      <label className="block text-xs uppercase tracking-label text-paper-500 mb-1 font-mono">Headline (Live on Card)</label>
-                      <input type="text" value={customHeadline} onChange={(e) => setCustomHeadline(e.target.value)}
-                        className="w-full h-9 rounded-card border border-ink-700 bg-ink-800 px-3 text-sm text-paper-100 focus:border-accent-green focus:outline-none font-sans" />
+
+                {/* Amharic Broadcast Presets Grid */}
+                {selectedLanguage === "am" && (
+                  <div className="space-y-1.5 p-3 rounded-card bg-ink-900/80 border border-ink-700/80 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-mono uppercase tracking-wider text-accent-green font-bold flex items-center gap-1.5">
+                        <Sparkles className="h-3.5 w-3.5" />
+                        Amharic Broadcast Presets (Punchy 4-7 Words)
+                      </span>
+                      <span className="text-[10px] text-paper-400">Habesha News Style</span>
                     </div>
-                    <div>
-                      <label className="block text-xs uppercase tracking-label text-paper-500 mb-1 font-mono">Dek / Subheading</label>
-                      <textarea rows={2} value={customDek} onChange={(e) => setCustomDek(e.target.value)}
-                        className="w-full rounded-card border border-ink-700 bg-ink-800 p-2.5 text-xs text-paper-200 focus:border-accent-green focus:outline-none font-sans resize-none" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs uppercase tracking-label text-paper-500 mb-1 font-mono">Category Pill</label>
-                        <input type="text" value={customCategory} onChange={(e) => setCustomCategory(e.target.value)}
-                          className="w-full h-8 rounded-card border border-ink-700 bg-ink-800 px-2.5 text-xs text-paper-200 focus:border-accent-green focus:outline-none" />
-                      </div>
-                      <div>
-                        <label className="block text-xs uppercase tracking-label text-paper-500 mb-1 font-mono">Primary Region</label>
-                        <div className="h-8 rounded-card border border-ink-800 bg-ink-900 px-2.5 flex items-center text-xs text-paper-400">
-                          {activeEvent.primary_region || "National / Pan-Ethiopia"}
-                        </div>
-                      </div>
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      {AMHARIC_PRESETS.map((preset) => (
+                        <button
+                          key={preset.key}
+                          type="button"
+                          onClick={() => {
+                            setCustomHeadline(preset.headline);
+                            setCustomDek(preset.dek);
+                            setCustomCategory(preset.category);
+                            setHighlightColor(preset.highlightColor);
+                            setSelectedCountry(preset.country);
+                          }}
+                          className={`p-2.5 rounded-lg bg-ink-850 hover:bg-ink-800 text-left border transition-all text-xs ${
+                            customHeadline === preset.headline
+                              ? "border-accent-green bg-accent-green/10 text-paper-50"
+                              : "border-ink-700 hover:border-accent-green/50 text-paper-200"
+                          }`}
+                        >
+                          <div className="font-semibold text-paper-100 text-[11px] truncate flex items-center justify-between">
+                            <span>{preset.label}</span>
+                            {customHeadline === preset.headline && <Check className="h-3 w-3 text-accent-green" />}
+                          </div>
+                          <div className="text-[10px] text-paper-400 truncate mt-0.5">{preset.headline}</div>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}
+
+                {/* Editorial text authoring & live card tuning */}
+                <div className="space-y-3 pt-2 border-t border-ink-700">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs uppercase tracking-label text-paper-500 font-mono">
+                        Headline (Live on Card {isAmharicScript ? "· Noto Sans Ethiopic 900" : "· Anton Poster"})
+                      </label>
+                      <span className="text-[10px] font-mono text-paper-400">
+                        {customHeadline.trim().split(/\s+/).filter(Boolean).length} words
+                      </span>
+                    </div>
+                    <input
+                      type="text"
+                      value={customHeadline}
+                      onChange={(e) => setCustomHeadline(e.target.value)}
+                      placeholder={isAmharicScript ? "አጭር እና ግልጽ ዜና ርዕስ..." : "Short, punchy broadcast headline..."}
+                      style={{
+                        fontFamily: isAmharicScript ? "var(--font-ethiopic, 'Noto Sans Ethiopic', sans-serif)" : undefined,
+                        fontWeight: isAmharicScript ? 700 : undefined,
+                      }}
+                      className="w-full h-9 rounded-card border border-ink-700 bg-ink-800 px-3 text-sm text-paper-100 focus:border-accent-green focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs uppercase tracking-label text-paper-500 mb-1 font-mono">
+                      Dek / Subheading {isAmharicScript ? "(1 አጭር ዓረፍተ ነገር)" : "(1 Short Sentence)"}
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={customDek}
+                      onChange={(e) => setCustomDek(e.target.value)}
+                      placeholder={isAmharicScript ? "ዝርዝር መግለጫ..." : "Subheading context..."}
+                      style={{
+                        fontFamily: isAmharicScript ? "var(--font-ethiopic, 'Noto Sans Ethiopic', sans-serif)" : undefined,
+                      }}
+                      className="w-full rounded-card border border-ink-700 bg-ink-800 p-2.5 text-xs text-paper-200 focus:border-accent-green focus:outline-none resize-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs uppercase tracking-label text-paper-500 mb-1 font-mono">Category Pill</label>
+                      <input
+                        type="text"
+                        value={customCategory}
+                        onChange={(e) => setCustomCategory(e.target.value)}
+                        placeholder={isAmharicScript ? "ለምሳሌ: ስፖርት, ኢኮኖሚ" : "e.g. Sports, Economy"}
+                        className="w-full h-8 rounded-card border border-ink-700 bg-ink-800 px-2.5 text-xs text-paper-200 focus:border-accent-green focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs uppercase tracking-label text-paper-500 mb-1 font-mono">Primary Region / Country</label>
+                      <div className="h-8 rounded-card border border-ink-800 bg-ink-900 px-2.5 flex items-center text-xs text-paper-400">
+                        {activeEvent?.primary_region || selectedCountry || "National / Pan-Ethiopia"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 

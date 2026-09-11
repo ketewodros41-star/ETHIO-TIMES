@@ -1,6 +1,7 @@
 import { tokens } from "@/lib/design-tokens";
 import type { PostTemplateData } from "./PostTemplate";
 import { FORMATS, type InstagramFormat } from "./formats";
+import { isEthiopic } from "./primitives";
 
 /**
  * Broadcast Impact Post Theme (Exact Replica of Habesha Diaspora Broadcast Style).
@@ -10,8 +11,9 @@ import { FORMATS, type InstagramFormat } from "./formats";
  * 2. 3-stage dark horizon scrim fading smoothly into solid #07080B jet black.
  * 3. Left-aligned ET Hexagon Monogram Emblem + stacked bold condensed "ETHIOPIAN / TIMES".
  * 4. Ultra-bold condensed Anton/Impact poster typography (fontSize: ~124px, lineHeight: 0.88).
+ *    In Amharic: Noto Sans Ethiopic Weight 900 (Black) with 1.14 line-height & diacritic clearance.
  * 5. Dual-tone color split: crisp white (#FFFFFF) setup text + electric cyan (#52B8ED) punchline.
- * 6. Bottom-left crimson downward arrow (↓) with stacked "Read the / caption" call to action.
+ * 6. Bottom-left crimson downward arrow (↓) with stacked "Read the / caption" (መግለጫውን / ያንብቡ) call to action.
  */
 export function BroadcastImpactPost({
   format,
@@ -23,6 +25,7 @@ export function BroadcastImpactPost({
   highlightColor?: string;
 }) {
   const { width, height } = FORMATS[format];
+  const isAmharic = isEthiopic(data.headline) || isEthiopic(data.dek);
 
   // Signature electric cyan/sky blue from the reference post
   const defaultCyan = "#52B8ED";
@@ -250,15 +253,15 @@ export function BroadcastImpactPost({
           </div>
         </div>
 
-        {/* 4. Ultra-Bold Condensed Anton/Impact Headline */}
+        {/* 4. Ultra-Bold Condensed Headline (Anton for Latin, Noto Sans Ethiopic 900 for Amharic) */}
         <h1
           style={{
-            fontFamily: tokens.font.poster,
+            fontFamily: isAmharic ? tokens.font.amharicPoster : tokens.font.poster,
             fontWeight: 900,
-            fontSize: layoutConfig.headlineSize,
-            lineHeight: 1.02,
-            letterSpacing: "-0.005em",
-            textTransform: "uppercase",
+            fontSize: isAmharic ? Math.round(layoutConfig.headlineSize * 0.94) : layoutConfig.headlineSize,
+            lineHeight: isAmharic ? 1.14 : 1.02,
+            letterSpacing: isAmharic ? "0em" : "-0.005em",
+            textTransform: isAmharic ? "none" : "uppercase",
             margin: "2px 0 0",
             padding: 0,
             maxWidth: "100%",
@@ -273,7 +276,7 @@ export function BroadcastImpactPost({
           </span>
         </h1>
 
-        {/* 5. Footer: Crimson Downward Arrow + "Read the caption" */}
+        {/* 5. Footer: Crimson Downward Arrow + "Read the caption" / "መግለጫውን ያንብቡ" */}
         <div
           style={{
             display: "flex",
@@ -306,15 +309,15 @@ export function BroadcastImpactPost({
               style={{
                 display: "flex",
                 flexDirection: "column",
-                fontFamily: tokens.font.sans,
-                lineHeight: 1.15,
+                fontFamily: isAmharic ? tokens.font.amharicSans : tokens.font.sans,
+                lineHeight: isAmharic ? 1.25 : 1.15,
               }}
             >
-              <span style={{ fontSize: 22, color: "#94A3B8", fontWeight: 500 }}>
-                Read the
+              <span style={{ fontSize: isAmharic ? 20 : 22, color: "#94A3B8", fontWeight: 500 }}>
+                {isAmharic ? "መግለጫውን" : "Read the"}
               </span>
-              <span style={{ fontSize: 22, color: "#FFFFFF", fontWeight: 700 }}>
-                caption
+              <span style={{ fontSize: isAmharic ? 20 : 22, color: "#FFFFFF", fontWeight: 700 }}>
+                {isAmharic ? "ያንብቡ" : "caption"}
               </span>
             </div>
           </div>
