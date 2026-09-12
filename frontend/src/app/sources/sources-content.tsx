@@ -29,6 +29,7 @@ export function SourcesContent() {
   const [newTelegram, setNewTelegram] = useState("");
   const [newType, setNewType] = useState<SourceType>("independent_media");
   const [newFreq, setNewFreq] = useState(30);
+  const [newRefreshTier, setNewRefreshTier] = useState<"urgent" | "high" | "standard" | "low">("standard");
 
   const { data, isLoading } = useQuery({
     queryKey: ["sources", search],
@@ -93,6 +94,7 @@ export function SourcesContent() {
         telegram_url: tgUrl,
         source_type: newType,
         crawl_frequency_minutes: Number(newFreq) || 30,
+        refresh_tier: newRefreshTier,
         is_active: true,
       });
     },
@@ -102,6 +104,7 @@ export function SourcesContent() {
       setNewWebsite("");
       setNewRssUrl("");
       setNewTelegram("");
+      setNewRefreshTier("standard");
       flash(`Source "${src.name}" added successfully.`);
       scheduleSync();
     },
@@ -212,6 +215,22 @@ export function SourcesContent() {
                     <option value="research_institution">Research / Policy Think Tank</option>
                     <option value="financial_institution">Financial Institution (NBE, Commercial)</option>
                     <option value="social_signal">Social Signal / Community</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs uppercase font-mono tracking-label text-paper-400 mb-1">
+                    Refresh Priority
+                  </label>
+                  <select
+                    className="w-full h-9 rounded-card border border-ink-600 bg-ink-800 px-3 text-sm text-paper-50 focus:outline-none focus:border-accent-green"
+                    value={newRefreshTier}
+                    onChange={(e) => setNewRefreshTier(e.target.value as typeof newRefreshTier)}
+                  >
+                    <option value="urgent">Urgent — breaking feeds</option>
+                    <option value="high">High — core news</option>
+                    <option value="standard">Standard — default</option>
+                    <option value="low">Low — long-form / low volume</option>
                   </select>
                 </div>
 

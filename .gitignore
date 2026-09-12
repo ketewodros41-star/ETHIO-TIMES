@@ -51,3 +51,6 @@ Thumbs.db
 media/
 /frontend/.env.local
 .agents/
+tasks/
+backend/celerybeat-schedule*
+celerybeat-schedule*

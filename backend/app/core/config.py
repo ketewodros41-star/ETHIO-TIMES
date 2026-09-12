@@ -116,6 +116,10 @@ class Settings(BaseSettings):
     instagram_access_token: str | None = Field(default=None)
     instagram_business_account_id: str | None = Field(default=None)
 
+    # ---- Telegram Bot API (kept server-side; BOT_KEY is never returned) ----
+    telegram_bot_token: str | None = Field(default=None, alias="BOT_KEY")
+    telegram_channel_username: str = Field(default="@Ethiopantimes")
+
     # ---- Media / Playwright render (Phase 5) ----
     media_root: str = Field(default="./media")
     next_public_url: str = Field(default="http://localhost:3000")

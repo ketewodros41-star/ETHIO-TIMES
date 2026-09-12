@@ -85,7 +85,7 @@ class IngestionService:
             items = adapter.fetch()
             processed, created, created_ids = self._persist_items(source, items)
 
-            self.sources.mark_success(source, created)
+            self.sources.mark_success(source, created, processed)
             self._finish_job(job, JobStatus.success, processed, created)
             logger.info(
                 "ingest_success", source=source_slug, processed=processed, created=created

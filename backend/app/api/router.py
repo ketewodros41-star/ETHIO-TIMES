@@ -12,6 +12,7 @@ from app.api.routes import (
     ingest,
     pipeline,
     posts,
+    settings,
     sources,
 )
 
@@ -24,3 +25,4 @@ api_router.include_router(events.router)
 api_router.include_router(pipeline.router)
 api_router.include_router(ingest.router)
 api_router.include_router(posts.router)
+api_router.include_router(settings.router)

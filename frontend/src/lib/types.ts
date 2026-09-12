@@ -126,9 +126,11 @@ export interface Source {
   verification_notes?: string | null;
   is_active: boolean;
   crawl_frequency_minutes: number;
+  refresh_tier: "urgent" | "high" | "standard" | "low";
   health_status: SourceHealthStatus;
   last_checked_at?: string | null;
   last_success_at?: string | null;
+  last_content_at?: string | null;
   last_error_at?: string | null;
   last_error_message?: string | null;
   consecutive_failures: number;
@@ -146,6 +148,7 @@ export interface SourceHealth {
   health_status: SourceHealthStatus;
   last_checked_at?: string | null;
   last_success_at?: string | null;
+  last_content_at?: string | null;
   last_error_at?: string | null;
   last_error_message?: string | null;
   consecutive_failures: number;
@@ -191,6 +194,7 @@ export interface ArticleSummary {
   summary?: string | null;
   url?: string | null;
   published_at?: string | null;
+  language?: string | null;
   detected_language?: string | null;
   importance_score: number;
   relevance_score?: number | null;
@@ -439,6 +443,8 @@ export interface EditorialTranslationRequest {
   source_language?: string;
   format?: string;
   template?: string;
+  theme?: string;
+  content_mode?: "single_card" | "carousel_5";
   slide_headers?: string[];
   slide_bodies?: string[];
 }
@@ -451,6 +457,42 @@ export interface EditorialTranslationResponse {
   slide_headers: string[];
   slide_bodies: string[];
   translated_language: string;
+  status?: string;
+  provider?: string | null;
+  warnings?: string[];
+  layout_budget?: Record<string, number | null>;
+}
+
+export interface PublishingSettings {
+  posts_per_day: number;
+  automation_enabled: boolean;
+  timezone: string;
+  updated_at: string;
+}
+
+export interface TelegramPublishingSettings {
+  enabled: boolean;
+  dry_run: boolean;
+  channel_username: string;
+  timezone: string;
+  posts_per_day: number;
+  ethiopia_posts_per_day: number;
+  international_posts_per_day: number;
+  posting_hours: number[];
+  highlight_color: string;
+  bot_configured: boolean;
+  updated_at: string;
+}
+
+export interface TelegramTestPostResponse {
+  success: boolean;
+  message: string;
+  telegram_message_id?: string | null;
+  post_id?: string | null;
+  headline?: string | null;
+  channel?: string | null;
+  photo_url?: string | null;
+  status?: string | null;
 }
 
 

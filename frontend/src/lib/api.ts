@@ -125,6 +125,7 @@ export const api = {
     telegram_url?: string;
     source_type: string;
     crawl_frequency_minutes?: number;
+    refresh_tier?: "urgent" | "high" | "standard" | "low";
     is_active?: boolean;
   }) =>
     request<Source>("/sources", {
@@ -137,6 +138,7 @@ export const api = {
     body: {
       is_active?: boolean;
       crawl_frequency_minutes?: number;
+      refresh_tier?: "urgent" | "high" | "standard" | "low";
       name?: string;
       website?: string;
     },
@@ -153,6 +155,18 @@ export const api = {
     ),
 
   pipelineStats: () => request<PipelineStats>("/pipeline/stats"),
+
+  getPublishingSettings: () => request<import("./types").PublishingSettings>("/settings/publishing"),
+  updatePublishingSettings: (body: Partial<Pick<import("./types").PublishingSettings, "posts_per_day" | "automation_enabled" | "timezone">>) =>
+    request<import("./types").PublishingSettings>("/settings/publishing", { method: "PATCH", body: JSON.stringify(body) }),
+  getTelegramPublishingSettings: () => request<import("./types").TelegramPublishingSettings>("/settings/telegram-publishing"),
+  updateTelegramPublishingSettings: (body: Partial<Omit<import("./types").TelegramPublishingSettings, "bot_configured" | "updated_at">>) =>
+    request<import("./types").TelegramPublishingSettings>("/settings/telegram-publishing", { method: "PATCH", body: JSON.stringify(body) }),
+  testTelegramPost: (body?: { event_id?: string; force_live?: boolean; channel_username?: string }) =>
+    request<import("./types").TelegramTestPostResponse>("/settings/telegram-publishing/test-post", {
+      method: "POST",
+      body: JSON.stringify(body ?? {}),
+    }),
 };
 
 export const postsApi = {

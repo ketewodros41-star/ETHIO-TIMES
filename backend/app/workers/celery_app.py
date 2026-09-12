@@ -58,4 +58,12 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.tasks.auto_compose_eligible_events",
         "schedule": crontab(minute="*/30"),
     },
+    "plan-telegram-posts-every-15-min": {
+        "task": "app.workers.tasks.plan_telegram_posts",
+        "schedule": crontab(minute="*/15"),
+    },
+    "publish-due-telegram-posts-every-5-min": {
+        "task": "app.workers.tasks.publish_due_telegram_posts",
+        "schedule": crontab(minute="*/5"),
+    },
 }

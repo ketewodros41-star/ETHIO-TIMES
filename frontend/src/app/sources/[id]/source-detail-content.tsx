@@ -278,7 +278,7 @@ export function SourceDetailContent({ id }: { id: string }) {
         </div>
 
         {/* Quick Ingestion & Reliability Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-ink-750">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-2 border-t border-ink-750">
           <div className="rounded-card bg-ink-850 p-3 border border-ink-700">
             <span className="text-[11px] uppercase tracking-label font-mono text-paper-400">
               Total Ingested
@@ -309,6 +309,14 @@ export function SourceDetailContent({ id }: { id: string }) {
             </span>
             <div className="text-sm font-semibold text-paper-200 mt-1">
               {relativeTime(source.last_checked_at)}
+            </div>
+          </div>
+          <div className="rounded-card bg-ink-850 p-3 border border-ink-700">
+            <span className="text-[11px] uppercase tracking-label font-mono text-paper-400">
+              Last Content
+            </span>
+            <div className="text-sm font-semibold text-paper-200 mt-1">
+              {relativeTime(source.last_content_at)}
             </div>
           </div>
         </div>

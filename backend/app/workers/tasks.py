@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from app.core.logging import configure_logging, get_logger
 from app.db.session import SessionLocal
-from app.integrations.ai.registry import get_text_provider
+from app.integrations.ai.registry import get_image_provider, get_text_provider
 from app.models.audit import AuditLog, PipelineJob
 from app.models.enums import AuditAction, EventVerifyStatus, JobStatus, ProcessingStatus
 from app.models.news_source import NewsSource
@@ -27,6 +28,25 @@ from app.workers.celery_app import celery_app
 
 configure_logging()
 logger = get_logger(__name__)
+
+
+def _telegram_slot(policy, ordinal: int, now: datetime) -> datetime:
+    """Return today's next configured Addis-time slot, rolling forward if needed."""
+    zone = ZoneInfo(policy.timezone)
+    local_now = now.astimezone(zone)
+    hours = sorted(policy.posting_hours or [8, 11, 14, 17, 20])
+    if not hours:
+        hours = [8, 11, 14, 17, 20]
+    if ordinal < len(hours):
+        hour = hours[ordinal]
+        candidate = local_now.replace(hour=hour, minute=0, second=0, microsecond=0)
+    else:
+        last_hour = hours[-1]
+        extra_index = ordinal - len(hours) + 1
+        candidate = local_now.replace(hour=last_hour, minute=0, second=0, microsecond=0) + timedelta(minutes=30 * extra_index)
+    if candidate <= local_now:
+        candidate = local_now + timedelta(minutes=5 + ordinal * 15)
+    return candidate.astimezone(UTC)
 
 
 @celery_app.task(bind=True, name="app.workers.tasks.ingest_source", max_retries=3)
@@ -554,3 +574,276 @@ def auto_compose_eligible_events(limit: int = 20) -> dict:
         return {"enqueued": len(enqueued)}
     finally:
         session.close()
+
+
+@celery_app.task(name="app.workers.tasks.plan_telegram_posts")
+def plan_telegram_posts() -> dict:
+    """Plan quota-bound Telegram posts; never sends a message itself."""
+    from sqlalchemy import and_, not_, or_, select
+    from app.models.news_event import NewsEvent
+    from app.models.telegram_post import TelegramPost, TelegramPublishingSettings
+    from app.schemas.social_post import EditorialTranslationRequest
+    from app.services.social.image_pipeline import ImagePipeline
+    from app.services.social.translation_service import (
+        EditorialTranslationService,
+        TranslationUnavailableError,
+        _amharic_enough,
+    )
+
+    session = SessionLocal()
+    candidates_by_bucket: dict[str, list[NewsEvent]] = {}
+    try:
+        policy = session.get(TelegramPublishingSettings, 1)
+        if policy is None or not policy.enabled:
+            return {"planned": 0, "reason": "telegram_automation_disabled"}
+
+        already_event_ids = set(session.scalars(select(TelegramPost.event_id)).all())
+        now = datetime.now(UTC)
+        zone = ZoneInfo(policy.timezone)
+        local_now = now.astimezone(zone)
+        day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+        day_end = (local_now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)).astimezone(UTC)
+        today_posts = list(session.scalars(select(TelegramPost).where(
+            TelegramPost.scheduled_at >= day_start, TelegramPost.scheduled_at < day_end,
+            TelegramPost.status.in_(["scheduled", "publishing", "simulated", "published"]),
+        )).all())
+        existing_by_bucket = {
+            bucket: sum(post.content_bucket == bucket for post in today_posts)
+            for bucket in ("ethiopia", "international")
+        }
+
+        # Comprehensive Ethiopian regional indicators
+        ethiopia_region_terms = (
+            "ethiop", "addis", "amhara", "tigray", "oromia", "somali", "afar",
+            "benishangul", "gambella", "harar", "sidama", "dire dawa",
+            "southern nations", "south west", "raya", "wollega", "axum", "mekelle"
+        )
+        eth_region_cond = or_(*(NewsEvent.primary_region.ilike(f"%{t}%") for t in ethiopia_region_terms))
+        eth_title_cond = or_(*(NewsEvent.title.ilike(f"%{t}%") for t in ("%ethiop%", "%addis%", "%amhara%", "%tigray%", "%oromia%")))
+        is_ethiopia_expr = or_(eth_region_cond, eth_title_cond)
+        is_intl_expr = or_(
+            NewsEvent.primary_category.in_([
+                "World", "World News", "International News", "International Relations", "world", "world news"
+            ]),
+            and_(NewsEvent.primary_region.is_(None), not_(eth_title_cond)),
+            and_(not_(eth_region_cond), not_(eth_title_cond)),
+        )
+
+        for bucket, quota in (
+            ("ethiopia", policy.ethiopia_posts_per_day),
+            ("international", policy.international_posts_per_day),
+        ):
+            remaining = max(0, quota - existing_by_bucket[bucket])
+            if not remaining:
+                candidates_by_bucket[bucket] = []
+                continue
+            cond = is_ethiopia_expr if bucket == "ethiopia" else is_intl_expr
+            stmt = (
+                select(NewsEvent)
+                .where(
+                    NewsEvent.auto_publish_eligible.is_(True),
+                    NewsEvent.review_required.is_(False),
+                    cond,
+                )
+                .order_by(NewsEvent.trend_score.desc(), NewsEvent.last_seen_at.desc())
+                .limit(30)
+            )
+            candidates_by_bucket[bucket] = list(session.scalars(stmt).all())
+    except Exception:
+        session.rollback()
+        logger.exception("plan_telegram_posts_task_error")
+        raise
+    finally:
+        session.close()
+
+    planned: list[str] = []
+    for bucket, quota, language in (
+        ("ethiopia", policy.ethiopia_posts_per_day, "am"),
+        ("international", policy.international_posts_per_day, "en"),
+    ):
+        remaining = max(0, quota - existing_by_bucket[bucket])
+        if not remaining:
+            continue
+        candidate_events = candidates_by_bucket.get(bucket, [])
+
+        for event in candidate_events:
+            if event.id in already_event_ids or remaining <= 0:
+                continue
+            headline, description, highlights = event.title, event.summary or "", []
+            if language == "am":
+                translation_ok = False
+                try:
+                    trans_session = SessionLocal()
+                    try:
+                        bound_event = trans_session.get(NewsEvent, event.id) or event
+                        trans_svc = EditorialTranslationService(trans_session, get_text_provider())
+                        draft = trans_svc.translate_editorial(
+                            EditorialTranslationRequest(
+                                event_id=bound_event.id,
+                                headline=bound_event.title,
+                                dek=bound_event.summary,
+                                category=bound_event.primary_category,
+                                target_language="am",
+                                theme="broadcast_impact",
+                                content_mode="single_card",
+                            )
+                        )
+                        headline, description, highlights = draft.headline, draft.dek, draft.punchline_words
+                        translation_ok = True
+                    finally:
+                        trans_session.close()
+                except TranslationUnavailableError:
+                    if _amharic_enough(event.title):
+                        headline, description, highlights = event.title, event.summary or "", []
+                        translation_ok = True
+                    else:
+                        continue
+                except Exception as exc:
+                    logger.warning("telegram_editorial_translation_failed", event_id=str(event.id), error=str(exc))
+                    if _amharic_enough(event.title):
+                        headline, description, highlights = event.title, event.summary or "", []
+                        translation_ok = True
+                    else:
+                        continue
+                if not translation_ok:
+                    continue
+
+            img_session = SessionLocal()
+            try:
+                bound_img_event = img_session.get(NewsEvent, event.id) or event
+                img_pipeline = ImagePipeline(img_session, get_text_provider(), get_image_provider())
+                candidates = img_pipeline.browse_photos(bound_img_event).items
+                photo = candidates[0] if candidates else None
+            except Exception as exc:
+                logger.warning("telegram_photo_browse_failed", event_id=str(event.id), error=str(exc))
+                photo = None
+            finally:
+                img_session.close()
+
+            source = "ETHIOPIAN TIMES"
+            channel_handle = policy.channel_username if policy.channel_username.startswith("@") else f"@{policy.channel_username}"
+            caption = f"Follow {channel_handle} for verified news updates."
+
+            ins_session = SessionLocal()
+            try:
+                existing = ins_session.scalars(
+                    select(TelegramPost).where(
+                        TelegramPost.event_id == event.id,
+                        TelegramPost.content_bucket == bucket,
+                    )
+                ).first()
+                if existing:
+                    already_event_ids.add(event.id)
+                    continue
+
+                post = TelegramPost(
+                    event_id=event.id,
+                    content_bucket=bucket,
+                    language=language,
+                    headline=headline,
+                    description=description,
+                    caption=caption,
+                    source_attribution=source,
+                    photo_url=photo.image_url if photo else None,
+                    photo_credit=photo.photographer if photo else None,
+                    highlight_words=highlights,
+                    highlight_color=policy.highlight_color,
+                    scheduled_at=_telegram_slot(policy, len(today_posts) + len(planned), now),
+                    dry_run=policy.dry_run,
+                    policy_snapshot={"timezone": policy.timezone, "channel": policy.channel_username},
+                )
+                ins_session.add(post)
+                ins_session.commit()
+                ins_session.refresh(post)
+                post_id_str = str(post.id)
+                already_event_ids.add(event.id)
+                planned.append(f"{bucket}:{post_id_str}")
+                remaining -= 1
+            except Exception:
+                ins_session.rollback()
+                logger.exception("telegram_post_insert_failed", event_id=str(event.id))
+            finally:
+                ins_session.close()
+
+    return {"planned": len(planned), "post_ids": [value.split(":", 1)[1] for value in planned]}
+
+
+@celery_app.task(name="app.workers.tasks.publish_due_telegram_posts")
+def publish_due_telegram_posts() -> dict:
+    """Deliver due Telegram ledger rows, preserving idempotency by status."""
+    from sqlalchemy import select
+    from app.integrations.publishers.telegram import TelegramPublisher
+    from app.models.telegram_post import TelegramPost, TelegramPublishingSettings
+
+    session = SessionLocal()
+    due_post_ids: list = []
+    channel_username = ""
+    is_dry_run = True
+    try:
+        policy = session.get(TelegramPublishingSettings, 1)
+        if policy is None or not policy.enabled:
+            return {"published": 0, "reason": "telegram_automation_disabled"}
+
+        channel_username = policy.channel_username
+        is_dry_run = policy.dry_run
+
+        stmt = (
+            select(TelegramPost)
+            .where(
+                TelegramPost.status == "scheduled",
+                TelegramPost.scheduled_at <= datetime.now(UTC),
+            )
+            .order_by(TelegramPost.scheduled_at)
+            .limit(10)
+            .with_for_update(skip_locked=True)
+        )
+        due_posts = list(session.scalars(stmt).all())
+        if not due_posts:
+            return {"published": 0, "dry_run": is_dry_run}
+
+        for post in due_posts:
+            post.status = "publishing"
+            due_post_ids.append(post.id)
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.exception("publish_due_telegram_posts_task_error")
+        raise
+    finally:
+        session.close()
+
+    publisher = TelegramPublisher()
+    delivered = 0
+    for post_id in due_post_ids:
+        post_session = SessionLocal()
+        try:
+            post = post_session.get(TelegramPost, post_id)
+            if not post or post.status != "publishing":
+                continue
+
+            post.dry_run = is_dry_run
+            result = publisher.publish(post, channel_username, dry_run=is_dry_run)
+            if result.error:
+                post.status, post.error = "failed", result.error[:2000]
+            else:
+                post.status = "simulated" if is_dry_run else "published"
+                post.telegram_message_id = result.message_id
+                post.published_at = result.published_at
+                delivered += 1
+            post_session.commit()
+        except Exception as exc:
+            post_session.rollback()
+            logger.exception("publish_single_telegram_post_error", post_id=str(post_id), error=str(exc))
+            try:
+                err_session = SessionLocal()
+                p = err_session.get(TelegramPost, post_id)
+                if p and p.status == "publishing":
+                    p.status, p.error = "failed", f"Worker delivery exception: {exc}"[:2000]
+                    err_session.commit()
+                err_session.close()
+            except Exception:
+                pass
+        finally:
+            post_session.close()
+
+    return {"published": delivered, "dry_run": is_dry_run}

@@ -144,6 +144,9 @@ class EditorialTranslationRequest(BaseModel):
     source_language: str = "en"
     format: str = "portrait"
     template: str = "single"
+    # Additive contract fields; ``template`` remains supported for the current Studio.
+    theme: str = "broadcast_impact"
+    content_mode: str | None = None
     slide_headers: list[str] = Field(default_factory=list)
     slide_bodies: list[str] = Field(default_factory=list)
 
@@ -156,6 +159,9 @@ class EditorialTranslationResponse(BaseModel):
     slide_headers: list[str] = Field(default_factory=list)
     slide_bodies: list[str] = Field(default_factory=list)
     translated_language: str = "am"
-
+    status: str = "ready"
+    provider: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    layout_budget: dict[str, int | None] = Field(default_factory=dict)
 
 

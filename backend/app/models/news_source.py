@@ -80,9 +80,20 @@ class NewsSource(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     crawl_frequency_minutes: Mapped[int] = mapped_column(
         Integer, nullable=False, default=30, server_default="30"
     )
+    refresh_tier: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="standard", server_default="standard"
+    )
     last_checked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    last_content_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # HTTP validators make frequent RSS checks cheap and distinguish a quiet
+    # source from a broken one.  They are operational state, not API secrets.
+    http_etag: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    http_last_modified: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     # ---- Health ----
     health_status: Mapped[SourceHealthStatus] = mapped_column(

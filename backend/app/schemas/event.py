@@ -36,6 +36,7 @@ class ArticleSummary(BaseModel):
     summary: str | None
     url: str | None
     published_at: datetime | None
+    language: str | None
     detected_language: str | None
     importance_score: float
     relevance_score: int | None
@@ -155,6 +156,7 @@ def _article_summary(article) -> ArticleSummary:  # noqa: ANN001
         summary=article.summary,
         url=article.url,
         published_at=article.published_at,
+        language=article.language,
         detected_language=article.detected_language,
         importance_score=article.importance_score,
         relevance_score=article.relevance_score,

@@ -15,6 +15,10 @@ def test_detect_language_english():
     assert detect_language("Ethiopia announces new economic policy in Addis Ababa") == "en"
 
 
+def test_detect_language_english_with_an_amharic_name_is_not_amharic():
+    assert detect_language("Ethiopia announces policy, according to \u12a0\u1262\u12ed \u12a0\u1205\u1218\u12f5.") == "en"
+
+
 def test_detect_language_empty():
     assert detect_language("") == "und"
 

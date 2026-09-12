@@ -285,10 +285,16 @@ def translate_editorial_endpoint(
 ) -> EditorialTranslationResponse:
     """Translate English news copy to concise, broadcast-ready Amharic tailored to layout."""
     from app.integrations.ai.registry import get_text_provider
-    from app.services.social.translation_service import EditorialTranslationService
+    from app.services.social.translation_service import (
+        EditorialTranslationService,
+        TranslationUnavailableError,
+    )
 
     service = EditorialTranslationService(session, get_text_provider())
-    return service.translate_editorial(body)
+    try:
+        return service.translate_editorial(body)
+    except TranslationUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
 
 @router.get("/{post_id}/image")

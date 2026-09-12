@@ -21,6 +21,8 @@ def _source(**kwargs):
         "source_type": SourceType.independent_media,
         "language": "en",
         "slug": "test",
+        "http_etag": None,
+        "http_last_modified": None,
     }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -44,3 +46,32 @@ def test_factory_falls_back_to_website():
 def test_rss_adapter_can_handle_requires_rss_url():
     assert RSSSourceAdapter(_source(rss_url="x")).can_handle() is True
     assert RSSSourceAdapter(_source()).can_handle() is False
+
+
+def test_rss_adapter_sends_cached_validators():
+    adapter = RSSSourceAdapter(
+        _source(
+            rss_url="https://example.com/feed/",
+            http_etag='"version-7"',
+            http_last_modified="Tue, 10 Sep 2026 10:00:00 GMT",
+        )
+    )
+
+    headers = adapter._request_headers()
+
+    assert headers["If-None-Match"] == '"version-7"'
+    assert headers["If-Modified-Since"] == "Tue, 10 Sep 2026 10:00:00 GMT"
+
+
+def test_rss_not_modified_is_a_successful_empty_fetch(monkeypatch):
+    class NotModified:
+        status_code = 304
+        headers = {}
+        content = b""
+
+        def raise_for_status(self):  # pragma: no cover - must not be called
+            raise AssertionError("304 must not be treated as a failure")
+
+    monkeypatch.setattr("app.pipelines.adapters.rss.httpx.get", lambda *args, **kwargs: NotModified())
+
+    assert RSSSourceAdapter(_source(rss_url="https://example.com/feed/")).fetch() == []

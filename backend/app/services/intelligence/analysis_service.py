@@ -37,9 +37,12 @@ def detect_language(text: str) -> str:
     """Deterministic language detection; returns ISO code or 'und'."""
     if not text or not text.strip():
         return "und"
-    # Amharic/Tigrinya use the Ge'ez (Ethiopic) script: detect by unicode block
-    # since langdetect is unreliable on short Ethiopic strings.
-    if any("\u1200" <= ch <= "\u137f" for ch in text):
+    # Amharic/Tigrinya use the Ge'ez (Ethiopic) script. A single quoted word,
+    # person name, or place name is not enough to label an English story as
+    # Amharic; require meaningful Ethiopic-script dominance instead.
+    ethiopic_chars = sum("\u1200" <= ch <= "\u2dff" or "\uab00" <= ch <= "\uab2f" for ch in text)
+    latin_chars = sum(ch.isascii() and ch.isalpha() for ch in text)
+    if ethiopic_chars >= 4 and ethiopic_chars > latin_chars:
         return "am"
     try:
         from langdetect import DetectorFactory, detect

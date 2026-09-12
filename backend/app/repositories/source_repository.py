@@ -75,10 +75,17 @@ class SourceRepository:
     def delete(self, source: NewsSource) -> None:
         self.session.delete(source)
 
-    def mark_success(self, source: NewsSource, ingested_count: int) -> None:
+    def mark_success(
+        self, source: NewsSource, ingested_count: int, fetched_count: int = 0
+    ) -> None:
         now = datetime.now(UTC)
         source.last_checked_at = now
         source.last_success_at = now
+        if fetched_count:
+            source.last_content_at = now
+        # A recovered source must not continue displaying its old failure.
+        source.last_error_at = None
+        source.last_error_message = None
         source.consecutive_failures = 0
         source.health_status = SourceHealthStatus.healthy
         source.total_articles_ingested += ingested_count

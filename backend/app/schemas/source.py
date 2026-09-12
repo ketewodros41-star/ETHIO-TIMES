@@ -103,6 +103,7 @@ class SourceBase(BaseModel):
     verification_notes: str | None = None
     is_active: bool = True
     crawl_frequency_minutes: int = 30
+    refresh_tier: str = Field(default="standard", pattern="^(urgent|high|standard|low)$")
 
     @field_validator("source_type", mode="before")
     @classmethod
@@ -136,6 +137,7 @@ class SourceUpdate(BaseModel):
     verification_notes: str | None = None
     is_active: bool | None = None
     crawl_frequency_minutes: int | None = None
+    refresh_tier: str | None = Field(default=None, pattern="^(urgent|high|standard|low)$")
 
     @field_validator("source_type", mode="before")
     @classmethod
@@ -150,6 +152,7 @@ class SourceRead(SourceBase):
     health_status: SourceHealthStatus
     last_checked_at: datetime | None = None
     last_success_at: datetime | None = None
+    last_content_at: datetime | None = None
     last_error_at: datetime | None = None
     last_error_message: str | None = None
     consecutive_failures: int
@@ -169,6 +172,7 @@ class SourceHealthRead(BaseModel):
     health_status: SourceHealthStatus
     last_checked_at: datetime | None = None
     last_success_at: datetime | None = None
+    last_content_at: datetime | None = None
     last_error_at: datetime | None = None
     last_error_message: str | None = None
     consecutive_failures: int

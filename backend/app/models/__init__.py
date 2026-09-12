@@ -33,6 +33,8 @@ from app.models.enums import (
 )
 from app.models.news_event import EventArticle, EventTimeline, NewsEvent
 from app.models.news_source import NewsSource
+from app.models.publishing_settings import PublishingSettings
+from app.models.telegram_post import TelegramPost, TelegramPublishingSettings
 from app.models.social_post import SocialPost, VisualAsset
 from app.models.trending import EventVelocityMetric
 from app.models.user import User
@@ -54,6 +56,9 @@ __all__ = [
     "Contradiction",
     "EventVelocityMetric",
     "NewsSource",
+    "PublishingSettings",
+    "TelegramPost",
+    "TelegramPublishingSettings",
     "SocialPost",
     "VisualAsset",
     "User",

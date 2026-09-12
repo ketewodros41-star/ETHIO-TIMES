@@ -46,14 +46,34 @@ async def _periodic_feed_poller() -> None:
         await asyncio.sleep(90)
 
 
+async def _periodic_telegram_runner() -> None:
+    """Periodically plan and publish due Telegram posts automatically when enabled."""
+    await asyncio.sleep(15)  # Wait 15s after server startup
+    while True:
+        try:
+            from app.workers.tasks import plan_telegram_posts, publish_due_telegram_posts
+
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, plan_telegram_posts)
+            await loop.run_in_executor(None, publish_due_telegram_posts)
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.warning("periodic_telegram_runner_error", error=str(exc))
+
+        await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ANN201
     logger.info("startup", service=settings.project_name, environment=settings.environment)
     poller_task = asyncio.create_task(_periodic_feed_poller())
+    telegram_task = asyncio.create_task(_periodic_telegram_runner())
     yield
     poller_task.cancel()
+    telegram_task.cancel()
     try:
-        await poller_task
+        await asyncio.gather(poller_task, telegram_task, return_exceptions=True)
     except asyncio.CancelledError:
         pass
     logger.info("shutdown", service=settings.project_name)

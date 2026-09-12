@@ -34,43 +34,47 @@ class RSSSourceAdapter(BaseSourceAdapter):
         if not self.source.rss_url:
             raise AdapterError(f"Source {self.source.slug} has no rss_url")
 
-        items: list[FetchedItem] = []
-        direct_error: Exception | None = None
-
         try:
             response = httpx.get(
                 self.source.rss_url,
                 timeout=settings.ingest_http_timeout_seconds,
                 follow_redirects=True,
-                headers=BROWSER_HEADERS,
+                headers=self._request_headers(),
             )
+            # A conditional request that has not changed is a successful,
+            # inexpensive health check. It must never trigger a fallback.
+            if response.status_code == 304:
+                logger.info("rss_not_modified", source=self.source.slug)
+                return []
             response.raise_for_status()
+            self._remember_http_validators(response)
             parsed = feedparser.parse(response.content)
+            items: list[FetchedItem] = []
 
             if parsed.entries:
                 for entry in parsed.entries:
                     item = self._to_item(entry)
                     if item is not None:
                         items.append(item)
-        except Exception as exc:
-            direct_error = exc
-            logger.warning(
-                "rss_direct_fetch_failed",
-                source=self.source.slug,
-                url=self.source.rss_url,
-                error=str(exc),
-            )
-
-        if items:
             logger.info(
                 "rss_fetch_complete",
                 source=self.source.slug,
                 items=len(items),
                 mode="direct",
             )
+            # A valid feed may legitimately be empty. Google News is only a
+            # resilience path for a failed direct request, not a replacement
+            # feed that can silently change editorial provenance.
             return items
+        except Exception as direct_error:
+            logger.warning(
+                "rss_direct_fetch_failed",
+                source=self.source.slug,
+                url=self.source.rss_url,
+                error=str(direct_error),
+            )
 
-        # Fallback to Google News RSS when direct feed is blocked (e.g. 403 Turnstile) or empty
+        # Fallback only when the configured feed could not be fetched.
         fallback_items = self._fetch_google_news_fallback()
         if fallback_items:
             logger.info(
@@ -81,12 +85,27 @@ class RSSSourceAdapter(BaseSourceAdapter):
             )
             return fallback_items
 
-        if direct_error:
-            raise AdapterError(
-                f"Failed to fetch {self.source.rss_url}: {direct_error}"
-            ) from direct_error
+        raise AdapterError(
+            f"Failed to fetch {self.source.rss_url}: {direct_error}"
+        ) from direct_error
 
-        return []
+    def _request_headers(self) -> dict[str, str]:
+        headers = dict(BROWSER_HEADERS)
+        etag = getattr(self.source, "http_etag", None)
+        last_modified = getattr(self.source, "http_last_modified", None)
+        if etag:
+            headers["If-None-Match"] = etag
+        if last_modified:
+            headers["If-Modified-Since"] = last_modified
+        return headers
+
+    def _remember_http_validators(self, response: httpx.Response) -> None:
+        etag = response.headers.get("etag")
+        last_modified = response.headers.get("last-modified")
+        if etag:
+            self.source.http_etag = etag[:512]
+        if last_modified:
+            self.source.http_last_modified = last_modified[:512]
 
     def _fetch_google_news_fallback(self) -> list[FetchedItem]:
         from urllib.parse import urlparse

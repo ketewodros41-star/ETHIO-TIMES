@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, postsApi } from "@/lib/api";
@@ -36,6 +36,17 @@ const SAMPLE: PostTemplateData = {
   highlightColor: "#00F0FF",
   highlightMode: "auto",
 };
+
+function isPredominantlyEthiopic(text?: string | null): boolean {
+  if (!text) return false;
+  const ethiopicChars = (text.match(/[\u1200-\u137F\u1380-\u139F\u2D80-\u2DDF\uAB00-\uAB2F]/g) || []).length;
+  const latinChars = (text.match(/[A-Za-z]/g) || []).length;
+  return ethiopicChars >= 4 && ethiopicChars > latinChars;
+}
+
+function isAmharicLanguage(language?: string | null): boolean {
+  return /^(am|amh|amharic)(-|_|$)/i.test(language || "");
+}
 
 const AMHARIC_PRESETS = [
   {
@@ -847,6 +858,8 @@ function StudioContent() {
   const [customCategory, setCustomCategory] = useState<string>(queryCategory || "");
   const [customSource, setCustomSource] = useState<string>(querySource || "");
   const [customImageUrl, setCustomImageUrl] = useState<string>(queryImageUrl || "");
+  const [isEditorialAdapting, setIsEditorialAdapting] = useState(false);
+  const adaptedEventKey = useRef<string | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [showPhotoSearch, setShowPhotoSearch] = useState(false);
   const [previewTarget, setPreviewTarget] = useState<number>(380);
@@ -958,11 +971,24 @@ function StudioContent() {
   });
   const activeEvent = singleEventData || events.find((e) => e.id === selectedEventId);
 
+  // Auto-Amharic is intentionally conservative. Source language comes first,
+  // then the actual original text must be predominantly Ethiopic script. This
+  // blocks a mixed-language English story from being translated on entry.
+  const primaryArticle = singleEventData?.articles.find((link) => link.is_primary)?.article || singleEventData?.articles[0]?.article;
+  const sourceLanguage = articleData?.language || primaryArticle?.language || articleData?.detected_language || primaryArticle?.detected_language;
+  const sourceText = articleData
+    ? `${articleData.title || ""} ${articleData.summary || ""}`
+    : `${primaryArticle?.title || ""} ${primaryArticle?.summary || ""}`;
+  const originalIsAmharic = isAmharicLanguage(sourceLanguage) && isPredominantlyEthiopic(sourceText);
+
   useEffect(() => {
     if (activeEvent) {
-      setCustomHeadline(activeEvent.title);
-      setCustomDek(activeEvent.summary || "");
-      setCustomCategory(activeEvent.primary_category || "News");
+      // Preserve the existing English Studio behavior from the last pushed
+      // version: event copy is already editorially clustered and should be
+      // shown intact, not cut off or sent through a translation request.
+      setCustomHeadline(originalIsAmharic ? "" : activeEvent.title);
+      setCustomDek(originalIsAmharic ? "" : activeEvent.summary || "");
+      setCustomCategory(originalIsAmharic ? "" : activeEvent.primary_category || "News");
       setManualHighlightIndices([]);
       // Intelligently auto-detect country from event title, region, summary
       const textToScan = `${activeEvent.title} ${activeEvent.primary_region || ""} ${activeEvent.summary || ""}`;
@@ -977,7 +1003,7 @@ function StudioContent() {
       setCustomCategory("");
       setManualHighlightIndices([]);
     }
-  }, [activeEvent, queryHeadline, queryArticleId]);
+  }, [activeEvent, originalIsAmharic, queryHeadline, queryArticleId]);
 
   const { data: visualAssets = [], refetch: refetchAssets } = useQuery({
     queryKey: ["event_visual_assets", selectedEventId],
@@ -1067,9 +1093,11 @@ function StudioContent() {
       const targetLang = params?.targetLang || "am";
       const headlineToTranslate =
         params?.overrideHeadline ||
-        (customHeadline && !isEthiopic(customHeadline) ? customHeadline : activeEvent?.title || SAMPLE.headline);
+        (customHeadline && (targetLang === "am" ? !isEthiopic(customHeadline) : isEthiopic(customHeadline))
+          ? customHeadline : activeEvent?.title || SAMPLE.headline);
       const dekToTranslate =
-        customDek && !isEthiopic(customDek) ? customDek : activeEvent?.summary || SAMPLE.dek || "";
+        customDek && (targetLang === "am" ? !isEthiopic(customDek) : isEthiopic(customDek))
+          ? customDek : activeEvent?.summary || SAMPLE.dek || "";
       const catToTranslate = customCategory || activeEvent?.primary_category || "News";
 
       const headers = [1, 2, 3, 4, 5].map((idx) => slideCustomHeaders[idx] || "");
@@ -1083,12 +1111,15 @@ function StudioContent() {
         target_language: targetLang,
         format: format,
         template: themeId === "breaking" ? "breaking" : postMode === "carousel" ? "carousel" : "single",
+        theme: themeId,
+        content_mode: postMode === "carousel" ? "carousel_5" : "single_card",
         slide_headers: headers,
         slide_bodies: bodies,
       });
     },
-    onSuccess: (data) => {
-      setSelectedLanguage("am");
+    onSuccess: (data, variables) => {
+      setIsEditorialAdapting(false);
+      setSelectedLanguage(variables?.targetLang || "am");
       setCustomHeadline(data.headline);
       setCustomDek(data.dek);
       setCustomCategory(data.category);
@@ -1127,15 +1158,35 @@ function StudioContent() {
         setSlideCustomBodies((prev) => ({ ...prev, ...newBodies }));
       }
     },
+    onError: (error) => {
+      setIsEditorialAdapting(false);
+      const message = error instanceof Error ? error.message : "Translation is temporarily unavailable.";
+      alert(`Amharic draft was not applied: ${message}`);
+    },
   });
+
+  // Only genuine Amharic source articles use automatic AI adaptation. English
+  // stories keep the exact clustered event copy set above.
+  useEffect(() => {
+    if (!activeEvent?.id || adaptedEventKey.current === activeEvent.id || translateEditorialMutation.isPending) return;
+    // The event-list response does not contain article language. Wait for the
+    // event detail unless this Studio session already has the source article.
+    if (selectedEventId && !singleEventData && !articleData) return;
+    if (!originalIsAmharic) return;
+
+    adaptedEventKey.current = activeEvent.id;
+    setSelectedLanguage("am");
+    setIsEditorialAdapting(true);
+    translateEditorialMutation.mutate({ targetLang: "am", overrideHeadline: activeEvent.title });
+  }, [activeEvent?.id, activeEvent?.title, articleData, selectedEventId, singleEventData, originalIsAmharic, translateEditorialMutation]);
 
   const isAmharicScript = isEthiopic(customHeadline) || isEthiopic(customDek) || selectedLanguage === "am";
 
   const previewData: PostTemplateData = activeEvent
     ? {
         category: customCategory || activeEvent.primary_category || (isAmharicScript ? "ዜና" : "News"),
-        headline: customHeadline || activeEvent.title,
-        dek: customDek || undefined,
+        headline: customHeadline || (isEditorialAdapting ? "Preparing editorial copy…" : activeEvent.title),
+        dek: customDek || (isEditorialAdapting ? "" : undefined),
         source: customSource || "ETHIOPIAN TIMES",
         dateLabel: new Date(activeEvent.created_at)
           .toLocaleDateString(isAmharicScript ? "am-ET" : "en-US", { day: "numeric", month: "short", year: "numeric" })
@@ -1369,6 +1420,17 @@ function StudioContent() {
                       <button
                         type="button"
                         onClick={() => {
+                          // Before an editor field is touched it is empty, so use the
+                          // selected article as the source-language signal. Without
+                          // this, clicking English on an Amharic article restored the
+                          // raw source headline instead of requesting concise English.
+                          const sourceHeadline = customHeadline || activeEvent?.title || "";
+                          const sourceDek = customDek || activeEvent?.summary || "";
+                          const currentIsAmharic = isEthiopic(sourceHeadline) || isEthiopic(sourceDek);
+                          if (currentIsAmharic) {
+                            translateEditorialMutation.mutate({ targetLang: "en", overrideHeadline: sourceHeadline });
+                            return;
+                          }
                           setSelectedLanguage("en");
                           if (englishBackup) {
                             setCustomHeadline(englishBackup.headline);
@@ -1406,7 +1468,7 @@ function StudioContent() {
                           if (selectedLanguage === "en") {
                             setEnglishBackup({
                               headline: customHeadline || (activeEvent?.title ?? SAMPLE.headline),
-                              dek: customDek || (activeEvent?.summary ?? SAMPLE.dek),
+                              dek: customDek || activeEvent?.summary || SAMPLE.dek || "",
                               category: customCategory || (activeEvent?.primary_category ?? SAMPLE.category),
                               country: selectedCountry,
                               slideHeaders: { ...slideCustomHeaders },
@@ -1454,7 +1516,13 @@ function StudioContent() {
                   <label className="block text-xs uppercase tracking-label text-paper-500 mb-1.5 font-mono">Select News Story</label>
                   <select
                     value={selectedEventId}
-                    onChange={(e) => { setSelectedEventId(e.target.value); setSelectedAssetId(null); }}
+                    onChange={(e) => {
+                      // Prevent a previously selected Amharic story from
+                      // momentarily carrying its mode into the next story.
+                      setSelectedLanguage("en");
+                      setSelectedEventId(e.target.value);
+                      setSelectedAssetId(null);
+                    }}
                     className="w-full h-10 rounded-card border border-ink-600 bg-ink-800 px-3 text-sm text-paper-50 focus:border-accent-green focus:outline-none"
                   >
                     <option value="">-- Choose an Event ({events.length} available) --</option>
@@ -1477,7 +1545,7 @@ function StudioContent() {
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-mono uppercase tracking-wider text-accent-green font-bold flex items-center gap-1.5">
                         <Sparkles className="h-3.5 w-3.5 text-accent-green" />
-                        AI Broadcast Amharic (Punchy 4-7 Words)
+                        AI Broadcast Amharic (layout-safe editorial draft)
                       </span>
                       <button
                         type="button"
@@ -1502,7 +1570,7 @@ function StudioContent() {
 
                     <div className="text-[11px] text-paper-400 flex items-center gap-1.5">
                       <span className="h-1.5 w-1.5 rounded-full bg-accent-green" />
-                      <span>Adapted to {format} layout ({postMode === "carousel" ? "5-slide carousel" : themeId === "breaking" ? "breaking alert" : "single image card"})</span>
+                      <span>Grounded in the event context and adapted to {format} ({postMode === "carousel" ? "5 translated slides" : "single image card"})</span>
                     </div>
 
                     <div className="pt-1.5 border-t border-ink-800">
