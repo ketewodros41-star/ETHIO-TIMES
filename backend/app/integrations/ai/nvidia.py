@@ -82,7 +82,7 @@ class NvidiaTextProvider(AIProvider):
         }
 
         try:
-            with httpx.Client(timeout=45.0) as client:
+            with httpx.Client(timeout=60.0) as client:
                 res = client.post(
                     f"{self.base_url}/chat/completions",
                     headers=headers,

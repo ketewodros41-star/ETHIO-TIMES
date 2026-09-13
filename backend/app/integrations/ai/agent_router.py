@@ -30,7 +30,11 @@ def _extract_json_block(text: str) -> dict[str, Any]:
     text = text.strip()
     match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
     if match:
-        text = match.group(1).strip()
+        candidate = match.group(1).strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
@@ -84,11 +88,11 @@ class AgentRouterTextProvider(AIProvider):
                 {"role": "user", "content": request.prompt},
             ],
             "temperature": request.temperature if request.temperature is not None else 0.1,
-            "max_tokens": request.max_tokens or 4096,
+            "max_tokens": max(request.max_tokens or 4096, 4096),
         }
 
         try:
-            with httpx.Client(timeout=45.0) as client:
+            with httpx.Client(timeout=60.0) as client:
                 res = client.post(
                     f"{self.base_url}/chat/completions",
                     headers=headers,

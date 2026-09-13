@@ -76,7 +76,7 @@ class EditorialTranslationService:
             prompt=self._user_prompt(req, event, facts, mode),
             response_schema=self._response_schema(mode),
             temperature=0.1,
-            max_tokens=1800 if mode == "carousel_5" else 700,
+            max_tokens=4096,
         )
         try:
             raw = self.provider.generate_json(request)
