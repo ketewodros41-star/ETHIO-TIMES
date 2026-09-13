@@ -1,0 +1,16 @@
+name: 24/7 Cloud Keep-Alive & Health Ping
+
+on:
+  schedule:
+    # Runs every 10 minutes to prevent Render free instance from sleeping
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping ETHIOTIMES Render Backend
+        run: |
+          echo "Pinging ETHIOTIMES backend on Render..."
+          curl -sS -m 30 "https://ethiotimes-backend.onrender.com/api/v1/health" || true
