@@ -64,7 +64,7 @@ class NvidiaTextProvider(AIProvider):
         base_url: str | None = None,
     ) -> None:
         self.api_key = api_key or getattr(settings, "nvidia_api_key", None)
-        self.model = model or getattr(settings, "nvidia_text_model", "meta/llama-3.2-11b-vision-instruct")
+        self.model = model or getattr(settings, "nvidia_text_model", "deepseek-ai/deepseek-v4-flash-0731")
         self.base_url = base_url or getattr(settings, "nvidia_base_url", "https://integrate.api.nvidia.com/v1")
 
     def is_available(self) -> bool:
@@ -90,8 +90,8 @@ class NvidiaTextProvider(AIProvider):
                 {"role": "system", "content": system_content},
                 {"role": "user", "content": request.prompt},
             ],
-            "temperature": request.temperature if request.temperature is not None else 0.2,
-            "max_tokens": min(request.max_tokens or 1024, 1024),
+            "temperature": request.temperature if request.temperature is not None else 0.1,
+            "max_tokens": max(request.max_tokens or 4096, 4096),
         }
 
         try:
@@ -107,7 +107,12 @@ class NvidiaTextProvider(AIProvider):
                     raise ProviderResponseError(f"NVIDIA API error {res.status_code}: {res.text[:300]}")
 
                 data = res.json()
-                content = data["choices"][0]["message"]["content"]
+                msg = data["choices"][0]["message"]
+                content = msg.get("content")
+                if not content and msg.get("reasoning_content"):
+                    content = msg["reasoning_content"]
+                if not content:
+                    content = ""
                 return _extract_json_block(content)
         except (RateLimitError, ProviderResponseError):
             raise
