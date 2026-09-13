@@ -310,35 +310,40 @@ def debug_translation_test_endpoint() -> dict[str, Any]:
     if not ar_key:
         results["agent_router"] = {"configured": False}
     else:
-        t0 = time.time()
-        try:
-            with httpx.Client(timeout=15.0) as client:
-                res = client.post(
-                    "https://agentrouter.org/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {ar_key}",
-                        "Content-Type": "application/json",
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                        "Accept": "application/json",
-                    },
-                    json={
-                        "model": "deepseek-v4-flash",
-                        "messages": [{"role": "user", "content": "Hi"}],
-                        "max_tokens": 10,
-                    },
-                )
-                results["agent_router"] = {
-                    "configured": True,
-                    "status": res.status_code,
-                    "duration_s": round(time.time() - t0, 2),
-                    "snippet": res.text[:300],
+        for name, ua in [
+            ("curl", "curl/8.4.0"),
+            ("requests", "python-requests/2.31.0"),
+            ("agentrouter", "agentrouter-sdk/1.0.0"),
+            ("none", ""),
+        ]:
+            t0 = time.time()
+            try:
+                headers = {
+                    "Authorization": f"Bearer {ar_key}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
                 }
-        except Exception as exc:
-            results["agent_router"] = {
-                "configured": True,
-                "error": str(exc),
-                "duration_s": round(time.time() - t0, 2),
-            }
+                if ua:
+                    headers["User-Agent"] = ua
+                with httpx.Client(timeout=10.0) as client:
+                    res = client.post(
+                        "https://agentrouter.org/v1/chat/completions",
+                        headers=headers,
+                        json={
+                            "model": "deepseek-v4-flash",
+                            "messages": [{"role": "user", "content": "Hi"}],
+                            "max_tokens": 10,
+                        },
+                    )
+                    is_waf = "aliyun_waf" in res.text or "<html" in res.text.lower()
+                    results[f"agent_router_{name}"] = {
+                        "status": res.status_code,
+                        "waf_blocked": is_waf,
+                        "duration_s": round(time.time() - t0, 2),
+                        "snippet": res.text[:150],
+                    }
+            except Exception as exc:
+                results[f"agent_router_{name}"] = {"error": str(exc), "duration_s": round(time.time() - t0, 2)}
 
     nv_key = getattr(settings, "nvidia_api_key", None)
     if not nv_key:
