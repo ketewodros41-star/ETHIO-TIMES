@@ -57,6 +57,30 @@ class RelevanceService:
         content: str | None,
         source: object | None = None,
     ) -> RelevanceOutcome:
+        # Fast-path: Check deterministic keyword score first to avoid burning LLM tokens
+        fast_score, fast_keywords = score_relevance(title, summary, content)
+        country = (getattr(source, "country", "") or "").upper() if source else ""
+        
+        # High confidence match (score >= 75 or verified ET source with keywords)
+        if fast_score >= 75 or (country == "ET" and fast_keywords):
+            res = RelevanceResult(
+                score=max(fast_score, 85),
+                is_ethiopia_related=True,
+                reason=f"Direct high-confidence keyword match: {', '.join(fast_keywords[:5])}",
+                primary_region=fast_keywords[0] if fast_keywords else "Ethiopia",
+            )
+            return RelevanceOutcome(res, RelevanceDecision.relevant, used_fallback=True)
+
+        # High confidence non-match (score < 10, no keywords, international source)
+        if fast_score < 10 and not fast_keywords and country not in ("", "ET"):
+            res = RelevanceResult(
+                score=fast_score,
+                is_ethiopia_related=False,
+                reason="Zero Ethiopian entity or regional keyword matches",
+                primary_region=None,
+            )
+            return RelevanceOutcome(res, RelevanceDecision.irrelevant, used_fallback=True)
+
         if self.provider.is_available():
             try:
                 data = self.provider.generate_json(

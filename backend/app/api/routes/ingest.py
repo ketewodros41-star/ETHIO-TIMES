@@ -49,8 +49,8 @@ def _background_run_ingest(source_ids: list[uuid.UUID]) -> None:
                 logger.exception("bg_ingest_source_failed", source_id=str(sid))
 
         article_repo = ArticleRepository(session)
-        processable_ids = article_repo.select_processable_ids(limit=100)
-        articles_to_process = list(dict.fromkeys(created_article_ids + processable_ids))
+        processable_ids = article_repo.select_processable_ids(limit=10)
+        articles_to_process = list(dict.fromkeys(created_article_ids + processable_ids))[:15]
 
         if not articles_to_process:
             return

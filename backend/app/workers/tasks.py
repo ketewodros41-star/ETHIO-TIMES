@@ -13,7 +13,11 @@ from zoneinfo import ZoneInfo
 
 from app.core.logging import configure_logging, get_logger
 from app.db.session import SessionLocal
-from app.integrations.ai.registry import get_image_provider, get_text_provider
+from app.integrations.ai.registry import (
+    get_image_provider,
+    get_text_provider,
+    get_translation_provider,
+)
 from app.models.audit import AuditLog, PipelineJob
 from app.models.enums import AuditAction, EventVerifyStatus, JobStatus, ProcessingStatus
 from app.models.news_source import NewsSource
@@ -676,7 +680,7 @@ def plan_telegram_posts() -> dict:
                     trans_session = SessionLocal()
                     try:
                         bound_event = trans_session.get(NewsEvent, event.id) or event
-                        trans_svc = EditorialTranslationService(trans_session, get_text_provider())
+                        trans_svc = EditorialTranslationService(trans_session, get_translation_provider())
                         draft = trans_svc.translate_editorial(
                             EditorialTranslationRequest(
                                 event_id=bound_event.id,

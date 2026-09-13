@@ -284,13 +284,13 @@ def translate_editorial_endpoint(
     session: Session = Depends(get_db),
 ) -> EditorialTranslationResponse:
     """Translate English news copy to concise, broadcast-ready Amharic tailored to layout."""
-    from app.integrations.ai.registry import get_text_provider
+    from app.integrations.ai.registry import get_translation_provider
     from app.services.social.translation_service import (
         EditorialTranslationService,
         TranslationUnavailableError,
     )
 
-    service = EditorialTranslationService(session, get_text_provider())
+    service = EditorialTranslationService(session, get_translation_provider())
     try:
         return service.translate_editorial(body)
     except TranslationUnavailableError as exc:

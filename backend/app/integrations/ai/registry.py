@@ -12,13 +12,15 @@ from app.integrations.ai.gemini import GeminiImageProvider, GeminiTextProvider
 
 
 def get_text_provider() -> AIProvider:
-    # 1. AgentRouter (configured via AGENT_ROUTER in .env)
-    if getattr(settings, "agent_router_key", None):
+    """General text provider for background pipeline tasks (clustering, relevance, entities).
+    Prioritizes free-tier Gemini / Nvidia to conserve AgentRouter tokens.
+    """
+    # 1. Gemini Developer API (100% Free tier: 15 RPM, 1500 Requests/Day)
+    if settings.gemini_api_key:
         try:
-            from app.integrations.ai.agent_router import AgentRouterTextProvider
-            ar = AgentRouterTextProvider()
-            if ar.is_available():
-                return ar
+            gemini = GeminiTextProvider()
+            if gemini.is_available():
+                return gemini
         except Exception:
             pass
 
@@ -32,16 +34,36 @@ def get_text_provider() -> AIProvider:
         except Exception:
             pass
 
-    # 3. Gemini Developer API
-    if settings.gemini_api_key:
+    # 3. AgentRouter only as last resort if no free provider is configured
+    if getattr(settings, "agent_router_key", None):
         try:
-            gemini = GeminiTextProvider()
-            if gemini.is_available():
-                return gemini
+            from app.integrations.ai.agent_router import AgentRouterTextProvider
+            ar = AgentRouterTextProvider()
+            if ar.is_available():
+                return ar
         except Exception:
             pass
 
     return GeminiTextProvider()
+
+
+def get_translation_provider() -> AIProvider:
+    """Specialized provider reserved specifically for high-fidelity Amharic translation.
+    Uses AgentRouter (DeepSeek) to ensure top-quality Amharic editorial translation
+    while strictly limiting calls to actual Telegram publication events (3-5 calls/day).
+    """
+    # 1. AgentRouter (DeepSeek) for natural Amharic translation
+    if getattr(settings, "agent_router_key", None):
+        try:
+            from app.integrations.ai.agent_router import AgentRouterTextProvider
+            ar = AgentRouterTextProvider()
+            if ar.is_available():
+                return ar
+        except Exception:
+            pass
+
+    # 2. Fallback to Gemini if AgentRouter key is exhausted or missing
+    return get_text_provider()
 
 
 def get_image_provider() -> ImageProvider:
