@@ -108,7 +108,7 @@ class EditorialTranslationService:
 
         logger.warning("editorial_translation_unavailable", error=str(last_exc), mode=mode)
         raise TranslationUnavailableError(
-            "The translation provider did not return a layout-safe Amharic editorial draft"
+            f"The translation provider did not return a layout-safe Amharic editorial draft: {last_exc}"
         ) from last_exc
 
     def _event_context(self, event_id: Any) -> tuple[NewsEvent | None, list[str]]:
