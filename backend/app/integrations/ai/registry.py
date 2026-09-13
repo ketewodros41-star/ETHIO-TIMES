@@ -114,13 +114,21 @@ def get_text_provider() -> AIProvider:
 
 def get_translation_provider() -> AIProvider:
     """Resilient translation provider reserved specifically for high-fidelity Amharic translation.
-    Tries AgentRouter (DeepSeek) first for top-quality Amharic editorial translation,
-    cascading seamlessly to NVIDIA NIM and Gemini if AgentRouter errors, rate-limits,
-    or runs out of tokens.
+    Prioritizes Gemini (gemini-2.5-flash-lite with multi-model fallback) for blazing fast (<2s),
+    high-quota (1,500 req/day) Amharic translations, cascading to AgentRouter and NVIDIA NIM.
     """
     providers: list[AIProvider] = []
 
-    # 1. AgentRouter (DeepSeek)
+    # 1. Gemini (100% Free tier: 1500 Requests/Day, fast 1-2s response, multi-model fallback)
+    if settings.gemini_api_key:
+        try:
+            gemini = GeminiTextProvider()
+            if gemini.is_available():
+                providers.append(gemini)
+        except Exception:
+            pass
+
+    # 2. AgentRouter (DeepSeek)
     if getattr(settings, "agent_router_key", None):
         try:
             from app.integrations.ai.agent_router import AgentRouterTextProvider
@@ -130,7 +138,7 @@ def get_translation_provider() -> AIProvider:
         except Exception:
             pass
 
-    # 2. NVIDIA NIM (Llama 3.2 11b Vision Instruct or configured model)
+    # 3. NVIDIA NIM
     if getattr(settings, "nvidia_api_key", None):
         try:
             from app.integrations.ai.nvidia import NvidiaTextProvider
@@ -140,19 +148,10 @@ def get_translation_provider() -> AIProvider:
         except Exception:
             pass
 
-    # 3. Gemini fallback
-    if getattr(settings, "gemini_api_key", None):
-        try:
-            gemini = GeminiTextProvider()
-            if gemini.is_available():
-                providers.append(gemini)
-        except Exception:
-            pass
-
     if providers:
         return ResilientTranslationProvider(providers)
 
-    return get_text_provider()
+    return GeminiTextProvider()
 
 
 def get_image_provider() -> ImageProvider:

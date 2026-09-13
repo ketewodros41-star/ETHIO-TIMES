@@ -77,6 +77,15 @@ def _is_unretryable(exc: Exception) -> bool:
 _DEFAULT_KEY = object()
 
 
+FALLBACK_TEXT_MODELS: list[str] = [
+    "gemini-2.5-flash-lite",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
+]
+
+
 class GeminiTextProvider(AIProvider):
     name = "gemini"
 
@@ -123,86 +132,122 @@ class GeminiTextProvider(AIProvider):
     # -- generation --------------------------------------------------------- #
     def generate_json(self, request: TextGenerationRequest) -> dict[str, Any]:
         client = self._get_client()
+        candidate_models = [self.model] + [m for m in FALLBACK_TEXT_MODELS if m != self.model]
+        last_exc: Exception | None = None
 
-        @self._retryer()
-        def _call() -> dict[str, Any]:
-            from google.genai import types
+        for model_name in candidate_models:
+            @self._retryer()
+            def _call() -> dict[str, Any]:
+                from google.genai import types
 
-            config_kwargs: dict[str, Any] = {
-                "response_mime_type": "application/json",
-                "temperature": request.temperature or settings.gemini_temperature,
-            }
-            if request.system:
-                config_kwargs["system_instruction"] = request.system
-            if request.max_tokens:
-                config_kwargs["max_output_tokens"] = request.max_tokens
-            if request.response_schema is not None:
-                config_kwargs["response_schema"] = request.response_schema
+                config_kwargs: dict[str, Any] = {
+                    "response_mime_type": "application/json",
+                    "temperature": request.temperature or settings.gemini_temperature,
+                }
+                if request.system:
+                    config_kwargs["system_instruction"] = request.system
+                if request.max_tokens:
+                    config_kwargs["max_output_tokens"] = request.max_tokens
+                if request.response_schema is not None:
+                    config_kwargs["response_schema"] = request.response_schema
 
-            config = types.GenerateContentConfig(**config_kwargs)
+                config = types.GenerateContentConfig(**config_kwargs)
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=request.prompt,
+                        config=config,
+                    )
+                except Exception as exc:  # noqa: BLE001 - SDK raises varied types
+                    if _is_unretryable(exc):
+                        self._key_invalid = True
+                        raise ProviderNotConfiguredError(f"Gemini API key is invalid: {exc}") from exc
+                    if _is_rate_limit(exc):
+                        raise RateLimitError(str(exc)) from exc
+                    raise ProviderResponseError(f"Gemini generation failed: {exc}") from exc
+
+                text = getattr(response, "text", None)
+                if not text:
+                    raise ProviderResponseError("Gemini returned an empty response")
+                try:
+                    data = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    raise ProviderResponseError(
+                        f"Gemini returned non-JSON output: {exc}"
+                    ) from exc
+                if not isinstance(data, dict):
+                    raise ProviderResponseError("Gemini JSON root was not an object")
+                return data
+
             try:
-                response = client.models.generate_content(
-                    model=self.model,
-                    contents=request.prompt,
-                    config=config,
-                )
-            except Exception as exc:  # noqa: BLE001 - SDK raises varied types
-                if _is_unretryable(exc):
-                    self._key_invalid = True
-                    raise ProviderNotConfiguredError(f"Gemini API key is invalid: {exc}") from exc
+                return _call()
+            except (ProviderNotConfiguredError, ProviderResponseError):
+                raise
+            except RateLimitError as exc:
+                logger.warning("gemini_model_rate_limited_trying_fallback", model=model_name, error=str(exc))
+                last_exc = exc
+                continue
+            except Exception as exc:
                 if _is_rate_limit(exc):
-                    raise RateLimitError(str(exc)) from exc
-                raise ProviderResponseError(f"Gemini generation failed: {exc}") from exc
+                    logger.warning("gemini_model_rate_limited_trying_fallback", model=model_name, error=str(exc))
+                    last_exc = exc
+                    continue
+                raise
 
-            text = getattr(response, "text", None)
-            if not text:
-                raise ProviderResponseError("Gemini returned an empty response")
-            try:
-                data = json.loads(text)
-            except json.JSONDecodeError as exc:
-                raise ProviderResponseError(
-                    f"Gemini returned non-JSON output: {exc}"
-                ) from exc
-            if not isinstance(data, dict):
-                raise ProviderResponseError("Gemini JSON root was not an object")
-            return data
-
-        return _call()
+        raise RateLimitError(f"All Gemini models exhausted their rate limits: {last_exc}") from last_exc
 
     def generate_text(self, request: TextGenerationRequest) -> TextGenerationResult:
         client = self._get_client()
+        candidate_models = [self.model] + [m for m in FALLBACK_TEXT_MODELS if m != self.model]
+        last_exc: Exception | None = None
 
-        @self._retryer()
-        def _call() -> TextGenerationResult:
-            from google.genai import types
+        for model_name in candidate_models:
+            @self._retryer()
+            def _call() -> TextGenerationResult:
+                from google.genai import types
 
-            config_kwargs: dict[str, Any] = {
-                "temperature": request.temperature or settings.gemini_temperature,
-            }
-            if request.system:
-                config_kwargs["system_instruction"] = request.system
-            if request.max_tokens:
-                config_kwargs["max_output_tokens"] = request.max_tokens
+                config_kwargs: dict[str, Any] = {
+                    "temperature": request.temperature or settings.gemini_temperature,
+                }
+                if request.system:
+                    config_kwargs["system_instruction"] = request.system
+                if request.max_tokens:
+                    config_kwargs["max_output_tokens"] = request.max_tokens
 
-            config = types.GenerateContentConfig(**config_kwargs)
+                config = types.GenerateContentConfig(**config_kwargs)
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=request.prompt,
+                        config=config,
+                    )
+                except Exception as exc:
+                    if _is_unretryable(exc):
+                        self._key_invalid = True
+                        raise ProviderNotConfiguredError(f"Gemini API key is invalid: {exc}") from exc
+                    if _is_rate_limit(exc):
+                        raise RateLimitError(str(exc)) from exc
+                    raise ProviderResponseError(f"Gemini text generation failed: {exc}") from exc
+
+                text = getattr(response, "text", "") or ""
+                return TextGenerationResult(text=text.strip(), model=model_name, usage={})
+
             try:
-                response = client.models.generate_content(
-                    model=self.model,
-                    contents=request.prompt,
-                    config=config,
-                )
+                return _call()
+            except (ProviderNotConfiguredError, ProviderResponseError):
+                raise
+            except RateLimitError as exc:
+                logger.warning("gemini_model_rate_limited_trying_fallback", model=model_name, error=str(exc))
+                last_exc = exc
+                continue
             except Exception as exc:
-                if _is_unretryable(exc):
-                    self._key_invalid = True
-                    raise ProviderNotConfiguredError(f"Gemini API key is invalid: {exc}") from exc
                 if _is_rate_limit(exc):
-                    raise RateLimitError(str(exc)) from exc
-                raise ProviderResponseError(f"Gemini text generation failed: {exc}") from exc
+                    logger.warning("gemini_model_rate_limited_trying_fallback", model=model_name, error=str(exc))
+                    last_exc = exc
+                    continue
+                raise
 
-            text = getattr(response, "text", "") or ""
-            return TextGenerationResult(text=text.strip(), model=self.model, usage={})
-
-        return _call()
+        raise RateLimitError(f"All Gemini models exhausted their rate limits: {last_exc}") from last_exc
 
     # -- embeddings --------------------------------------------------------- #
     def embed(

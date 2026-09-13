@@ -55,7 +55,7 @@ class Settings(BaseSettings):
 
     # ---- AI providers (Gemini & NVIDIA) ----
     gemini_api_key: str | None = Field(default=None)
-    gemini_text_model: str = Field(default="gemini-2.5-flash")
+    gemini_text_model: str = Field(default="gemini-2.5-flash-lite")
     gemini_image_model: str = Field(default="imagen-3.0")
     gemini_embedding_model: str = Field(default="gemini-embedding-001")
     nvidia_api_key: str | None = Field(default=None)
