@@ -136,21 +136,30 @@ def browse_photos_endpoint(
     session: Session = Depends(get_db),
 ) -> PhotoBrowseResponse:
     """Search internet for 6 real photo alternatives based on the news story topic without saving to DB."""
-    from app.integrations.ai.registry import get_text_provider, get_image_provider
-    from app.repositories.event_repository import EventRepository
-    from app.services.social.image_pipeline import ImagePipeline
+    try:
+        from app.integrations.ai.registry import get_text_provider, get_image_provider
+        from app.repositories.event_repository import EventRepository
+        from app.services.social.image_pipeline import ImagePipeline
 
-    event_repo = EventRepository(session)
-    event = event_repo.get_with_articles(event_id)
-    if event is None:
-        raise HTTPException(status_code=404, detail="Event not found")
+        event_repo = EventRepository(session)
+        event = event_repo.get_with_articles(event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="Event not found")
 
-    pipeline = ImagePipeline(
-        session=session,
-        text_provider=get_text_provider(),
-        image_provider=get_image_provider(),
-    )
-    return pipeline.browse_photos(event, query=query, page=page)
+        pipeline = ImagePipeline(
+            session=session,
+            text_provider=get_text_provider(),
+            image_provider=get_image_provider(),
+        )
+        return pipeline.browse_photos(event, query=query, page=page)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("browse_photos_endpoint_failed", event_id=str(event_id), error=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to browse photos: {type(exc).__name__}: {str(exc)}",
+        )
 
 
 @router.post("/assets/select-candidate", response_model=VisualAssetRead)
@@ -159,22 +168,31 @@ def select_candidate_endpoint(
     session: Session = Depends(get_db),
 ) -> VisualAssetRead:
     """Download only the chosen photo candidate, save as VisualAsset in Photo Studio, and mark selected."""
-    from app.integrations.ai.registry import get_text_provider, get_image_provider
-    from app.repositories.event_repository import EventRepository
-    from app.services.social.image_pipeline import ImagePipeline
+    try:
+        from app.integrations.ai.registry import get_text_provider, get_image_provider
+        from app.repositories.event_repository import EventRepository
+        from app.services.social.image_pipeline import ImagePipeline
 
-    event_repo = EventRepository(session)
-    event = event_repo.get_with_articles(body.event_id)
-    if event is None:
-        raise HTTPException(status_code=404, detail="Event not found")
+        event_repo = EventRepository(session)
+        event = event_repo.get_with_articles(body.event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="Event not found")
 
-    pipeline = ImagePipeline(
-        session=session,
-        text_provider=get_text_provider(),
-        image_provider=get_image_provider(),
-    )
-    asset = pipeline.import_candidate(event, body)
-    return VisualAssetRead.model_validate(asset)
+        pipeline = ImagePipeline(
+            session=session,
+            text_provider=get_text_provider(),
+            image_provider=get_image_provider(),
+        )
+        asset = pipeline.import_candidate(event, body)
+        return VisualAssetRead.model_validate(asset)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("select_candidate_endpoint_failed", event_id=str(body.event_id), error=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to select candidate: {type(exc).__name__}: {str(exc)}",
+        )
 
 
 @router.post("/assets/search-photos", response_model=list[VisualAssetRead])
@@ -185,23 +203,32 @@ def search_real_photos(
     session: Session = Depends(get_db),
 ) -> list[VisualAssetRead]:
     """Search Pexels for editorial photos matching this event story."""
-    from app.integrations.ai.registry import get_text_provider, get_image_provider
-    from app.repositories.event_repository import EventRepository
-    from app.services.social.image_pipeline import ImagePipeline
+    try:
+        from app.integrations.ai.registry import get_text_provider, get_image_provider
+        from app.repositories.event_repository import EventRepository
+        from app.services.social.image_pipeline import ImagePipeline
 
-    event_repo = EventRepository(session)
-    event = event_repo.get_with_articles(event_id)
-    if event is None:
-        raise HTTPException(status_code=404, detail="Event not found")
+        event_repo = EventRepository(session)
+        event = event_repo.get_with_articles(event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="Event not found")
 
-    pipeline = ImagePipeline(
-        session=session,
-        text_provider=get_text_provider(),
-        image_provider=get_image_provider(),
-    )
-    assets = pipeline.search_pexels(event, query=query)
-    session.commit()
-    return [VisualAssetRead.model_validate(a) for a in assets]
+        pipeline = ImagePipeline(
+            session=session,
+            text_provider=get_text_provider(),
+            image_provider=get_image_provider(),
+        )
+        assets = pipeline.search_pexels(event, query=query)
+        session.commit()
+        return [VisualAssetRead.model_validate(a) for a in assets]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("search_real_photos_failed", event_id=str(event_id), error=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to search real photos: {type(exc).__name__}: {str(exc)}",
+        )
 
 
 @router.post("/assets/fetch-article-photo", response_model=ComposeTaskResponse, status_code=202)
@@ -210,29 +237,38 @@ def fetch_article_photo(
     session: Session = Depends(get_db),
 ) -> ComposeTaskResponse:
     """Fetch the authentic article photo from the source publisher as the visual asset."""
-    from app.integrations.ai.registry import get_text_provider, get_image_provider
-    from app.repositories.event_repository import EventRepository
-    from app.services.social.image_pipeline import ImagePipeline
+    try:
+        from app.integrations.ai.registry import get_text_provider, get_image_provider
+        from app.repositories.event_repository import EventRepository
+        from app.services.social.image_pipeline import ImagePipeline
 
-    event_repo = EventRepository(session)
-    event = event_repo.get_with_articles(event_id)
-    if event is None:
-        raise HTTPException(status_code=404, detail="Event not found")
+        event_repo = EventRepository(session)
+        event = event_repo.get_with_articles(event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="Event not found")
 
-    pipeline = ImagePipeline(
-        session=session,
-        text_provider=get_text_provider(),
-        image_provider=get_image_provider(),
-    )
-    result = pipeline.run_real_photo(event)
-    session.commit()
+        pipeline = ImagePipeline(
+            session=session,
+            text_provider=get_text_provider(),
+            image_provider=get_image_provider(),
+        )
+        result = pipeline.run_real_photo(event)
+        session.commit()
 
-    asset_id = result.selected_asset.id if result.selected_asset else None
-    return ComposeTaskResponse(
-        task_id=str(uuid.uuid4()),
-        post_id=asset_id,
-        message="Article photo fetched successfully" if asset_id else "Photo fetch completed",
-    )
+        asset_id = result.selected_asset.id if result.selected_asset else None
+        return ComposeTaskResponse(
+            task_id=str(uuid.uuid4()),
+            post_id=asset_id,
+            message="Article photo fetched successfully" if asset_id else "Photo fetch completed",
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("fetch_article_photo_failed", event_id=str(event_id), error=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch article photo: {type(exc).__name__}: {str(exc)}",
+        )
 
 
 @router.post("/assets/{asset_id}/select", response_model=VisualAssetRead)

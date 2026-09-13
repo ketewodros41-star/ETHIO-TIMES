@@ -100,6 +100,20 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api/v1")
 
 
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("unhandled_server_error", path=request.url.path, error=str(exc))
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal Server Error: {type(exc).__name__}: {str(exc)}"},
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
+
+
 @app.get("/", tags=["meta"])
 def root() -> dict:
     return {

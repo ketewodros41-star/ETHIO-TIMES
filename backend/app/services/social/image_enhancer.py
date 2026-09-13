@@ -18,7 +18,11 @@ from __future__ import annotations
 import io
 import re
 import urllib.parse
-from PIL import Image, ImageEnhance, ImageFilter
+try:
+    from PIL import Image, ImageEnhance, ImageFilter
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
 
 from app.core.logging import get_logger
 
@@ -93,7 +97,7 @@ def enhance_and_upscale_image(
     - Upscales low-res assets (e.g. 240p, 686x858) to sharp 1080p+ editorial resolution.
     - Enhances micro-texture, edge crispness, and color richness without over-sharpening.
     """
-    if not image_bytes or len(image_bytes) < 100:
+    if not HAS_PIL or not image_bytes or len(image_bytes) < 100:
         return image_bytes
 
     try:

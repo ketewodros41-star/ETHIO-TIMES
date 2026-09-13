@@ -1050,6 +1050,9 @@ function StudioContent() {
       refetchAssets();
       setTimeout(() => refetchAssets(), 1200);
     },
+    onError: (err) => {
+      alert(`Could not fetch article photo: ${err instanceof Error ? err.message : "Source photo unavailable"}`);
+    },
   });
 
   const handleOpenPhotoSearch = async () => {
