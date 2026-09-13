@@ -11,7 +11,11 @@ import { PostTemplate } from "@/templates/instagram/PostTemplate";
 import type { PostTemplateData } from "@/templates/instagram/PostTemplate";
 
 async function getPost(postId: string) {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+  const apiUrl =
+    process.env.NEXT_PUBLIC_API_URL ??
+    (process.env.NEXT_PUBLIC_API_BASE_URL
+      ? `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1`
+      : "https://ethiotimes-backend.onrender.com/api/v1");
   try {
     const res = await fetch(`${apiUrl}/posts/${postId}`, { cache: "no-store" });
     if (!res.ok) return null;

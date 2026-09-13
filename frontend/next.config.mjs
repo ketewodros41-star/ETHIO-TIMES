@@ -5,10 +5,11 @@ const nextConfig = {
     remotePatterns: [{ protocol: "https", hostname: "**" }],
   },
   async rewrites() {
+    const backendUrl = process.env.BACKEND_URL || "https://ethiotimes-backend.onrender.com";
     return [
       {
         source: "/api/v1/:path*",
-        destination: "http://127.0.0.1:8000/api/v1/:path*",
+        destination: `${backendUrl}/api/v1/:path*`,
       },
     ];
   },

@@ -180,7 +180,7 @@ export default function SettingsPage() {
           <CardContent>
             <Row
               label="Backend API URL"
-              value="http://127.0.0.1:8000"
+              value={process.env.NEXT_PUBLIC_API_BASE_URL || "https://ethiotimes-backend.onrender.com"}
             />
             <Row label="Mode" value="Manual + controlled automation" />
           </CardContent>

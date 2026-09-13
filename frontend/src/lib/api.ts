@@ -9,10 +9,20 @@ import type {
   SourceHealth,
 } from "./types";
 
+const DEFAULT_BACKEND_URL = "https://ethiotimes-backend.onrender.com";
+
+function getApiBase(): string {
+  const envUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (envUrl && !envUrl.includes("localhost:8000") && !envUrl.includes("127.0.0.1:8000")) {
+    return envUrl;
+  }
+  return DEFAULT_BACKEND_URL;
+}
+
 const API_BASE =
   typeof window !== "undefined"
-    ? (process.env.NEXT_PUBLIC_API_BASE_URL ?? "")
-    : (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000");
+    ? getApiBase()
+    : (process.env.BACKEND_URL || getApiBase());
 
 const API_PREFIX = "/api/v1";
 

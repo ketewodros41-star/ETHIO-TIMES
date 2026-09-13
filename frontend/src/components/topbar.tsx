@@ -12,7 +12,7 @@ export function Topbar({ title }: { title: string }) {
     retry: false,
   });
 
-  const online = !isError && data?.status === "ok";
+  const online = !isError && (data?.status === "ok" || data?.status === "healthy");
 
   return (
     <header className="flex h-14 items-center justify-between border-b border-ink-700 bg-ink-900 px-6">
