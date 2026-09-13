@@ -268,7 +268,7 @@ class WebImageScraper:
                     except Exception:
                         pass
 
-            if not url or not url.startswith("http") or any(url.lower().endswith(ext) for ext in _EXCLUDED_EXTENSIONS):
+            if not url or not url.startswith("http") or "telesco.pe" in url.lower() or any(url.lower().endswith(ext) for ext in _EXCLUDED_EXTENSIONS):
                 continue
 
             try:

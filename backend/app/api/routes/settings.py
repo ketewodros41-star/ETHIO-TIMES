@@ -146,6 +146,7 @@ def trigger_telegram_test_post(
             .join(Article, Article.id == EventArticle.article_id)
             .where(
                 Article.image_url.isnot(None),
+                ~Article.image_url.ilike("%telesco.pe%"),
                 ~NewsEvent.id.in_(posted_event_ids),
             )
             .order_by(NewsEvent.last_seen_at.desc().nullslast(), NewsEvent.created_at.desc())
@@ -177,7 +178,11 @@ def trigger_telegram_test_post(
     art = session.scalars(
         select(Article)
         .join(EventArticle, EventArticle.article_id == Article.id)
-        .where(EventArticle.event_id == target_event.id, Article.image_url.isnot(None))
+        .where(
+            EventArticle.event_id == target_event.id,
+            Article.image_url.isnot(None),
+            ~Article.image_url.ilike("%telesco.pe%"),
+        )
         .limit(1)
     ).first()
     if art:

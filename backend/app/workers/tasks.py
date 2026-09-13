@@ -49,7 +49,7 @@ def _telegram_slot(policy, ordinal: int, now: datetime) -> datetime:
         extra_index = ordinal - len(hours) + 1
         candidate = local_now.replace(hour=last_hour, minute=0, second=0, microsecond=0) + timedelta(minutes=30 * extra_index)
     if candidate <= local_now:
-        return now
+        return (now + timedelta(minutes=15 * ordinal)).astimezone(UTC)
     return candidate.astimezone(UTC)
 
 
@@ -717,7 +717,11 @@ def plan_telegram_posts() -> dict:
                 bound_img_event = img_session.get(NewsEvent, event.id) or event
                 img_pipeline = ImagePipeline(img_session, get_text_provider(), get_image_provider())
                 candidates = img_pipeline.browse_photos(bound_img_event).items
-                photo = candidates[0] if candidates else None
+                valid_candidates = [
+                    c for c in candidates
+                    if c.image_url and "telesco.pe" not in c.image_url.lower() and c.image_url.startswith("http")
+                ]
+                photo = valid_candidates[0] if valid_candidates else None
             except Exception as exc:
                 logger.warning("telegram_photo_browse_failed", event_id=str(event.id), error=str(exc))
                 photo = None

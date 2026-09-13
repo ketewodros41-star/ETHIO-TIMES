@@ -29,7 +29,7 @@ logger = get_logger(__name__)
 
 def extract_article_web_image(url: str) -> str | None:
     """Extract authentic high-resolution editorial photo from an article webpage."""
-    if not url or not url.startswith("http"):
+    if not url or not url.startswith("http") or "telesco.pe" in url.lower():
         return None
     headers = {
         "User-Agent": (
@@ -72,7 +72,7 @@ def extract_article_web_image(url: str) -> str | None:
                             img = "https:" + img
                         elif img.startswith("/"):
                             img = urllib.parse.urljoin(str(res.url), img)
-                        if img.startswith("http") and not any(img.lower().endswith(ext) for ext in (".svg", ".ico", ".gif")):
+                        if img.startswith("http") and "telesco.pe" not in img.lower() and not any(img.lower().endswith(ext) for ext in (".svg", ".ico", ".gif")):
                             return upscale_news_cdn_url(img)
 
                 # 2. Prominent article / figure / featured images
@@ -89,7 +89,7 @@ def extract_article_web_image(url: str) -> str | None:
                             img = "https:" + img
                         elif img.startswith("/"):
                             img = urllib.parse.urljoin(str(res.url), img)
-                        if img.startswith("http") and not any(img.lower().endswith(ext) for ext in (".svg", ".ico", ".gif")):
+                        if img.startswith("http") and "telesco.pe" not in img.lower() and not any(img.lower().endswith(ext) for ext in (".svg", ".ico", ".gif")):
                             return upscale_news_cdn_url(img)
 
             # 3. If direct URL failed (e.g. 403 on Cloudflare) but original was Google News:
@@ -99,7 +99,8 @@ def extract_article_web_image(url: str) -> str | None:
                     m = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', g_res.text, re.IGNORECASE)
                     if m:
                         img = m.group(1).strip()
-                        return upscale_news_cdn_url(img)
+                        if img and "telesco.pe" not in img.lower():
+                            return upscale_news_cdn_url(img)
     except Exception:
         pass
 
@@ -821,6 +822,8 @@ class ImagePipeline:
                     art = getattr(link, "article", None)
                     if art and art.image_url and art.image_url.strip().startswith("http"):
                         url = art.image_url.strip()
+                        if "telesco.pe" in url.lower():
+                            continue
                         if url not in seen:
                             seen.add(url)
                             is_tg = "t.me" in url or "telegram" in url.lower() or (art.source and "telegram" in (art.source.name or "").lower())
@@ -838,6 +841,8 @@ class ImagePipeline:
             for art in articles:
                 if art.image_url and art.image_url.strip().startswith("http"):
                     url = art.image_url.strip()
+                    if "telesco.pe" in url.lower():
+                        continue
                     if url not in seen:
                         seen.add(url)
                         is_tg = "t.me" in url or "telegram" in url.lower() or (art.source and "telegram" in (art.source.name or "").lower())
@@ -865,26 +870,6 @@ class ImagePipeline:
 
     def search_wikimedia(self, event: NewsEvent, query: str | None = None) -> list[VisualAsset]:
         return self.search_pexels(event, query=query)
-
-
-    # Legacy support
-    def search_pexels(self, event: NewsEvent, query: str | None = None) -> list[VisualAsset]:
-        candidates = self.browse_photos(event, query=query)
-        assets = []
-        for c in candidates:
-            req = SelectCandidateRequest(
-                event_id=event.id,
-                image_url=c.image_url,
-                title=c.title,
-                photographer=c.photographer,
-                source=c.source,
-            )
-            assets.append(self.import_candidate(event, req))
-        return assets
-
-    def search_wikimedia(self, event: NewsEvent, query: str | None = None) -> list[VisualAsset]:
-        return self.search_pexels(event, query=query)
-
 
     # ------------------------------------------------------------------
     # Helpers
@@ -921,6 +906,8 @@ class ImagePipeline:
         # 3. Check if any linked article already has a valid image_url
         for art in articles:
             if art.image_url and art.image_url.strip().startswith("http"):
+                if "telesco.pe" in art.image_url.lower():
+                    continue
                 src_name = getattr(art.source, "name", "News Source") if hasattr(art, "source") and art.source else "News Source"
                 return art.image_url.strip(), src_name
 
@@ -944,7 +931,7 @@ class ImagePipeline:
 
     def _download_image(self, url: str) -> bytes | None:
         """Download an image with browser headers and return enhanced bytes if valid (>1KB)."""
-        if not url:
+        if not url or "telesco.pe" in url.lower():
             return None
         url = upscale_news_cdn_url(url)
         headers = {

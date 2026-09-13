@@ -531,9 +531,10 @@ def test_telegram_test_post_endpoint_success_dispatch():
     from app.integrations.publishers.telegram import TelegramPublishResult
     client = TestClient(app)
 
+    dynamic_msg_id = f"msg-{uuid.uuid4().hex[:8]}"
     with patch.object(settings, "telegram_bot_token", "dummy-token"), \
          patch.object(TelegramPublisher, "publish") as mock_publish:
-        mock_publish.return_value = TelegramPublishResult("msg-12345", datetime.now(UTC), None)
+        mock_publish.return_value = TelegramPublishResult(dynamic_msg_id, datetime.now(UTC), None)
 
         resp = client.post(
             "/api/v1/settings/telegram-publishing/test-post",
@@ -542,12 +543,104 @@ def test_telegram_test_post_endpoint_success_dispatch():
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
-        assert data["telegram_message_id"] == "msg-12345"
+        assert data["telegram_message_id"] == dynamic_msg_id
         assert data["channel"] == "@TestChannel"
         assert data["status"] == "published"
         assert mock_publish.called
         # Check dry_run was False
         args, kwargs = mock_publish.call_args
         assert kwargs.get("dry_run") is False
+
+
+# =====================================================================
+# 10. Photo Resolution & Multipart Guarantee Tests
+# =====================================================================
+
+def test_telegram_publisher_resolve_image_bytes_fallbacks():
+    """Verify _resolve_image_bytes reliably supplies valid bytes for all scenarios."""
+    publisher = TelegramPublisher()
+
+    # 1. No photo provided (Ethiopia bucket)
+    p_none_eth = TelegramPost(
+        id=uuid.uuid4(),
+        event_id=uuid.uuid4(),
+        content_bucket="ethiopia",
+        language="am",
+        headline="Ethiopia News",
+        photo_url=None,
+    )
+    b_eth, fn_eth = publisher._resolve_image_bytes(p_none_eth)
+    assert len(b_eth) >= 5000
+    assert fn_eth == "ethiopia.jpg"
+
+    # 2. Ephemeral telesco.pe URL (must be intercepted and replaced with fallback)
+    p_tg = TelegramPost(
+        id=uuid.uuid4(),
+        event_id=uuid.uuid4(),
+        content_bucket="ethiopia",
+        language="am",
+        headline="Tikvah Report",
+        photo_url="https://cdn4.telesco.pe/file/expired123.jpg",
+    )
+    b_tg, fn_tg = publisher._resolve_image_bytes(p_tg)
+    assert len(b_tg) >= 5000
+    assert fn_tg == "ethiopia.jpg"
+
+    # 3. International bucket with 404 URL
+    p_intl = TelegramPost(
+        id=uuid.uuid4(),
+        event_id=uuid.uuid4(),
+        content_bucket="international",
+        language="en",
+        headline="Global News",
+        photo_url="https://httpbin.org/status/404",
+    )
+    b_intl, fn_intl = publisher._resolve_image_bytes(p_intl)
+    assert len(b_intl) >= 5000
+    assert fn_intl == "international.jpg"
+
+
+def test_telegram_publisher_multipart_send_photo(monkeypatch):
+    """Verify publish sends photo as multipart byte payload and never falls back to sendMessage."""
+    publisher = TelegramPublisher()
+    post = TelegramPost(
+        id=uuid.uuid4(),
+        event_id=uuid.uuid4(),
+        content_bucket="ethiopia",
+        language="am",
+        headline="Live Broadcast",
+        description="News content",
+        photo_url=None,
+        dry_run=False,
+    )
+
+    captured_requests = []
+
+    def mock_post(url, *args, **kwargs):
+        captured_requests.append((url, kwargs))
+        mock_resp = MagicMock()
+        mock_resp.is_success = True
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"ok": True, "result": {"message_id": 9999}}
+        return mock_resp
+
+    monkeypatch.setattr("httpx.post", mock_post)
+
+    with patch.object(settings, "telegram_bot_token", "fake-token-123"):
+        result = publisher.publish(post, "@Ethiopantimes")
+        assert result.error is None
+        assert result.message_id == "9999"
+
+        # Verify sendPhoto was called with multipart files payload
+        assert len(captured_requests) == 1
+        call_url, call_kwargs = captured_requests[0]
+        assert call_url.endswith("/sendPhoto")
+        assert "files" in call_kwargs
+        assert "photo" in call_kwargs["files"]
+        filename, photo_bytes, mime = call_kwargs["files"]["photo"]
+        assert filename == "ethiopia.jpg"
+        assert len(photo_bytes) >= 5000
+        assert mime == "image/jpeg"
+
 
 

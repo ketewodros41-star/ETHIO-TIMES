@@ -174,6 +174,8 @@ class GeminiTextProvider(AIProvider):
 
         @self._retryer()
         def _call() -> TextGenerationResult:
+            from google.genai import types
+
             config_kwargs: dict[str, Any] = {
                 "temperature": request.temperature or settings.gemini_temperature,
             }

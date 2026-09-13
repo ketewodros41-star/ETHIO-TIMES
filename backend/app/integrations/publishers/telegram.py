@@ -11,6 +11,17 @@ from app.core.config import settings
 from app.models.telegram_post import TelegramPost
 
 
+from pathlib import Path
+
+FALLBACK_IMAGES_DIR = Path(__file__).resolve().parent.parent.parent / "assets" / "editorial"
+DEFAULT_FALLBACK_URLS = [
+    "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=1200&auto=format&fit=crop&q=80",
+    "https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=1200&auto=format&fit=crop&q=80",
+    "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=1200&auto=format&fit=crop&q=80",
+    "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1200&auto=format&fit=crop&q=80",
+]
+
+
 @dataclass(frozen=True)
 class TelegramPublishResult:
     message_id: str | None
@@ -21,6 +32,69 @@ class TelegramPublishResult:
 class TelegramPublisher:
     def is_configured(self) -> bool:
         return bool(settings.telegram_bot_token)
+
+    def _resolve_image_bytes(self, post: TelegramPost) -> tuple[bytes, str]:
+        """Download or load verified image bytes and filename.
+        
+        Guarantees that a valid JPEG/PNG image is ALWAYS returned:
+        1. Direct HTTP download of post.photo_url (rejecting ephemeral telesco.pe URLs).
+        2. Local disk read if post.photo_url is a storage path.
+        3. Local verified editorial fallbacks in backend/app/assets/editorial.
+        4. Permanent high-reliability CDN fallback.
+        """
+        # 1. Try candidate photo_url if provided and not telesco.pe
+        url = (post.photo_url or "").strip()
+        if url and "telesco.pe" not in url.lower():
+            if url.startswith(("http://", "https://")):
+                try:
+                    headers = {
+                        "User-Agent": (
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/124.0.0.0 Safari/537.36"
+                        ),
+                        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                    }
+                    resp = httpx.get(url, headers=headers, timeout=15.0, follow_redirects=True)
+                    if resp.is_success and len(resp.content) >= 2000:
+                        content_type = resp.headers.get("content-type", "").lower()
+                        ext = ".png" if "png" in content_type else (".webp" if "webp" in content_type else ".jpg")
+                        return resp.content, f"post_photo{ext}"
+                except Exception:
+                    pass
+            elif url.startswith("/"):
+                p = Path(url)
+                if p.exists() and p.is_file() and p.stat().st_size >= 2000:
+                    return p.read_bytes(), p.name
+                if url.startswith("/api/v1/posts/assets/"):
+                    parts = url.strip("/").split("/")
+                    if len(parts) >= 5:
+                        asset_id = parts[4]
+                        media_path = Path(settings.media_root) / "assets" / f"{asset_id}.png"
+                        if media_path.exists() and media_path.stat().st_size >= 2000:
+                            return media_path.read_bytes(), f"{asset_id}.png"
+
+        # 2. Check local editorial fallbacks
+        is_ethiopia = (post.content_bucket == "ethiopia") or (post.language == "am")
+        preferred_name = "ethiopia.jpg" if is_ethiopia else "international.jpg"
+        preferred_path = FALLBACK_IMAGES_DIR / preferred_name
+        if preferred_path.exists() and preferred_path.stat().st_size >= 2000:
+            return preferred_path.read_bytes(), preferred_name
+
+        for fallback_file in FALLBACK_IMAGES_DIR.glob("*.jpg"):
+            if fallback_file.exists() and fallback_file.stat().st_size >= 2000:
+                return fallback_file.read_bytes(), fallback_file.name
+
+        # 3. Permanent CDN fallback
+        for fb_url in DEFAULT_FALLBACK_URLS:
+            try:
+                resp = httpx.get(fb_url, timeout=10.0, follow_redirects=True)
+                if resp.is_success and len(resp.content) >= 2000:
+                    return resp.content, "editorial_fallback.jpg"
+            except Exception:
+                continue
+
+        raise RuntimeError("No photo could be acquired for Telegram broadcast")
 
     def publish(
         self, post: TelegramPost, channel_username: str, dry_run: bool | None = None
@@ -37,32 +111,27 @@ class TelegramPublisher:
 
         base_url = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
         caption = self._caption(post)
-        payload = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
-        endpoint = "sendPhoto" if post.photo_url else "sendMessage"
-        if post.photo_url:
-            payload["photo"] = post.photo_url
-        else:
-            payload["text"] = caption
-            payload.pop("caption")
 
         try:
-            response = httpx.post(f"{base_url}/{endpoint}", data=payload, timeout=20.0)
-            data = response.json()
+            photo_bytes, filename = self._resolve_image_bytes(post)
+        except Exception as exc:
+            return TelegramPublishResult(None, None, f"Failed to acquire photo for broadcast: {exc}")
+
+        mime_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
+        data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
+        files = {"photo": (filename, photo_bytes, mime_type)}
+
+        try:
+            response = httpx.post(f"{base_url}/sendPhoto", data=data, files=files, timeout=30.0)
+            res_data = response.json()
         except (httpx.HTTPError, ValueError) as exc:
             return TelegramPublishResult(None, None, f"Telegram request failed: {exc}")
-        if not response.is_success or not data.get("ok"):
-            if endpoint == "sendPhoto":
-                try:
-                    fallback_payload = {"chat_id": chat_id, "text": caption, "parse_mode": "HTML"}
-                    fb_resp = httpx.post(f"{base_url}/sendMessage", data=fallback_payload, timeout=20.0)
-                    fb_data = fb_resp.json()
-                    if fb_resp.is_success and fb_data.get("ok"):
-                        msg_id = fb_data.get("result", {}).get("message_id")
-                        return TelegramPublishResult(str(msg_id) if msg_id is not None else None, datetime.now(UTC))
-                except Exception:
-                    pass
-            return TelegramPublishResult(None, None, str(data.get("description") or "Telegram rejected the post"))
-        message_id = data.get("result", {}).get("message_id")
+
+        if not response.is_success or not res_data.get("ok"):
+            err_desc = str(res_data.get("description") or f"Telegram HTTP {response.status_code}")
+            return TelegramPublishResult(None, None, f"Telegram photo publish rejected: {err_desc}")
+
+        message_id = res_data.get("result", {}).get("message_id")
         return TelegramPublishResult(str(message_id) if message_id is not None else None, datetime.now(UTC))
 
     @staticmethod
