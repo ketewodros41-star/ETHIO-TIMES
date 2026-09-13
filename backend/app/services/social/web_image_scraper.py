@@ -151,71 +151,69 @@ class WebImageScraper:
             concepts=entities.concepts,
         )
 
-        # Tier 1 concepts (concise 2-word photographic concepts)
-        for q in entities.concepts[:2]:
-            cands = self._search_openverse_photos(q, seen_urls, limit=4)
-            for c in cands:
-                c.entity_type = "concept"
-                tier1_leads.append(c)
-            wm_cands = self._search_wikimedia_topic_photos(q, seen_urls, limit=3)
-            for c in wm_cands:
-                c.entity_type = "concept"
-                tier1_leads.append(c)
+        # Fast path: if direct article media already yielded >= 6 photos, skip external calls
+        if len(tier1_leads) < 6:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        # -------------------------------------------------------------
-        # Tier 2: Key Persons & Officials (Portraits & Press)
-        # -------------------------------------------------------------
-        target_persons = entities.persons or ([entities.main_person] if entities.main_person else [])
-        for person in target_persons[:3]:
-            # Exact Wikipedia Portrait
-            wiki_portrait = self._resolve_wikipedia_portrait(person, entity_type="person", seen_urls=seen_urls)
-            if wiki_portrait:
-                tier2_persons.append(wiki_portrait)
-            # Wikimedia person photos
-            p_cands = self._search_person_photos(person, seen_urls, limit=6)
-            for c in p_cands:
-                c.entity_type = "person"
-                c.entity_name = person
-                tier2_persons.append(c)
-
-        # -------------------------------------------------------------
-        # Tier 3: City, Region & Landmark Atmosphere
-        target_locs = [loc for loc in (entities.locations or ([entities.default_city] if entities.default_city else [])) if loc]
-        for loc in target_locs[:2]:
-            loc_cands = self._search_city_photos(
-                loc,
-                seen_urls,
-                limit=6,
-                country_context=entities.country,
-            )
-            tier3_locations.extend(loc_cands)
-
-        # -------------------------------------------------------------
-        # Tier 4: Institutions & Broader Domain Concepts
-        # -------------------------------------------------------------
-        for inst in entities.institutions[:2]:
-            inst_cands = self._search_institution_photos(
-                inst,
-                seen_urls,
-                limit=4,
-                country_context=entities.country,
-            )
-            tier4_institutions_and_concepts.extend(inst_cands)
-
-        # Backfill with general web search if total pool is small (< 18)
-        if (len(tier1_leads) + len(tier2_persons) + len(tier3_locations) + len(tier4_institutions_and_concepts)) < 18:
-            for q in entities.search_queries[:2]:
-                web_res = self._search_bing_photos(q, seen_urls, limit=6)
-                for c in web_res:
+            def _fetch_concepts() -> list[PhotoCandidate]:
+                c_res: list[PhotoCandidate] = []
+                for q in entities.concepts[:2]:
+                    c_res.extend(self._search_openverse_photos(q, seen_urls, limit=4))
+                    c_res.extend(self._search_wikimedia_topic_photos(q, seen_urls, limit=3))
+                for c in c_res:
                     c.entity_type = "concept"
-                    tier4_institutions_and_concepts.append(c)
+                return c_res
 
-        # Tier 7: Google Custom Search API (If configured)
-        google_key = getattr(settings, "google_search_api_key", None)
-        google_cx = getattr(settings, "google_search_cx", None)
-        if google_key and google_cx and (len(tier1_leads) + len(tier2_persons)) < 12 and entities.search_queries:
-            g_results = self._search_google_cse(entities.search_queries[0], google_key, google_cx, seen_urls, limit=8)
-            tier4_institutions_and_concepts.extend(g_results)
+            def _fetch_persons() -> list[PhotoCandidate]:
+                p_res: list[PhotoCandidate] = []
+                target_persons = entities.persons or ([entities.main_person] if entities.main_person else [])
+                for person in target_persons[:2]:
+                    wiki_portrait = self._resolve_wikipedia_portrait(person, entity_type="person", seen_urls=seen_urls)
+                    if wiki_portrait:
+                        p_res.append(wiki_portrait)
+                    for c in self._search_person_photos(person, seen_urls, limit=4):
+                        c.entity_type = "person"
+                        c.entity_name = person
+                        p_res.append(c)
+                return p_res
+
+            def _fetch_locations() -> list[PhotoCandidate]:
+                l_res: list[PhotoCandidate] = []
+                target_locs = [loc for loc in (entities.locations or ([entities.default_city] if entities.default_city else [])) if loc]
+                for loc in target_locs[:2]:
+                    l_res.extend(self._search_city_photos(loc, seen_urls, limit=4, country_context=entities.country))
+                return l_res
+
+            def _fetch_institutions() -> list[PhotoCandidate]:
+                i_res: list[PhotoCandidate] = []
+                for inst in entities.institutions[:2]:
+                    i_res.extend(self._search_institution_photos(inst, seen_urls, limit=4, country_context=entities.country))
+                return i_res
+
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = {
+                    executor.submit(_fetch_concepts): "concepts",
+                    executor.submit(_fetch_persons): "persons",
+                    executor.submit(_fetch_locations): "locations",
+                    executor.submit(_fetch_institutions): "institutions",
+                }
+                try:
+                    for fut in as_completed(futures, timeout=3.5):
+                        tier = futures[fut]
+                        try:
+                            cands = fut.result()
+                            if tier == "concepts":
+                                tier1_leads.extend(cands)
+                            elif tier == "persons":
+                                tier2_persons.extend(cands)
+                            elif tier == "locations":
+                                tier3_locations.extend(cands)
+                            elif tier == "institutions":
+                                tier4_institutions_and_concepts.extend(cands)
+                        except Exception as exc:
+                            logger.debug("parallel_photo_worker_error", tier=tier, error=_safe_str(exc))
+                except TimeoutError:
+                    logger.warning("parallel_photo_search_partial_timeout")
 
         # -------------------------------------------------------------
         # Assemble Balanced Multi-Page Candidate Pool
@@ -1051,7 +1049,7 @@ class WebImageScraper:
 
         try:
             s_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={urllib.parse.quote(name)}&format=json"
-            with httpx.Client(timeout=6.0, headers=_WIKI_HEADERS) as client:
+            with httpx.Client(timeout=3.0, headers=_WIKI_HEADERS) as client:
                 r = client.get(s_url)
                 if r.status_code != 200:
                     return None
@@ -1193,7 +1191,7 @@ class WebImageScraper:
             f"&gsrnamespace=6&gsrlimit={limit}&prop=imageinfo&iiprop=url&iiurlwidth=1000&format=json"
         )
         try:
-            with httpx.Client(timeout=8.0, headers=_WIKI_HEADERS) as client:
+            with httpx.Client(timeout=3.0, headers=_WIKI_HEADERS) as client:
                 res = client.get(c_url)
                 if res.status_code == 200:
                     pages = res.json().get("query", {}).get("pages", {})
@@ -1232,7 +1230,7 @@ class WebImageScraper:
             f"&gsrlimit=6&prop=pageimages|extracts&pithumbsize=1000&exintro=1&explaintext=1&format=json"
         )
         try:
-            with httpx.Client(timeout=8.0, headers=_WIKI_HEADERS) as client:
+            with httpx.Client(timeout=3.0, headers=_WIKI_HEADERS) as client:
                 res = client.get(w_url)
                 if res.status_code == 200:
                     pages = res.json().get("query", {}).get("pages", {})
@@ -1275,7 +1273,7 @@ class WebImageScraper:
         api_url = f"https://api.openverse.org/v1/images/?q={encoded_q}&page_size={min(limit, 20)}"
 
         try:
-            with httpx.Client(timeout=8.0, headers=_WIKI_HEADERS) as client:
+            with httpx.Client(timeout=3.0, headers=_WIKI_HEADERS) as client:
                 res = client.get(api_url)
                 if res.status_code == 200:
                     results = res.json().get("results", [])
@@ -1324,7 +1322,7 @@ class WebImageScraper:
             f"&gsrnamespace=6&gsrlimit={limit}&prop=imageinfo&iiprop=url&iiurlwidth=1000&format=json"
         )
         try:
-            with httpx.Client(timeout=8.0, headers=_WIKI_HEADERS) as client:
+            with httpx.Client(timeout=3.0, headers=_WIKI_HEADERS) as client:
                 res = client.get(c_url)
                 if res.status_code == 200:
                     pages = res.json().get("query", {}).get("pages", {})
@@ -1376,7 +1374,7 @@ class WebImageScraper:
                 "num": min(limit, 10),
                 "safe": "active",
             }
-            with httpx.Client(timeout=8.0) as client:
+            with httpx.Client(timeout=3.0) as client:
                 res = client.get("https://www.googleapis.com/customsearch/v1", params=params)
                 if res.status_code == 200:
                     data = res.json()
@@ -1424,7 +1422,7 @@ class WebImageScraper:
         ]
 
         try:
-            with httpx.Client(timeout=8.0, headers=_BROWSER_HEADERS, follow_redirects=True) as client:
+            with httpx.Client(timeout=3.0, headers=_BROWSER_HEADERS, follow_redirects=True) as client:
                 res = client.get(search_url)
                 if res.status_code != 200:
                     return candidates

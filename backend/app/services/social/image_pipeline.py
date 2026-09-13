@@ -52,7 +52,7 @@ def extract_article_web_image(url: str) -> str | None:
             pass
 
     try:
-        with httpx.Client(timeout=8.0, follow_redirects=True, headers=headers) as client:
+        with httpx.Client(timeout=3.5, follow_redirects=True, headers=headers) as client:
             res = client.get(actual_url)
             if res.status_code == 200:
                 text = res.text
@@ -940,7 +940,7 @@ class ImagePipeline:
             "Accept-Language": "en-US,en;q=0.9",
         }
         try:
-            with httpx.Client(timeout=15.0, follow_redirects=True, headers=headers) as client:
+            with httpx.Client(timeout=6.0, follow_redirects=True, headers=headers) as client:
                 res = client.get(url)
                 if res.status_code == 200 and len(res.content) > 1000:
                     return enhance_and_upscale_image(res.content, target_width=1080, target_height=1350)
