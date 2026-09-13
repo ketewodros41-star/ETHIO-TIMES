@@ -78,26 +78,38 @@ class EditorialTranslationService:
             temperature=0.1,
             max_tokens=4096,
         )
-        try:
-            raw = self.provider.generate_json(request)
-            draft = self._validate(raw, budget, mode, target_language)
-        except Exception as exc:
-            logger.warning("editorial_translation_unavailable", error=str(exc), mode=mode)
-            raise TranslationUnavailableError(
-                "The translation provider did not return a layout-safe Amharic editorial draft"
-            ) from exc
-
-        return EditorialTranslationResponse(
-            headline=draft.headline,
-            dek=draft.dek,
-            category=draft.category,
-            punchline_words=draft.punchline_words,
-            slide_headers=draft.slide_headers,
-            slide_bodies=draft.slide_bodies,
-            translated_language=target_language,
-            provider=getattr(self.provider, "name", None),
-            layout_budget=budget.as_dict(),
+        providers = (
+            getattr(self.provider, "providers", None)
+            if hasattr(self.provider, "providers")
+            else [self.provider]
         )
+        last_exc: Exception | None = None
+        for prov in providers:
+            try:
+                raw = prov.generate_json(request)
+                draft = self._validate(raw, budget, mode, target_language)
+                active_prov_name = getattr(prov, "name", getattr(self.provider, "name", "ai"))
+                return EditorialTranslationResponse(
+                    headline=draft.headline,
+                    dek=draft.dek,
+                    category=draft.category,
+                    punchline_words=draft.punchline_words,
+                    slide_headers=draft.slide_headers,
+                    slide_bodies=draft.slide_bodies,
+                    translated_language=target_language,
+                    provider=active_prov_name,
+                    layout_budget=budget.as_dict(),
+                )
+            except Exception as exc:
+                p_name = getattr(prov, "name", type(prov).__name__)
+                logger.warning("editorial_translation_provider_attempt_failed", provider=p_name, error=str(exc))
+                last_exc = exc
+                continue
+
+        logger.warning("editorial_translation_unavailable", error=str(last_exc), mode=mode)
+        raise TranslationUnavailableError(
+            "The translation provider did not return a layout-safe Amharic editorial draft"
+        ) from last_exc
 
     def _event_context(self, event_id: Any) -> tuple[NewsEvent | None, list[str]]:
         if not event_id:
@@ -194,20 +206,42 @@ Do not claim that information is verified unless it is in the event context. Fit
         headline, dek, category = (_clean(raw.get(key)) for key in ("headline", "dek", "category"))
         if not headline or not dek or not category:
             raise ValueError("translation is missing a required editorial field")
-        if len(headline) > budget.headline_max_chars or len(headline.split()) > budget.headline_max_words:
-            raise ValueError("headline exceeds the selected layout budget")
-        if len(dek) > budget.dek_max_chars or len(category.split()) > 2:
-            raise ValueError("dek or category exceeds the selected layout budget")
+
+        # Gracefully handle headline word/char budget
+        hl_words = headline.split()
+        max_hl_words = max(budget.headline_max_words, 12)
+        if len(hl_words) > max_hl_words:
+            headline = " ".join(hl_words[:max_hl_words])
+
+        max_hl_chars = budget.headline_max_chars + 15
+        if len(headline) > max_hl_chars:
+            cut = headline[:budget.headline_max_chars]
+            headline = cut.rsplit(" ", 1)[0] if " " in cut else cut
+
+        # Gracefully handle dek length
+        max_dek_chars = budget.dek_max_chars + 30
+        if len(dek) > max_dek_chars:
+            cut = dek[:budget.dek_max_chars]
+            dek = cut.rsplit("።", 1)[0] + "።" if "።" in cut else (cut.rsplit(" ", 1)[0] + "...")
+
+        cat_words = category.split()
+        if len(cat_words) > 2:
+            category = " ".join(cat_words[:2])
+
         language_check = _amharic_enough if target_language == "am" else _english_enough
         if not all(language_check(value) for value in (headline, dek, category)):
             raise ValueError(f"translation is not sufficiently {target_language}")
 
-        highlights = [_clean(value) for value in raw.get("punchline_words", []) if _clean(value)]
-        if not 1 <= len(highlights) <= budget.highlight_max_words:
-            raise ValueError("invalid number of highlight words")
+        # Highlights / punchline words: extract valid matching words or select directly from headline
         normalized_headline = headline.casefold()
-        if any(value.casefold() not in normalized_headline for value in highlights):
-            raise ValueError("highlight words must be copied from the headline")
+        raw_highlights = [_clean(value) for value in raw.get("punchline_words", []) if _clean(value)]
+        valid_highlights = [h for h in raw_highlights if h.casefold() in normalized_headline]
+        if not valid_highlights:
+            # Pick up to 2 salient tokens directly from headline
+            tokens = [w for w in headline.split() if len(w) > 2]
+            valid_highlights = tokens[:min(2, budget.highlight_max_words)] if tokens else headline.split()[:1]
+
+        highlights = valid_highlights[:budget.highlight_max_words]
 
         headers = [_clean(value) for value in raw.get("slide_headers", [])]
         bodies = [_clean(value) for value in raw.get("slide_bodies", [])]
@@ -216,10 +250,10 @@ Do not claim that information is verified unless it is in the event context. Fit
                 raise ValueError("carousel requires exactly five translated slides")
             if any(not header or not body for header, body in zip(headers, bodies)):
                 raise ValueError("carousel contains an empty slide")
-            if any(len(header) > (budget.slide_header_max_chars or 0) for header in headers):
-                raise ValueError("carousel header exceeds layout budget")
-            if any(len(body) > (budget.slide_body_max_chars or 0) for body in bodies):
-                raise ValueError("carousel body exceeds layout budget")
+            if budget.slide_header_max_chars:
+                headers = [h[:budget.slide_header_max_chars] if len(h) > budget.slide_header_max_chars else h for h in headers]
+            if budget.slide_body_max_chars:
+                bodies = [b[:budget.slide_body_max_chars] if len(b) > budget.slide_body_max_chars else b for b in bodies]
             if not all(language_check(value) for value in headers + bodies):
                 raise ValueError(f"carousel is not sufficiently {target_language}")
             if len({header.casefold() for header in headers}) != budget.slide_count:

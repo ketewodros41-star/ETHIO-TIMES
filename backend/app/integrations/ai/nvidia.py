@@ -32,12 +32,25 @@ def _extract_json_block(text: str) -> dict[str, Any]:
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
+        try:
+            import ast
+            parsed = ast.literal_eval(text)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
         obj_match = re.search(r"(\{[\s\S]*\})", text)
         if obj_match:
             try:
                 return json.loads(obj_match.group(1))
             except json.JSONDecodeError:
-                pass
+                try:
+                    import ast
+                    parsed = ast.literal_eval(obj_match.group(1))
+                    if isinstance(parsed, dict):
+                        return parsed
+                except Exception:
+                    pass
         raise ProviderResponseError(f"Failed to parse JSON response: {text[:200]}") from exc
 
 
