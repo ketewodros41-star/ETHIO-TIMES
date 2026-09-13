@@ -91,7 +91,7 @@ class NvidiaTextProvider(AIProvider):
                 {"role": "user", "content": request.prompt},
             ],
             "temperature": request.temperature if request.temperature is not None else 0.2,
-            "max_tokens": request.max_tokens or 2048,
+            "max_tokens": min(request.max_tokens or 1024, 1024),
         }
 
         try:

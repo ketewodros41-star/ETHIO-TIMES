@@ -312,13 +312,26 @@ def debug_translation_test_endpoint() -> dict[str, Any]:
     else:
         t0 = time.time()
         try:
-            with httpx.Client(timeout=10.0) as client:
-                res = client.get("https://agentrouter.org/v1/models", headers={"Authorization": f"Bearer {ar_key}"})
+            with httpx.Client(timeout=15.0) as client:
+                res = client.post(
+                    "https://agentrouter.org/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {ar_key}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                        "Accept": "application/json",
+                    },
+                    json={
+                        "model": "deepseek-v4-flash",
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "max_tokens": 10,
+                    },
+                )
                 results["agent_router"] = {
                     "configured": True,
                     "status": res.status_code,
                     "duration_s": round(time.time() - t0, 2),
-                    "snippet": res.text[:200],
+                    "snippet": res.text[:300],
                 }
         except Exception as exc:
             results["agent_router"] = {

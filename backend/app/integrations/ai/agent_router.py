@@ -121,6 +121,8 @@ class AgentRouterTextProvider(AIProvider):
                     raise RateLimitError("AgentRouter rate limit exceeded")
                 if res.status_code != 200:
                     raise ProviderResponseError(f"AgentRouter API error {res.status_code}: {res.text[:300]}")
+                if "<html" in res.text.lower() or "aliyun_waf" in res.text:
+                    raise ProviderResponseError("AgentRouter returned WAF challenge page instead of API response")
 
                 data = res.json()
                 msg = data["choices"][0]["message"]
