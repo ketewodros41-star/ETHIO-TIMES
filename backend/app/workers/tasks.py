@@ -49,7 +49,7 @@ def _telegram_slot(policy, ordinal: int, now: datetime) -> datetime:
         extra_index = ordinal - len(hours) + 1
         candidate = local_now.replace(hour=last_hour, minute=0, second=0, microsecond=0) + timedelta(minutes=30 * extra_index)
     if candidate <= local_now:
-        candidate = local_now + timedelta(minutes=5 + ordinal * 15)
+        return now
     return candidate.astimezone(UTC)
 
 
@@ -645,11 +645,11 @@ def plan_telegram_posts() -> dict:
             stmt = (
                 select(NewsEvent)
                 .where(
-                    NewsEvent.auto_publish_eligible.is_(True),
+                    ~NewsEvent.id.in_(already_event_ids),
                     NewsEvent.review_required.is_(False),
                     cond,
                 )
-                .order_by(NewsEvent.trend_score.desc(), NewsEvent.last_seen_at.desc())
+                .order_by(NewsEvent.trend_score.desc().nullslast(), NewsEvent.last_seen_at.desc())
                 .limit(30)
             )
             candidates_by_bucket[bucket] = list(session.scalars(stmt).all())

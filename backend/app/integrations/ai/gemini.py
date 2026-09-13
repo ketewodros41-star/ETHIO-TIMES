@@ -169,6 +169,39 @@ class GeminiTextProvider(AIProvider):
 
         return _call()
 
+    def generate_text(self, request: TextGenerationRequest) -> TextGenerationResult:
+        client = self._get_client()
+
+        @self._retryer()
+        def _call() -> TextGenerationResult:
+            config_kwargs: dict[str, Any] = {
+                "temperature": request.temperature or settings.gemini_temperature,
+            }
+            if request.system:
+                config_kwargs["system_instruction"] = request.system
+            if request.max_tokens:
+                config_kwargs["max_output_tokens"] = request.max_tokens
+
+            config = types.GenerateContentConfig(**config_kwargs)
+            try:
+                response = client.models.generate_content(
+                    model=self.model,
+                    contents=request.prompt,
+                    config=config,
+                )
+            except Exception as exc:
+                if _is_unretryable(exc):
+                    self._key_invalid = True
+                    raise ProviderNotConfiguredError(f"Gemini API key is invalid: {exc}") from exc
+                if _is_rate_limit(exc):
+                    raise RateLimitError(str(exc)) from exc
+                raise ProviderResponseError(f"Gemini text generation failed: {exc}") from exc
+
+            text = getattr(response, "text", "") or ""
+            return TextGenerationResult(text=text.strip(), model=self.model, usage={})
+
+        return _call()
+
     # -- embeddings --------------------------------------------------------- #
     def embed(
         self, texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT"
