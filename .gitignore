@@ -22,6 +22,7 @@ htmlcov/
 coverage.xml
 dist/
 build/
+deploy/
 
 # ---- Node / Next.js ----
 node_modules/
