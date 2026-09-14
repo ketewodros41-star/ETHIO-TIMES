@@ -51,7 +51,26 @@ async def _periodic_telegram_runner() -> None:
     await asyncio.sleep(15)  # Wait 15s after server startup
     while True:
         try:
+            from app.db.session import SessionLocal
+            from app.models.telegram_post import TelegramPublishingSettings
             from app.workers.tasks import plan_telegram_posts, publish_due_telegram_posts
+
+            # Self-healing safety guard: if enabled=True but dry_run=True, auto-reset dry_run to False
+            check_session = SessionLocal()
+            try:
+                policy = check_session.get(TelegramPublishingSettings, 1)
+                if policy and policy.enabled and policy.dry_run:
+                    logger.critical(
+                        "dry_run_anomaly_detected_resetting",
+                        detail="Telegram publishing is enabled but dry_run was True. Auto-resetting dry_run to False.",
+                    )
+                    policy.dry_run = False
+                    check_session.commit()
+            except Exception as e:
+                check_session.rollback()
+                logger.warning("dry_run_self_healing_error", error=str(e))
+            finally:
+                check_session.close()
 
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, plan_telegram_posts)
@@ -62,6 +81,7 @@ async def _periodic_telegram_runner() -> None:
             logger.warning("periodic_telegram_runner_error", error=str(exc))
 
         await asyncio.sleep(60)
+
 
 
 @asynccontextmanager

@@ -336,3 +336,14 @@ def trigger_telegram_test_post(
         status="published",
     )
 
+
+@router.post("/telegram-publishing/plan-and-publish")
+def plan_and_publish_endpoint() -> dict:
+    """Trigger planning and publishing of due Telegram posts immediately."""
+    from app.workers.tasks import plan_telegram_posts, publish_due_telegram_posts
+
+    plan_result = plan_telegram_posts()
+    pub_result = publish_due_telegram_posts()
+    return {"plan": plan_result, "publish": pub_result}
+
+

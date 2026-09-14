@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class BucketContentFilter(BaseModel):
@@ -29,7 +29,14 @@ class TelegramPublishingSettingsRead(BaseModel):
     highlight_color: str
     bot_configured: bool = False
     updated_at: datetime
-    content_filters: dict[str, Any] = Field(default_factory=dict)
+    content_filters: dict[str, Any] = Field(default_factory=dict, validate_default=True)
+
+    @field_validator("content_filters", mode="before")
+    @classmethod
+    def _normalize_content_filters(cls, v: Any) -> dict:
+        if v is None:
+            return {}
+        return v
 
 
 class TelegramPublishingSettingsUpdate(BaseModel):
