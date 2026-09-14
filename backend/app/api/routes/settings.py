@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -338,12 +338,24 @@ def trigger_telegram_test_post(
 
 
 @router.post("/telegram-publishing/plan-and-publish")
-def plan_and_publish_endpoint() -> dict:
-    """Trigger planning and publishing of due Telegram posts immediately."""
+def plan_and_publish_endpoint(
+    background_tasks: BackgroundTasks,
+    sync: bool = False,
+) -> dict:
+    """Trigger planning and publishing of due Telegram posts. Runs asynchronously by default to prevent HTTP timeouts."""
     from app.workers.tasks import plan_telegram_posts, publish_due_telegram_posts
 
-    plan_result = plan_telegram_posts()
-    pub_result = publish_due_telegram_posts()
-    return {"plan": plan_result, "publish": pub_result}
+    if sync:
+        plan_result = plan_telegram_posts()
+        pub_result = publish_due_telegram_posts()
+        return {"sync": True, "plan": plan_result, "publish": pub_result}
+
+    def _execute():
+        plan_telegram_posts()
+        publish_due_telegram_posts()
+
+    background_tasks.add_task(_execute)
+    return {"sync": False, "status": "triggered", "message": "Planning and publishing executing in background"}
+
 
 
