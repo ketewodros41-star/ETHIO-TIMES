@@ -2,8 +2,8 @@ name: 24/7 Cloud Keep-Alive & Health Ping
 
 on:
   schedule:
-    # Runs every 10 minutes to prevent Render free instance from sleeping
-    - cron: "*/10 * * * *"
+    # Runs every 5 minutes to prevent Render free instance from sleeping
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -13,4 +13,15 @@ jobs:
       - name: Ping ETHIOTIMES Render Backend
         run: |
           echo "Pinging ETHIOTIMES backend on Render..."
-          curl -sS -m 30 "https://ethiotimes-backend.onrender.com/api/v1/health" || true
+          ENDPOINT="https://ethiotimes-backend.onrender.com/api/v1/health"
+          for i in 1 2 3; do
+            echo "Attempt $i: pinging $ENDPOINT"
+            if curl -sSf -m 60 "$ENDPOINT"; then
+              echo "ETHIOTIMES backend is awake and healthy."
+              exit 0
+            fi
+            echo "Attempt $i failed or timed out. Retrying in 10s..."
+            sleep 10
+          done
+          echo "Warning: All 3 ping attempts failed or timed out."
+          exit 0

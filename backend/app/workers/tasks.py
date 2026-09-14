@@ -601,7 +601,6 @@ def plan_telegram_posts() -> dict:
         if policy is None or not policy.enabled:
             return {"planned": 0, "reason": "telegram_automation_disabled"}
 
-        already_event_ids = set(session.scalars(select(TelegramPost.event_id)).all())
         now = datetime.now(UTC)
         zone = ZoneInfo(policy.timezone)
         local_now = now.astimezone(zone)
@@ -611,8 +610,56 @@ def plan_telegram_posts() -> dict:
             TelegramPost.scheduled_at >= day_start, TelegramPost.scheduled_at < day_end,
             TelegramPost.status.in_(["scheduled", "publishing", "simulated", "published"]),
         )).all())
+
+        def _is_test_post(p: TelegramPost) -> bool:
+            if p.telegram_message_id and p.telegram_message_id.startswith("msg-"):
+                return True
+            if isinstance(p.policy_snapshot, dict) and p.policy_snapshot.get("test_dispatch"):
+                return True
+            if p.content_bucket and p.content_bucket.startswith("test_"):
+                return True
+            return False
+
+        if not policy.dry_run:
+            # When in live publishing mode, simulated dry-run posts and test dispatches
+            # must not count against the real daily quota.
+            counted_posts = [
+                p for p in today_posts
+                if p.status != "simulated"
+                and not p.dry_run
+                and not (p.telegram_message_id and p.telegram_message_id.startswith("dry-run-"))
+                and not _is_test_post(p)
+            ]
+            already_event_ids = set(session.scalars(
+                select(TelegramPost.event_id).where(
+                    TelegramPost.status.in_(["scheduled", "publishing", "published"]),
+                    TelegramPost.dry_run.is_(False),
+                    or_(
+                        TelegramPost.telegram_message_id.is_(None),
+                        and_(
+                            ~TelegramPost.telegram_message_id.ilike("msg-%"),
+                            ~TelegramPost.telegram_message_id.ilike("dry-run-%"),
+                        ),
+                    ),
+                )
+            ).all())
+        else:
+            counted_posts = [
+                p for p in today_posts
+                if not _is_test_post(p)
+            ]
+            already_event_ids = set(session.scalars(
+                select(TelegramPost.event_id).where(
+                    TelegramPost.status.in_(["scheduled", "publishing", "simulated", "published"]),
+                    or_(
+                        TelegramPost.telegram_message_id.is_(None),
+                        ~TelegramPost.telegram_message_id.ilike("msg-%"),
+                    ),
+                )
+            ).all())
+
         existing_by_bucket = {
-            bucket: sum(post.content_bucket == bucket for post in today_posts)
+            bucket: sum(post.content_bucket == bucket for post in counted_posts)
             for bucket in ("ethiopia", "international")
         }
 
@@ -642,6 +689,7 @@ def plan_telegram_posts() -> dict:
                 candidates_by_bucket[bucket] = []
                 continue
             cond = is_ethiopia_expr if bucket == "ethiopia" else is_intl_expr
+            limit_n = 100 if bucket == "ethiopia" else 30
             stmt = (
                 select(NewsEvent)
                 .where(
@@ -650,9 +698,16 @@ def plan_telegram_posts() -> dict:
                     cond,
                 )
                 .order_by(NewsEvent.trend_score.desc().nullslast(), NewsEvent.last_seen_at.desc())
-                .limit(30)
+                .limit(limit_n)
             )
-            candidates_by_bucket[bucket] = list(session.scalars(stmt).all())
+            raw_candidates = list(session.scalars(stmt).all())
+            if bucket == "ethiopia":
+                raw_candidates = sorted(
+                    raw_candidates,
+                    key=lambda e: (_amharic_enough(e.title), e.trend_score or 0.0),
+                    reverse=True,
+                )
+            candidates_by_bucket[bucket] = raw_candidates
     except Exception:
         session.rollback()
         logger.exception("plan_telegram_posts_task_error")
@@ -676,39 +731,34 @@ def plan_telegram_posts() -> dict:
             headline, description, highlights = event.title, event.summary or "", []
             if language == "am":
                 translation_ok = False
-                try:
-                    trans_session = SessionLocal()
+                if _amharic_enough(event.title):
+                    headline, description, highlights = event.title, event.summary or "", []
+                    translation_ok = True
+                else:
                     try:
-                        bound_event = trans_session.get(NewsEvent, event.id) or event
-                        trans_svc = EditorialTranslationService(trans_session, get_translation_provider())
-                        draft = trans_svc.translate_editorial(
-                            EditorialTranslationRequest(
-                                event_id=bound_event.id,
-                                headline=bound_event.title,
-                                dek=bound_event.summary,
-                                category=bound_event.primary_category,
-                                target_language="am",
-                                theme="broadcast_impact",
-                                content_mode="single_card",
+                        trans_session = SessionLocal()
+                        try:
+                            bound_event = trans_session.get(NewsEvent, event.id) or event
+                            trans_svc = EditorialTranslationService(trans_session, get_translation_provider())
+                            draft = trans_svc.translate_editorial(
+                                EditorialTranslationRequest(
+                                    event_id=bound_event.id,
+                                    headline=bound_event.title,
+                                    dek=bound_event.summary,
+                                    category=bound_event.primary_category,
+                                    target_language="am",
+                                    theme="broadcast_impact",
+                                    content_mode="single_card",
+                                )
                             )
-                        )
-                        headline, description, highlights = draft.headline, draft.dek, draft.punchline_words
-                        translation_ok = True
-                    finally:
-                        trans_session.close()
-                except TranslationUnavailableError:
-                    if _amharic_enough(event.title):
+                            headline, description, highlights = draft.headline, draft.dek, draft.punchline_words
+                            translation_ok = True
+                        finally:
+                            trans_session.close()
+                    except Exception as exc:
+                        logger.warning("telegram_editorial_translation_failed", event_id=str(event.id), error=str(exc))
                         headline, description, highlights = event.title, event.summary or "", []
                         translation_ok = True
-                    else:
-                        continue
-                except Exception as exc:
-                    logger.warning("telegram_editorial_translation_failed", event_id=str(event.id), error=str(exc))
-                    if _amharic_enough(event.title):
-                        headline, description, highlights = event.title, event.summary or "", []
-                        translation_ok = True
-                    else:
-                        continue
                 if not translation_ok:
                     continue
 
@@ -741,8 +791,12 @@ def plan_telegram_posts() -> dict:
                     )
                 ).first()
                 if existing:
-                    already_event_ids.add(event.id)
-                    continue
+                    if not policy.dry_run and (existing.dry_run or existing.status == "simulated" or _is_test_post(existing)):
+                        ins_session.delete(existing)
+                        ins_session.flush()
+                    else:
+                        already_event_ids.add(event.id)
+                        continue
 
                 post = TelegramPost(
                     event_id=event.id,
@@ -756,7 +810,7 @@ def plan_telegram_posts() -> dict:
                     photo_credit=photo.photographer if photo else None,
                     highlight_words=highlights,
                     highlight_color=policy.highlight_color,
-                    scheduled_at=_telegram_slot(policy, len(today_posts) + len(planned), now),
+                    scheduled_at=_telegram_slot(policy, len(counted_posts) + len(planned), now),
                     dry_run=policy.dry_run,
                     policy_snapshot={"timezone": policy.timezone, "channel": policy.channel_username},
                 )
@@ -779,7 +833,7 @@ def plan_telegram_posts() -> dict:
 @celery_app.task(name="app.workers.tasks.publish_due_telegram_posts")
 def publish_due_telegram_posts() -> dict:
     """Deliver due Telegram ledger rows, preserving idempotency by status."""
-    from sqlalchemy import select
+    from sqlalchemy import and_, or_, select
     from app.integrations.publishers.telegram import TelegramPublisher
     from app.models.telegram_post import TelegramPost, TelegramPublishingSettings
 
@@ -795,11 +849,21 @@ def publish_due_telegram_posts() -> dict:
         channel_username = policy.channel_username
         is_dry_run = policy.dry_run
 
+        stalled_cut = datetime.now(UTC) - timedelta(minutes=10)
         stmt = (
             select(TelegramPost)
             .where(
-                TelegramPost.status == "scheduled",
-                TelegramPost.scheduled_at <= datetime.now(UTC),
+                or_(
+                    and_(
+                        TelegramPost.status == "scheduled",
+                        TelegramPost.scheduled_at <= datetime.now(UTC),
+                    ),
+                    and_(
+                        TelegramPost.status == "publishing",
+                        TelegramPost.scheduled_at <= stalled_cut,
+                        TelegramPost.telegram_message_id.is_(None),
+                    ),
+                )
             )
             .order_by(TelegramPost.scheduled_at)
             .limit(10)
