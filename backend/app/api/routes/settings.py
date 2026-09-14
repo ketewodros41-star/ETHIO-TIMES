@@ -17,6 +17,7 @@ from app.models.publishing_settings import PublishingSettings
 from app.models.telegram_post import TelegramPost, TelegramPublishingSettings
 from app.schemas.publishing_settings import PublishingSettingsRead, PublishingSettingsUpdate
 from app.schemas.telegram import (
+    BucketContentFilter,
     TelegramPublishingSettingsRead,
     TelegramPublishingSettingsUpdate,
     TelegramTestPostRequest,
@@ -109,6 +110,49 @@ def update_telegram_publishing_settings(
         raise HTTPException(status_code=422, detail="Ethiopia and international quotas must equal posts_per_day")
     for field, value in changes.items():
         setattr(policy, field, value)
+    session.commit()
+    session.refresh(policy)
+    return _telegram_read(policy)
+
+
+@router.put("/telegram-publishing/content-filters", response_model=TelegramPublishingSettingsRead)
+def update_content_filters(
+    body: dict,
+    session: Session = Depends(get_db),
+) -> TelegramPublishingSettingsRead:
+    """Replace the full content_filters JSONB blob for Telegram publishing.
+
+    Accepts a dict keyed by bucket (``ethiopia``, ``international``) with fields:
+    - ``allowed_categories``: list[str] — if non-empty, only events in these categories pass
+    - ``blocked_categories``: list[str] — events in these categories are always excluded
+    - ``allowed_keywords``: list[str] — if non-empty, event title/summary must contain at least one
+    - ``blocked_keywords``: list[str] — events with any of these in title/summary are excluded
+    """
+    from fastapi import HTTPException as _HTTPException
+
+    known_buckets = {"ethiopia", "international"}
+    if not isinstance(body, dict):
+        raise _HTTPException(status_code=422, detail="content_filters must be a JSON object keyed by bucket name")
+    unknown = set(body.keys()) - known_buckets
+    if unknown:
+        raise _HTTPException(status_code=422, detail=f"Unknown bucket(s): {sorted(unknown)}. Allowed: {sorted(known_buckets)}")
+
+    # Validate each bucket entry
+    validated: dict = {}
+    for bucket, cfg in body.items():
+        if not isinstance(cfg, dict):
+            raise _HTTPException(status_code=422, detail=f"Bucket '{bucket}' must be a JSON object")
+        try:
+            bf = BucketContentFilter.model_validate(cfg)
+            validated[bucket] = bf.model_dump()
+        except Exception as exc:  # noqa: BLE001
+            raise _HTTPException(status_code=422, detail=f"Invalid filter config for bucket '{bucket}': {exc}") from exc
+
+    # Ensure both buckets are present, merging with existing if partial
+    policy = _get_or_create_telegram(session)
+    existing = dict(policy.content_filters or {})
+    existing.update(validated)
+    policy.content_filters = existing
     session.commit()
     session.refresh(policy)
     return _telegram_read(policy)

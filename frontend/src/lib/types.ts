@@ -470,6 +470,13 @@ export interface PublishingSettings {
   updated_at: string;
 }
 
+export interface BucketContentFilter {
+  allowed_categories: string[];
+  blocked_categories: string[];
+  allowed_keywords: string[];
+  blocked_keywords: string[];
+}
+
 export interface TelegramPublishingSettings {
   enabled: boolean;
   dry_run: boolean;
@@ -482,6 +489,7 @@ export interface TelegramPublishingSettings {
   highlight_color: string;
   bot_configured: boolean;
   updated_at: string;
+  content_filters: Record<string, BucketContentFilter>;
 }
 
 export interface TelegramTestPostResponse {

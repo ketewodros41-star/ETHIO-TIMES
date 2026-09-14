@@ -594,12 +594,98 @@ def plan_telegram_posts() -> dict:
         _amharic_enough,
     )
 
+    # ---------------------------------------------------------------------------
+    # Sponsored / advertorial content detection keywords.
+    # These are matched case-insensitively against title + summary.
+    # ---------------------------------------------------------------------------
+    _GLOBAL_SPONSOR_SIGNALS: tuple[str, ...] = (
+        "sponsored", "sponsered",            # typo variant
+        "advertisement", "advertorial",
+        "partner content", "partnered content",
+        "ad feature", "promoted content", "paid content",
+        "press release", "pr news", "brand story",
+        "brought to you by", "in association with",
+        "commercial feature", "native ad",
+        "ethio telecom",                      # known repeat offender
+    )
+
+    def _is_sponsored_event(event: NewsEvent) -> bool:
+        """Return True if the event looks like sponsored/advertorial content."""
+        haystack = " ".join(filter(None, [event.title, event.summary or ""])).lower()
+        for signal in _GLOBAL_SPONSOR_SIGNALS:
+            if signal in haystack:
+                logger.info(
+                    "sponsored_content_filtered",
+                    event_id=str(event.id),
+                    matched_signal=signal,
+                    title=event.title[:120],
+                )
+                return True
+        return False
+
+    def _passes_bucket_filters(event: NewsEvent, bucket_cfg: dict) -> bool:
+        """Return True if the event passes the per-bucket content_filters rules."""
+        if not bucket_cfg:
+            return True
+
+        category = (event.primary_category or "").lower()
+        haystack = " ".join(filter(None, [event.title, event.summary or ""])).lower()
+
+        allowed_cats: list[str] = [c.lower() for c in bucket_cfg.get("allowed_categories", [])]
+        blocked_cats: list[str] = [c.lower() for c in bucket_cfg.get("blocked_categories", [])]
+        allowed_kws: list[str] = [k.lower() for k in bucket_cfg.get("allowed_keywords", [])]
+        blocked_kws: list[str] = [k.lower() for k in bucket_cfg.get("blocked_keywords", [])]
+
+        # Blocked keywords override everything
+        for kw in blocked_kws:
+            if kw and kw in haystack:
+                logger.info("content_filter_blocked_keyword", event_id=str(event.id), keyword=kw)
+                return False
+
+        # Blocked categories
+        if blocked_cats and any(bc in category for bc in blocked_cats):
+            logger.info("content_filter_blocked_category", event_id=str(event.id), category=category)
+            return False
+
+        # Allowed categories (whitelist; empty = allow all)
+        if allowed_cats and not any(ac in category for ac in allowed_cats):
+            logger.info("content_filter_allowed_cat_miss", event_id=str(event.id), category=category)
+            return False
+
+        # Allowed keywords (whitelist; empty = allow all)
+        if allowed_kws and not any(kw in haystack for kw in allowed_kws):
+            logger.info("content_filter_allowed_kw_miss", event_id=str(event.id))
+            return False
+
+        return True
+
     session = SessionLocal()
     candidates_by_bucket: dict[str, list[NewsEvent]] = {}
     try:
         policy = session.get(TelegramPublishingSettings, 1)
         if policy is None or not policy.enabled:
             return {"planned": 0, "reason": "telegram_automation_disabled"}
+
+        # -----------------------------------------------------------------------
+        # Problem 1 — Self-healing dry_run check.
+        # If enabled=True but dry_run=True, log a CRITICAL alert and auto-reset
+        # to prevent silent test pollution freezing live publishing.
+        # -----------------------------------------------------------------------
+        if policy.enabled and policy.dry_run:
+            logger.critical(
+                "dry_run_self_heal_triggered",
+                message="Telegram automation is ENABLED but dry_run=True. "
+                        "This usually means test pollution. Automatically resetting dry_run=False.",
+            )
+            try:
+                policy.dry_run = False
+                session.commit()
+                session.refresh(policy)
+                logger.info("dry_run_self_heal_success")
+            except Exception:
+                session.rollback()
+                logger.exception("dry_run_self_heal_failed")
+                # Continue with the current (True) value rather than aborting the task
 
         now = datetime.now(UTC)
         zone = ZoneInfo(policy.timezone)
@@ -663,6 +749,11 @@ def plan_telegram_posts() -> dict:
             for bucket in ("ethiopia", "international")
         }
 
+        # Per-bucket filter config from the policy (Problem 3)
+        raw_content_filters: dict = {}
+        if hasattr(policy, "content_filters") and isinstance(policy.content_filters, dict):
+            raw_content_filters = policy.content_filters
+
         # Comprehensive Ethiopian regional indicators
         ethiopia_region_terms = (
             "ethiop", "addis", "amhara", "tigray", "oromia", "somali", "afar",
@@ -701,13 +792,27 @@ def plan_telegram_posts() -> dict:
                 .limit(limit_n)
             )
             raw_candidates = list(session.scalars(stmt).all())
+
+            # -----------------------------------------------------------------------
+            # Problem 2 — Sponsored/advertorial content filter.
+            # Problem 3 — Per-bucket content_filters (categories + keywords).
+            # -----------------------------------------------------------------------
+            bucket_cfg = raw_content_filters.get(bucket, {})
+            filtered_candidates = []
+            for event in raw_candidates:
+                if _is_sponsored_event(event):
+                    continue
+                if not _passes_bucket_filters(event, bucket_cfg):
+                    continue
+                filtered_candidates.append(event)
+
             if bucket == "ethiopia":
-                raw_candidates = sorted(
-                    raw_candidates,
+                filtered_candidates = sorted(
+                    filtered_candidates,
                     key=lambda e: (_amharic_enough(e.title), e.trend_score or 0.0),
                     reverse=True,
                 )
-            candidates_by_bucket[bucket] = raw_candidates
+            candidates_by_bucket[bucket] = filtered_candidates
     except Exception:
         session.rollback()
         logger.exception("plan_telegram_posts_task_error")

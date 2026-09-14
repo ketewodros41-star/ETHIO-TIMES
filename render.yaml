@@ -29,3 +29,65 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
+
+  # Render Cron Job: ingest all active sources every 10 minutes
+  - type: cron
+    name: ethiotimes-ingest
+    runtime: python
+    rootDir: backend
+    plan: free
+    region: frankfurt
+    schedule: "*/10 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: >
+      python -c "
+      from app.db.session import SessionLocal;
+      from app.repositories.source_repository import SourceRepository;
+      from app.api.routes.ingest import _background_run_ingest;
+      session = SessionLocal();
+      ids = SourceRepository(session).list_active_ids();
+      session.close();
+      _background_run_ingest(ids);
+      print('Ingest complete:', len(ids), 'sources');
+      "
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.10
+      - key: DATABASE_URL
+        sync: false
+      - key: AGENT_ROUTER
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: NVIDIA_API_KEY
+        sync: false
+
+  # Render Cron Job: plan and publish Telegram posts every 10 minutes
+  - type: cron
+    name: ethiotimes-telegram-publisher
+    runtime: python
+    rootDir: backend
+    plan: free
+    region: frankfurt
+    schedule: "*/10 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: >
+      python -c "
+      from app.workers.tasks import plan_telegram_posts, publish_due_telegram_posts;
+      plan_result = plan_telegram_posts();
+      pub_result = publish_due_telegram_posts();
+      print('Planned:', plan_result, 'Published:', pub_result);
+      "
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.10
+      - key: DATABASE_URL
+        sync: false
+      - key: BOT_KEY
+        sync: false
+      - key: AGENT_ROUTER
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: NVIDIA_API_KEY
+        sync: false

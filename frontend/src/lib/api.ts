@@ -172,6 +172,8 @@ export const api = {
   getTelegramPublishingSettings: () => request<import("./types").TelegramPublishingSettings>("/settings/telegram-publishing"),
   updateTelegramPublishingSettings: (body: Partial<Omit<import("./types").TelegramPublishingSettings, "bot_configured" | "updated_at">>) =>
     request<import("./types").TelegramPublishingSettings>("/settings/telegram-publishing", { method: "PATCH", body: JSON.stringify(body) }),
+  updateContentFilters: (body: Record<string, import("./types").BucketContentFilter>) =>
+    request<import("./types").TelegramPublishingSettings>("/settings/telegram-publishing/content-filters", { method: "PUT", body: JSON.stringify(body) }),
   testTelegramPost: (body?: { event_id?: string; force_live?: boolean; channel_username?: string }) =>
     request<import("./types").TelegramTestPostResponse>("/settings/telegram-publishing/test-post", {
       method: "POST",

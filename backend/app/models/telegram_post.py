@@ -16,6 +16,23 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 
+def _default_content_filters() -> dict:
+    return {
+        "ethiopia": {
+            "allowed_categories": [],
+            "blocked_categories": [],
+            "allowed_keywords": [],
+            "blocked_keywords": ["sponsored", "advertisement", "advertorial", "press release", "partner content", "ad feature", "promoted"],
+        },
+        "international": {
+            "allowed_categories": [],
+            "blocked_categories": [],
+            "allowed_keywords": [],
+            "blocked_keywords": ["sponsored", "advertisement", "advertorial", "press release", "partner content", "ad feature", "promoted"],
+        },
+    }
+
+
 class TelegramPublishingSettings(Base, TimestampMixin):
     __tablename__ = "telegram_publishing_settings"
 
@@ -29,6 +46,17 @@ class TelegramPublishingSettings(Base, TimestampMixin):
     international_posts_per_day: Mapped[int] = mapped_column(Integer, nullable=False, default=2, server_default="2")
     posting_hours: Mapped[list] = mapped_column(JSONB, nullable=False, default=lambda: [8, 11, 14, 17, 20], server_default="[8, 11, 14, 17, 20]")
     highlight_color: Mapped[str] = mapped_column(String(16), nullable=False, default="#00F0FF")
+    # Per-bucket topic/category and keyword filter configuration.
+    # Empty allowed_categories means "allow all"; non-empty means "allow only these".
+    content_filters: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=_default_content_filters,
+        server_default="""'{
+          "ethiopia": {"allowed_categories": [], "blocked_categories": [], "allowed_keywords": [], "blocked_keywords": ["sponsored", "advertisement", "advertorial", "press release", "partner content", "ad feature", "promoted"]},
+          "international": {"allowed_categories": [], "blocked_categories": [], "allowed_keywords": [], "blocked_keywords": ["sponsored", "advertisement", "advertorial", "press release", "partner content", "ad feature", "promoted"]}
+        }'::jsonb""",
+    )
 
 
 class TelegramPost(Base, UUIDPrimaryKeyMixin, TimestampMixin):

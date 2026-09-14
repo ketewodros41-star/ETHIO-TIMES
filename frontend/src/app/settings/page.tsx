@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { PageShell } from "@/components/page-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { API_BASE, api } from "@/lib/api";
-import type { PublishingSettings, TelegramPublishingSettings } from "@/lib/types";
+import type { BucketContentFilter, PublishingSettings, TelegramPublishingSettings } from "@/lib/types";
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -18,6 +18,243 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
       </span>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Topic categories available for filtering
+// ---------------------------------------------------------------------------
+const CATEGORIES = [
+  "Politics",
+  "Business",
+  "Sports",
+  "Football",
+  "Crime",
+  "Society",
+  "World Affairs",
+  "Conflict",
+  "Science",
+  "Technology",
+  "Entertainment",
+  "Health",
+  "Economy",
+  "Education",
+  "Environment",
+  "Culture",
+] as const;
+
+type Category = (typeof CATEGORIES)[number];
+
+interface BucketFilterEditorProps {
+  bucket: "ethiopia" | "international";
+  label: string;
+  description: string;
+  filter: BucketContentFilter;
+  onChange: (bucket: "ethiopia" | "international", updated: BucketContentFilter) => void;
+}
+
+function BucketFilterEditor({
+  bucket,
+  label,
+  description,
+  filter,
+  onChange,
+}: BucketFilterEditorProps) {
+  const [kwInput, setKwInput] = useState("");
+  const [blockedKwInput, setBlockedKwInput] = useState("");
+
+  const toggleCategory = (cat: string, list: "allowed" | "blocked") => {
+    const field = list === "allowed" ? "allowed_categories" : "blocked_categories";
+    const current = filter[field];
+    const lower = cat.toLowerCase();
+    const already = current.some((c) => c.toLowerCase() === lower);
+    onChange(bucket, {
+      ...filter,
+      [field]: already ? current.filter((c) => c.toLowerCase() !== lower) : [...current, cat],
+    });
+  };
+
+  const addKeyword = (list: "allowed" | "blocked") => {
+    const raw = list === "allowed" ? kwInput.trim() : blockedKwInput.trim();
+    if (!raw) return;
+    const field = list === "allowed" ? "allowed_keywords" : "blocked_keywords";
+    if (!filter[field].includes(raw)) {
+      onChange(bucket, { ...filter, [field]: [...filter[field], raw] });
+    }
+    if (list === "allowed") setKwInput("");
+    else setBlockedKwInput("");
+  };
+
+  const removeKeyword = (kw: string, list: "allowed" | "blocked") => {
+    const field = list === "allowed" ? "allowed_keywords" : "blocked_keywords";
+    onChange(bucket, { ...filter, [field]: filter[field].filter((k) => k !== kw) });
+  };
+
+  const isAllowed = (cat: string) =>
+    filter.allowed_categories.some((c) => c.toLowerCase() === cat.toLowerCase());
+  const isBlocked = (cat: string) =>
+    filter.blocked_categories.some((c) => c.toLowerCase() === cat.toLowerCase());
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-paper-400">{description}</p>
+
+      {/* Category whitelist */}
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-paper-500">
+          Allowed categories{" "}
+          <span className="normal-case font-normal text-paper-600">
+            (empty = allow all)
+          </span>
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {CATEGORIES.map((cat) => {
+            const allowed = isAllowed(cat);
+            const blocked = isBlocked(cat);
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => toggleCategory(cat, "allowed")}
+                disabled={blocked}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-all border ${
+                  allowed
+                    ? "border-accent-green bg-accent-green/20 text-accent-green"
+                    : blocked
+                    ? "border-red-700/40 bg-red-900/10 text-red-700 cursor-not-allowed opacity-50"
+                    : "border-ink-700 bg-ink-900 text-paper-400 hover:border-accent-green/50 hover:text-accent-green"
+                }`}
+              >
+                {allowed ? "✓ " : ""}{cat}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Category blocklist */}
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-paper-500">
+          Blocked categories{" "}
+          <span className="normal-case font-normal text-paper-600">
+            (always excluded, overrides whitelist)
+          </span>
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {CATEGORIES.map((cat) => {
+            const blocked = isBlocked(cat);
+            const allowed = isAllowed(cat);
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => toggleCategory(cat, "blocked")}
+                disabled={allowed}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-all border ${
+                  blocked
+                    ? "border-red-500 bg-red-500/20 text-red-400"
+                    : allowed
+                    ? "border-ink-700/40 bg-ink-900/10 text-paper-600 cursor-not-allowed opacity-50"
+                    : "border-ink-700 bg-ink-900 text-paper-400 hover:border-red-500/50 hover:text-red-400"
+                }`}
+              >
+                {blocked ? "✗ " : ""}{cat}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Allowed keywords */}
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-paper-500">
+          Required keywords{" "}
+          <span className="normal-case font-normal text-paper-600">
+            (empty = no restriction; if set, post must contain at least one)
+          </span>
+        </p>
+        <div className="flex gap-2 mb-2">
+          <Input
+            placeholder="e.g. election, reform…"
+            value={kwInput}
+            onChange={(e) => setKwInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addKeyword("allowed")}
+            className="h-8 text-sm max-w-xs"
+          />
+          <Button size="sm" variant="outline" onClick={() => addKeyword("allowed")}>
+            Add
+          </Button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {filter.allowed_keywords.map((kw) => (
+            <span
+              key={kw}
+              className="flex items-center gap-1 rounded-full border border-sky-500/40 bg-sky-500/10 px-3 py-0.5 text-xs text-sky-400"
+            >
+              {kw}
+              <button
+                type="button"
+                onClick={() => removeKeyword(kw, "allowed")}
+                className="ml-1 text-sky-600 hover:text-sky-300"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Blocked keywords */}
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-paper-500">
+          Blocked keywords{" "}
+          <span className="normal-case font-normal text-paper-600">
+            (posts containing these are excluded)
+          </span>
+        </p>
+        <div className="flex gap-2 mb-2">
+          <Input
+            placeholder="e.g. sponsored, press release…"
+            value={blockedKwInput}
+            onChange={(e) => setBlockedKwInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addKeyword("blocked")}
+            className="h-8 text-sm max-w-xs"
+          />
+          <Button size="sm" variant="outline" onClick={() => addKeyword("blocked")}>
+            Add
+          </Button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {filter.blocked_keywords.map((kw) => (
+            <span
+              key={kw}
+              className="flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-3 py-0.5 text-xs text-red-400"
+            >
+              {kw}
+              <button
+                type="button"
+                onClick={() => removeKeyword(kw, "blocked")}
+                className="ml-1 text-red-600 hover:text-red-300"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Default empty filter for a bucket
+// ---------------------------------------------------------------------------
+function emptyFilter(): BucketContentFilter {
+  return {
+    allowed_categories: [],
+    blocked_categories: [],
+    allowed_keywords: [],
+    blocked_keywords: ["sponsored", "advertisement", "advertorial", "press release", "partner content"],
+  };
 }
 
 export default function SettingsPage() {
@@ -39,6 +276,12 @@ export default function SettingsPage() {
     headline?: string | null;
     telegram_message_id?: string | null;
   } | null>(null);
+
+  // Content filters state
+  const [ethiopiaFilter, setEthiopiaFilter] = useState<BucketContentFilter>(emptyFilter());
+  const [internationalFilter, setInternationalFilter] = useState<BucketContentFilter>(emptyFilter());
+  const [filterSaving, setFilterSaving] = useState(false);
+  const [filterMessage, setFilterMessage] = useState<{ text: string; success: boolean } | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -62,6 +305,13 @@ export default function SettingsPage() {
         setTelegramTotal(String(v.posts_per_day));
         setEthiopiaQuota(String(v.ethiopia_posts_per_day));
         setInternationalQuota(String(v.international_posts_per_day));
+        // Initialise filter editors from saved settings
+        if (v.content_filters?.ethiopia) {
+          setEthiopiaFilter(v.content_filters.ethiopia);
+        }
+        if (v.content_filters?.international) {
+          setInternationalFilter(v.content_filters.international);
+        }
       })
       .catch((e) => setTelegramMessage(e.message));
   }, []);
@@ -140,6 +390,36 @@ export default function SettingsPage() {
       setTelegramMessage(e instanceof Error ? e.message : "Could not save Telegram settings.");
     } finally {
       setTelegramSaving(false);
+    }
+  };
+
+  const handleFilterChange = useCallback(
+    (bucket: "ethiopia" | "international", updated: BucketContentFilter) => {
+      if (bucket === "ethiopia") setEthiopiaFilter(updated);
+      else setInternationalFilter(updated);
+    },
+    [],
+  );
+
+  const saveContentFilters = async () => {
+    setFilterSaving(true);
+    setFilterMessage(null);
+    try {
+      const v = await api.updateContentFilters({
+        ethiopia: ethiopiaFilter,
+        international: internationalFilter,
+      });
+      setTelegram(v);
+      if (v.content_filters?.ethiopia) setEthiopiaFilter(v.content_filters.ethiopia);
+      if (v.content_filters?.international) setInternationalFilter(v.content_filters.international);
+      setFilterMessage({ text: "Content filters saved successfully.", success: true });
+    } catch (e) {
+      setFilterMessage({
+        text: e instanceof Error ? e.message : "Could not save content filters.",
+        success: false,
+      });
+    } finally {
+      setFilterSaving(false);
     }
   };
 
@@ -330,6 +610,84 @@ export default function SettingsPage() {
             <p className="text-sm text-paper-300">Secret values are never displayed in the dashboard; they remain environment variables.</p>
             <Row label="INSTAGRAM_ACCESS_TOKEN" value={<Badge variant="muted">env</Badge>} />
             <Row label="AGENT_ROUTER" value={<Badge variant="muted">env</Badge>} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ─── Content Filters Panel ────────────────────────────────────────────── */}
+      <div className="mt-6">
+        <Card className="border-amber-500/30">
+          <CardHeader>
+            <CardTitle>
+              Content filters
+              <span className="ml-2 text-sm font-normal text-paper-500">
+                — Control what gets posted on Telegram per channel
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-8">
+            <p className="text-sm text-paper-300">
+              Fine-tune which topics appear in each Telegram channel. Blocked keywords
+              (including <span className="font-mono text-red-400 text-xs">sponsored</span>,{" "}
+              <span className="font-mono text-red-400 text-xs">advertisement</span>, and similar) are
+              enforced automatically even without explicit configuration. Changes take effect on the next
+              automated posting cycle (~10 min).
+            </p>
+
+            {/* Ad/sponsor filter notice */}
+            <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-400">
+              <span className="font-semibold">🛡 Ad/Sponsored filter is always active.</span>{" "}
+              Events containing signals like &quot;sponsored&quot;, &quot;advertisement&quot;,
+              &quot;advertorial&quot;, &quot;press release&quot;, &quot;Ethio Telecom&quot; etc. are
+              automatically rejected before reaching these filters.
+            </div>
+
+            {/* Ethiopia bucket */}
+            <div className="space-y-3">
+              <h3 className="text-base font-semibold text-paper-200 flex items-center gap-2">
+                🇪🇹 Ethiopia Posts
+                <Badge variant="muted">Amharic</Badge>
+              </h3>
+              <BucketFilterEditor
+                bucket="ethiopia"
+                label="Ethiopia"
+                description="Rules applied when selecting Ethiopian news for the Amharic Telegram channel."
+                filter={ethiopiaFilter}
+                onChange={handleFilterChange}
+              />
+            </div>
+
+            <div className="border-t border-ink-800" />
+
+            {/* International bucket */}
+            <div className="space-y-3">
+              <h3 className="text-base font-semibold text-paper-200 flex items-center gap-2">
+                🌍 International Posts
+                <Badge variant="muted">English</Badge>
+              </h3>
+              <BucketFilterEditor
+                bucket="international"
+                label="International"
+                description="Rules applied when selecting international news for the English Telegram channel."
+                filter={internationalFilter}
+                onChange={handleFilterChange}
+              />
+            </div>
+
+            {/* Save button + toast */}
+            <div className="flex items-center gap-4">
+              <Button onClick={saveContentFilters} disabled={filterSaving}>
+                {filterSaving ? "Saving filters…" : "Save content filters"}
+              </Button>
+              {filterMessage && (
+                <p
+                  role="status"
+                  className={`text-sm ${filterMessage.success ? "text-accent-green" : "text-red-400"}`}
+                >
+                  {filterMessage.text}
+                </p>
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>

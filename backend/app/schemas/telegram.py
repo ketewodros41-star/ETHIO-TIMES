@@ -3,8 +3,17 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class BucketContentFilter(BaseModel):
+    """Per-bucket content filter configuration."""
+    allowed_categories: list[str] = Field(default_factory=list)
+    blocked_categories: list[str] = Field(default_factory=list)
+    allowed_keywords: list[str] = Field(default_factory=list)
+    blocked_keywords: list[str] = Field(default_factory=list)
 
 
 class TelegramPublishingSettingsRead(BaseModel):
@@ -20,6 +29,7 @@ class TelegramPublishingSettingsRead(BaseModel):
     highlight_color: str
     bot_configured: bool = False
     updated_at: datetime
+    content_filters: dict[str, Any] = Field(default_factory=dict)
 
 
 class TelegramPublishingSettingsUpdate(BaseModel):
@@ -32,12 +42,14 @@ class TelegramPublishingSettingsUpdate(BaseModel):
     international_posts_per_day: int | None = Field(default=None, ge=0, le=24)
     posting_hours: list[int] | None = Field(default=None, min_length=1, max_length=24)
     highlight_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    content_filters: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_hours(self):
         if self.posting_hours is not None and (any(hour < 0 or hour > 23 for hour in self.posting_hours) or len(set(self.posting_hours)) != len(self.posting_hours)):
             raise ValueError("posting_hours must contain unique hours from 0 through 23")
         return self
+
 
 
 class TelegramPostRead(BaseModel):
