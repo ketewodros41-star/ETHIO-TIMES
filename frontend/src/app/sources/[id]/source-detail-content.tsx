@@ -234,23 +234,54 @@ export function SourceDetailContent({ id }: { id: string }) {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {source.total_articles_ingested > 0 && source.is_active && !ingestOne.isPending && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => ingestOne.mutate()}
+                disabled={ingestOne.isPending}
+                className="h-8 w-8 p-0 text-paper-400 hover:text-accent-green hover:bg-ink-800"
+                title="Fetch fresh news now (re-sync feed)"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${ingestOne.isPending ? "animate-spin text-accent-green" : ""}`} />
+              </Button>
+            )}
+
             <Button
               size="sm"
               onClick={() => {
-                if (ingestOne.isPending) {
+                if (ingestOne.isPending || (source.total_articles_ingested > 0 && source.is_active)) {
                   stopIngest.mutate();
                 } else {
+                  if (!source.is_active) {
+                    toggleActive.mutate(true);
+                  }
                   ingestOne.mutate();
                 }
               }}
-              disabled={!source.is_active}
-              variant={ingestOne.isPending ? "destructive" : "default"}
+              variant={
+                ingestOne.isPending
+                  ? "destructive"
+                  : source.total_articles_ingested > 0 && source.is_active
+                  ? "outline"
+                  : "default"
+              }
               className={`group flex items-center gap-1.5 transition-all ${
                 ingestOne.isPending
                   ? "border border-red-500/50 bg-red-950/40 text-red-300 hover:bg-red-900/60 hover:text-red-100 hover:border-red-400"
+                  : source.total_articles_ingested > 0 && source.is_active
+                  ? "border-emerald-600/40 text-emerald-400 bg-emerald-950/20 hover:border-red-500/70 hover:bg-red-950/40 hover:text-red-300"
                   : ""
               }`}
-              title={ingestOne.isPending ? "Currently ingesting. Click to stop ingestion." : "Ingest source"}
+              title={
+                ingestOne.isPending
+                  ? "Currently ingesting. Click to stop ingestion."
+                  : source.total_articles_ingested > 0 && source.is_active
+                  ? "Ingested. Click to stop ingestion."
+                  : !source.is_active
+                  ? "Source paused. Click to resume and ingest."
+                  : "Ingest source"
+              }
             >
               {ingestOne.isPending ? (
                 <>
@@ -259,10 +290,17 @@ export function SourceDetailContent({ id }: { id: string }) {
                   <span className="group-hover:hidden text-accent-green">Ingesting…</span>
                   <span className="hidden group-hover:inline-flex text-red-200">Stop Ingest</span>
                 </>
+              ) : source.total_articles_ingested > 0 && source.is_active ? (
+                <>
+                  <Check className="h-4 w-4 text-emerald-400 group-hover:hidden" />
+                  <Square className="h-4 w-4 fill-current hidden group-hover:inline-flex text-red-400" />
+                  <span className="group-hover:hidden text-emerald-400">Ingested</span>
+                  <span className="hidden group-hover:inline-flex text-red-200">Stop Ingest</span>
+                </>
               ) : (
                 <>
                   <Play className="h-4 w-4" />
-                  <span>Ingest Now</span>
+                  <span>{!source.is_active ? "Resume Ingest" : "Ingest Now"}</span>
                 </>
               )}
             </Button>

@@ -78,16 +78,48 @@ export function SourcesContent() {
   });
 
   const stopIngest = useMutation({
-    mutationFn: (id?: string) => api.stopIngest(id),
+    mutationFn: async (id?: string) => {
+      const res = await api.stopIngest(id);
+      if (id && id !== "all") {
+        try {
+          await api.updateSource(id, { is_active: false });
+        } catch {
+          // ignore
+        }
+      }
+      return res;
+    },
     onSuccess: (res, id) => {
       flash(res.message || "Ingestion stopped.");
       setIngestingId((current) => {
         if (!id || id === "all" || current === id) return null;
         return current;
       });
+      if (id && id !== "all") {
+        setIngestedMap((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
       scheduleSync();
     },
     onError: (e: Error) => flash(`Failed to stop ingestion: ${e.message}`),
+  });
+
+  const resumeAndIngest = useMutation({
+    mutationFn: async (id: string) => {
+      await api.updateSource(id, { is_active: true });
+      return api.triggerIngest(id);
+    },
+    onMutate: (id) => setIngestingId(id),
+    onSettled: () => setIngestingId(null),
+    onSuccess: (res, id) => {
+      flash(res.message);
+      setIngestedMap((prev) => ({ ...prev, [id]: Date.now() }));
+      scheduleSync();
+    },
+    onError: (e: Error) => flash(e.message),
   });
 
   const createSource = useMutation({
@@ -448,62 +480,81 @@ export function SourcesContent() {
                       </Button>
                     </Link>
                     {(() => {
-                      const isIngested = s.total_articles_ingested > 0 || Boolean(ingestedMap[s.id]);
+                      const isIngested = (s.total_articles_ingested > 0 || Boolean(ingestedMap[s.id])) && s.is_active;
                       const isThisIngesting = ingestingId === s.id;
                       const isGlobalIngesting = ingestingId === "all";
                       const isIngesting = isThisIngesting || isGlobalIngesting;
 
                       return (
-                        <Button
-                          variant={isIngested ? "outline" : "subtle"}
-                          size="sm"
-                          disabled={!s.is_active}
-                          onClick={() => {
-                            if (isIngesting) {
-                              stopIngest.mutate(s.id);
-                            } else {
-                              ingestOne.mutate(s.id);
-                            }
-                          }}
-                          className={`group relative min-w-[96px] h-8 text-xs font-medium transition-all ${
-                            isIngesting
-                              ? "border-amber-500/40 text-accent-green bg-ink-800 hover:border-red-500/70 hover:bg-red-950/40 hover:text-red-300"
-                              : isIngested
-                              ? "border-emerald-600/40 text-emerald-400 bg-emerald-950/20 hover:bg-emerald-900/30 hover:border-emerald-500 hover:text-emerald-300"
-                              : "border-ink-700 text-paper-200 hover:text-paper-50"
-                          }`}
-                          title={
-                            isIngesting
-                              ? "Currently ingesting. Click again to stop ingestion."
-                              : isIngested
-                              ? "Ingested. Click to fetch new articles now."
-                              : "Ingest source"
-                          }
-                        >
-                          {isIngesting ? (
-                            <span className="inline-flex items-center gap-1.5">
-                              <span className="inline-flex items-center gap-1.5 group-hover:hidden text-accent-green font-semibold">
-                                <RefreshCw className="h-3 w-3 animate-spin" /> Ingesting…
-                              </span>
-                              <span className="hidden group-hover:inline-flex items-center gap-1.5 text-red-300 font-semibold">
-                                <Square className="h-3 w-3 fill-current text-red-400" /> Stop Ingest
-                              </span>
-                            </span>
-                          ) : isIngested ? (
-                            <span className="inline-flex items-center gap-1.5">
-                              <span className="inline-flex items-center gap-1 group-hover:hidden text-emerald-400 font-semibold">
-                                <Check className="h-3 w-3 text-emerald-400" /> Ingested
-                              </span>
-                              <span className="hidden group-hover:inline-flex items-center gap-1 text-paper-200">
-                                <RefreshCw className="h-3 w-3 text-paper-300" /> Re-ingest
-                              </span>
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5">
-                              <Play className="h-3 w-3" /> Ingest
-                            </span>
+                        <div className="inline-flex items-center gap-1.5">
+                          {isIngested && !isIngesting && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                ingestOne.mutate(s.id);
+                              }}
+                              disabled={ingestOne.isPending}
+                              className="h-8 w-8 p-0 text-paper-400 hover:text-accent-green hover:bg-ink-800"
+                              title="Fetch fresh news now (re-sync feed)"
+                            >
+                              <RefreshCw className={`h-3.5 w-3.5 ${ingestOne.isPending ? "animate-spin text-accent-green" : ""}`} />
+                            </Button>
                           )}
-                        </Button>
+
+                          <Button
+                            variant={isIngested ? "outline" : "subtle"}
+                            size="sm"
+                            onClick={() => {
+                              if (isIngesting || isIngested) {
+                                stopIngest.mutate(s.id);
+                              } else {
+                                resumeAndIngest.mutate(s.id);
+                              }
+                            }}
+                            className={`group relative min-w-[96px] h-8 text-xs font-medium transition-all ${
+                              isIngesting
+                                ? "border-amber-500/40 text-accent-green bg-ink-800 hover:border-red-500/70 hover:bg-red-950/40 hover:text-red-300"
+                                : isIngested
+                                ? "border-emerald-600/40 text-emerald-400 bg-emerald-950/20 hover:border-red-500/70 hover:bg-red-950/40 hover:text-red-300"
+                                : "border-ink-700 text-paper-200 hover:text-paper-50"
+                            }`}
+                            title={
+                              isIngesting
+                                ? "Currently ingesting. Click to stop ingestion."
+                                : isIngested
+                                ? "Ingested. Click to stop ingestion."
+                                : !s.is_active
+                                ? "Source paused. Click to resume and ingest."
+                                : "Ingest source"
+                            }
+                          >
+                            {isIngesting ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1.5 group-hover:hidden text-accent-green font-semibold">
+                                  <RefreshCw className="h-3 w-3 animate-spin" /> Ingesting…
+                                </span>
+                                <span className="hidden group-hover:inline-flex items-center gap-1.5 text-red-300 font-semibold">
+                                  <Square className="h-3 w-3 fill-current text-red-400" /> Stop Ingest
+                                </span>
+                              </span>
+                            ) : isIngested ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1 group-hover:hidden text-emerald-400 font-semibold">
+                                  <Check className="h-3 w-3 text-emerald-400" /> Ingested
+                                </span>
+                                <span className="hidden group-hover:inline-flex items-center gap-1 text-red-300 font-semibold">
+                                  <Square className="h-3 w-3 fill-current text-red-400" /> Stop Ingest
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5">
+                                <Play className="h-3 w-3" /> {!s.is_active ? "Resume Ingest" : "Ingest"}
+                              </span>
+                            )}
+                          </Button>
+                        </div>
                       );
                     })()}
                   </div>
