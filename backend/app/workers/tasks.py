@@ -714,24 +714,88 @@ def _is_sponsored_event(event: Any) -> bool:
 
 
 _BEAT_SYNONYMS: dict[str, list[str]] = {
-    "politics": ["politics", "governance", "election", "parliament", "political", "government", "policy", "diplomacy"],
-    "business": ["business", "economy", "finance", "banking", "market", "trade", "investment", "economic", "stocks"],
-    "economy": ["economy", "business", "finance", "banking", "market", "trade", "investment", "economic"],
-    "sports": ["sports", "sport", "football", "athletics", "olympic", "soccer", "marathon", "premier league", "champions league"],
-    "football": ["football", "soccer", "premier league", "champions league", "sports", "sport"],
-    "technology": ["technology", "tech", "telecom", "innovation", "digital", "ai", "software"],
-    "culture": ["culture", "society", "art", "heritage", "entertainment", "music", "diaspora", "community"],
-    "society": ["society", "culture", "community", "social", "public"],
-    "conflict": ["conflict", "security", "military", "defense", "clash", "fano", "tplf", "war", "peace"],
-    "world affairs": ["world", "international", "diplomacy", "global", "foreign", "un", "geopolitics"],
-    "world": ["world", "international", "diplomacy", "global", "foreign", "un"],
-    "crime": ["crime", "police", "investigation", "court", "arrest", "justice"],
-    "science": ["science", "research", "health", "medicine", "climate", "space"],
-    "health": ["health", "medical", "hospital", "disease", "vaccine", "who"],
-    "entertainment": ["entertainment", "celebrity", "film", "movie", "music", "art", "culture"],
-    "education": ["education", "university", "school", "students", "academic"],
-    "environment": ["environment", "climate", "weather", "green", "drought", "flood"],
-    "breaking": ["breaking", "urgent", "accident", "incident", "alert"],
+    "politics": [
+        "politics", "governance", "election", "elections", "parliament", "political", "government", "policy", "diplomacy",
+        "minister", "ministry", "prime minister", "president", "cabinet", "legislation", "senate", "congress", "treaty",
+        "ፖለቲካ", "መንግስት", "ፓርላማ", "ምርጫ", "ሚኒስትር", "ሚኒስቴር", "ጠቅላይ ሚኒስትር", "ፕሬዝዳንት", "ፖሊሲ", "ዲፕሎማሲ", "ህግ", "ካቢኔ", "አስተዳደር",
+    ],
+    "business": [
+        "business", "economy", "finance", "banking", "market", "trade", "investment", "economic", "stocks", "investor",
+        "inflation", "currency", "forex", "birr", "revenue", "export", "import", "commercial", "central bank", "cbe",
+        "ቢዝነስ", "ኢኮኖሚ", "ንግድ", "ባንክ", "ፋይናንስ", "ገንዘብ", "ኢንቨስትመንት", "ብር", "ግብር", "ገበያ", "ዋጋ ግሽበት", "ወጪ", "ገቢ",
+    ],
+    "economy": [
+        "economy", "business", "finance", "banking", "market", "trade", "investment", "economic", "stocks", "inflation",
+        "ቢዝነስ", "ኢኮኖሚ", "ንግድ", "ባንክ", "ፋይናንስ", "ገንዘብ", "ኢንቨስትመንት", "ብር", "ግብር", "ገበያ",
+    ],
+    "sports": [
+        "sports", "sport", "football", "soccer", "athletics", "olympic", "olympics", "marathon", "premier league", "champions league",
+        "la liga", "serie a", "bundesliga", "fifa", "uefa", "caf", "afcon", "world cup", "arsenal", "manchester", "chelsea",
+        "liverpool", "man city", "man utd", "tottenham", "barcelona", "real madrid", "bayern", "juventus", "psg", "haaland",
+        "messi", "ronaldo", "goal", "match", "penalty", "referee", "transfer", "striker", "coach", "manager", "tournament",
+        "ስፖርት", "እግር ኳስ", "እግርኳስ", "ኳስ", "ዋንጫ", "ጨዋታ", "ክለብ", "ግብ", "አርሰናል", "ማንቸስተር", "ቼልሲ", "ሊቨርፑል", "ማን ሲቲ",
+        "ፕሪሚየር ሊግ", "ሻምፒዮንስ ሊግ", "አትሌቲክስ", "ማራቶን", "ኦሊምፒክ", "ደርቢ",
+    ],
+    "football": [
+        "football", "soccer", "premier league", "champions league", "sports", "sport", "la liga", "serie a", "bundesliga",
+        "fifa", "uefa", "caf", "afcon", "world cup", "arsenal", "manchester", "chelsea", "liverpool", "man city", "man utd",
+        "tottenham", "barcelona", "real madrid", "bayern", "juventus", "psg", "haaland", "messi", "ronaldo", "goal", "match",
+        "penalty", "referee", "transfer", "striker", "coach", "manager",
+        "እግር ኳስ", "እግርኳስ", "ኳስ", "ዋንጫ", "ጨዋታ", "ክለብ", "ግብ", "አርሰናል", "ማንቸስተር", "ቼልሲ", "ሊቨርፑል", "ማን ሲቲ", "ስፖርት",
+    ],
+    "technology": [
+        "technology", "tech", "telecom", "innovation", "digital", "ai", "software", "cyber", "internet", "startup", "data", "cloud",
+        "hardware", "artificial intelligence", "app",
+        "ቴክኖሎጂ", "ቴሌኮም", "ዲጂታል", "ሰው ሰራሽ አስተዋይ", "ኢንተርኔት",
+    ],
+    "culture": [
+        "culture", "society", "art", "heritage", "entertainment", "music", "diaspora", "community", "tradition", "festival", "holiday", "film",
+        "ባህል", "ማህበራዊ", "ኪነ ጥበብ", "ሙዚቃ", "በዓል", "ዳያስፖራ", "ማህበረሰብ", "ቅርስ",
+    ],
+    "society": [
+        "society", "culture", "community", "social", "public", "heritage", "diaspora",
+        "ማህበራዊ", "ባህል", "ማህበረሰብ", "ህዝብ",
+    ],
+    "conflict": [
+        "conflict", "security", "military", "defense", "clash", "fano", "tplf", "ola", "war", "peace", "ceasefire", "fighting", "attack", "army", "soldier", "troops",
+        "ግጭት", "ፀጥታ", "ጦርነት", "ሰላም", "መከላከያ", "ወታደር", "ሰራዊት", "ጥቃት", "ተኩስ አቁም", "ፋኖ", "ህወሃት",
+    ],
+    "world affairs": [
+        "world", "international", "diplomacy", "global", "foreign", "un", "geopolitics", "summit", "embassy", "ambassador", "bilateral", "nato", "security council",
+        "ዓለም አቀፍ", "ዲፕሎማሲ", "የተባበሩት መንግስታት", "ኤምባሲ", "አምባሳደር", "የውጭ ጉዳይ",
+    ],
+    "world": [
+        "world", "international", "diplomacy", "global", "foreign", "un", "geopolitics", "summit", "embassy", "ambassador",
+        "ዓለም አቀፍ", "ዲፕሎማሲ", "የተባበሩት መንግስታት", "የውጭ ጉዳይ",
+    ],
+    "crime": [
+        "crime", "police", "investigation", "court", "arrest", "justice", "trial", "prison", "suspect", "charge", "fraud", "theft",
+        "ወንጀል", "ፖሊስ", "ምርመራ", "ፍርድ ቤት", "እስር", "ፍትህ", "ተጠርጣሪ",
+    ],
+    "science": [
+        "science", "research", "health", "medicine", "climate", "space", "scientific", "laboratory",
+        "ሳይንስ", "ምርምር", "ህክምና",
+    ],
+    "health": [
+        "health", "medical", "hospital", "disease", "vaccine", "who", "doctor", "epidemic", "clinic",
+        "ጤና", "ህክምና", "ሆስፒታል", "በሽታ", "ክትባት",
+    ],
+    "entertainment": [
+        "entertainment", "celebrity", "film", "movie", "music", "art", "culture", "cinema", "concert",
+        "መዝናኛ", "ሙዚቃ", "ፊልም", "ሲኒማ", "ኪነ ጥበብ",
+    ],
+    "education": [
+        "education", "university", "school", "students", "academic", "college", "scholarship",
+        "ትምህርት", "ዩኒቨርሲቲ", "ትምህርት ቤት", "ተማሪዎች",
+    ],
+    "environment": [
+        "environment", "climate", "weather", "green", "drought", "flood", "ecology", "nature",
+        "አካባቢ", "አየር ንብረት", "ድርቅ", "ጎርፍ", "ተፈጥሮ",
+    ],
+    "breaking": [
+        "breaking", "urgent", "accident", "incident", "alert", "emergency", "crash", "disaster",
+        "ሰበር", "አስቸኳይ", "አደጋ", "ድንገተኛ",
+    ],
 }
 
 
@@ -749,8 +813,12 @@ def _event_matches_category(event: Any, cat_term: str, haystack: str) -> bool:
         if any(syn in c for c in all_cats if c):
             return True
         # Check in title/summary
-        if syn in haystack:
-            return True
+        if len(syn) <= 3:
+            if re.search(r"\b" + re.escape(syn) + r"\b", haystack, re.IGNORECASE):
+                return True
+        else:
+            if syn in haystack:
+                return True
     return False
 
 
@@ -965,7 +1033,7 @@ def plan_telegram_posts() -> dict:
                 candidates_by_bucket[bucket] = []
                 continue
             cond = is_ethiopia_expr if bucket == "ethiopia" else is_intl_expr
-            limit_n = 100 if bucket == "ethiopia" else 30
+            limit_n = 250
             bucket_cfg = raw_content_filters.get(bucket, {})
 
             chosen_candidates = []

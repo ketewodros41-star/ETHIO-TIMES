@@ -418,3 +418,47 @@ class TestPlanTelegramPostsAmharicFilter:
         planned_post = added_posts[0]
         assert planned_post.event_id == legit_event.id
         assert planned_post.event_id not in {ad_event_1.id, ad_event_2.id, ad_event_3.id, ad_event_4.id}
+
+
+class TestSelectedCategoryFiltering:
+    """Verify that when a user selects certain categories, ONLY content of those categories is allowed."""
+
+    def test_sports_filter_allows_sports_and_blocks_others(self):
+        sports_en = _make_event("Haaland scores twice as Man City beats Chelsea in Premier League", primary_category="general")
+        sports_am = _make_event("የኢትዮጵያ ቡና እና ቅዱስ ጊዮርጊስ የደርቢ እግር ኳስ ጨዋታ", primary_category="general")
+        politics_event = _make_event("Parliament passes new electoral bill in emergency session", primary_category="Politics")
+        business_event = _make_event("National Bank of Ethiopia raises interest rates to 15%", primary_category="Business")
+        general_event = _make_event("Road construction completed in Addis Ababa Bole subcity", primary_category="general")
+
+        cfg = {"allowed_categories": ["sports"], "blocked_categories": [], "allowed_keywords": [], "blocked_keywords": []}
+
+        assert _passes_bucket_filters(sports_en, cfg) is True
+        assert _passes_bucket_filters(sports_am, cfg) is True
+        assert _passes_bucket_filters(politics_event, cfg) is False
+        assert _passes_bucket_filters(business_event, cfg) is False
+        assert _passes_bucket_filters(general_event, cfg) is False
+
+    def test_politics_filter_allows_politics_and_blocks_sports(self):
+        politics_en = _make_event("Prime Minister announces new diplomatic initiative with neighboring states", primary_category="general")
+        politics_am = _make_event("ጠቅላይ ሚኒስትሩ አዳዲስ ሚኒስትሮችን በፓርላማ ሾሙ", primary_category="general")
+        sports_event = _make_event("Arsenal wins 3-0 against Tottenham in north London derby", primary_category="sports")
+        business_event = _make_event("Commercial Bank of Ethiopia reports profit surge", primary_category="business")
+
+        cfg = {"allowed_categories": ["politics"], "blocked_categories": [], "allowed_keywords": [], "blocked_keywords": []}
+
+        assert _passes_bucket_filters(politics_en, cfg) is True
+        assert _passes_bucket_filters(politics_am, cfg) is True
+        assert _passes_bucket_filters(sports_event, cfg) is False
+        assert _passes_bucket_filters(business_event, cfg) is False
+
+    def test_multiple_categories_allowed(self):
+        sports_event = _make_event("Athletics federation announces team for world championship marathon", primary_category="general")
+        politics_event = _make_event("Council of Ministers ratifies bilateral trade treaty", primary_category="general")
+        tech_event = _make_event("New AI startup launches cloud database service", primary_category="technology")
+
+        cfg = {"allowed_categories": ["sports", "politics"], "blocked_categories": [], "allowed_keywords": [], "blocked_keywords": []}
+
+        assert _passes_bucket_filters(sports_event, cfg) is True
+        assert _passes_bucket_filters(politics_event, cfg) is True
+        assert _passes_bucket_filters(tech_event, cfg) is False
+
