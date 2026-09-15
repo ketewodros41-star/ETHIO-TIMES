@@ -7,8 +7,11 @@ ingestion synchronously in the request path.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.core.logging import configure_logging, get_logger
@@ -580,6 +583,151 @@ def auto_compose_eligible_events(limit: int = 20) -> dict:
         session.close()
 
 
+# ---------------------------------------------------------------------------
+# Bilingual (Amharic & English) advertorial and sponsored content filter.
+# Normalizes punctuation (Ethiopic ፡, ።, ፣, etc.), zero-width characters,
+# Fidel character variations, and word boundaries.
+# ---------------------------------------------------------------------------
+
+_ETHIOPIC_PUNCT_RE = re.compile(r"[\u1360-\u1368\.,;:!\?\"\'\(\)\[\]\{\}\<\>«»/\\_\-–—~|#%&*+=^`@]")
+_ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\ufeff\u00ad]")
+_AMHARIC_CHAR_MAP = {
+    # ሠ -> ሰ
+    "ሠ": "ሰ", "ሡ": "ሱ", "ሢ": "ሲ", "ሣ": "ሳ", "ሤ": "ሴ", "ሥ": "ስ", "ሦ": "ሶ", "ሧ": "ሷ",
+    # ሐ, ኀ -> ሀ
+    "ሐ": "ሀ", "ሑ": "ሁ", "ሒ": "ሂ", "ሓ": "ሃ", "ሔ": "ሄ", "ሕ": "ህ", "ሖ": "ሆ",
+    "ኀ": "ሀ", "ኁ": "ሁ", "ኂ": "ሂ", "ኃ": "ሃ", "ኄ": "ሄ", "ኅ": "ህ", "ኆ": "ሆ",
+    # ዐ -> አ
+    "ዐ": "አ", "ዑ": "ኡ", "ዒ": "ኢ", "ዓ": "ኣ", "ዔ": "ኤ", "ዕ": "እ", "ዖ": "ኦ",
+    # ፀ -> ጸ
+    "ፀ": "ጸ", "ፁ": "ጹ", "ፂ": "ጺ", "ፃ": "ጻ", "ፄ": "ጼ", "ፅ": "ጽ", "ፆ": "ጾ",
+}
+_AMHARIC_TRANS = str.maketrans(_AMHARIC_CHAR_MAP)
+
+
+def normalize_filter_text(text: str) -> str:
+    """Normalize text for advertorial/content filtering.
+
+    Handles Amharic & Latin punctuation (፣, ።, ፡, etc.), zero-width spaces,
+    Fidel character variants (e.g. ሠ->ሰ, ሐ/ኀ->ሀ, ዐ->አ, ፀ->ጸ), and whitespace.
+    """
+    if not text:
+        return ""
+    text = unicodedata.normalize("NFKC", text)
+    text = _ZERO_WIDTH_RE.sub("", text)
+    text = _ETHIOPIC_PUNCT_RE.sub(" ", text)
+    text = text.translate(_AMHARIC_TRANS)
+    return " ".join(text.lower().split())
+
+
+_GLOBAL_SPONSOR_SIGNALS: tuple[str, ...] = (
+    # English advertorial signals
+    "sponsored", "sponsered",            # typo variant
+    "advertisement", "advertorial",
+    "partner content", "partnered content",
+    "ad feature", "promoted content", "paid content",
+    "press release", "pr news", "brand story",
+    "brought to you by", "in association with",
+    "commercial feature", "native ad",
+    "ethio telecom", "ethiotelecom",
+    "telebirr",
+
+    # Amharic advertorial keywords & variations
+    "ማስታወቂያ",                 # advertisement / ad
+    "የማስታወቂያ",               # ad prefix
+    "ማስተዋወቂያ",               # promotion / promotional
+    "የማስተዋወቂያ",             # promotion prefix
+    "ስፖንሰር",                   # sponsor
+    "የስፖንሰር",                 # sponsored
+    "ስፖንሰር የተደረገ",           # sponsored content
+    "ስፖንሰር የተደረገ ይዘት",      # sponsored content
+    "የስፖንሰር ይዘት",             # sponsored content
+    "የተከፈለበት ይዘት",          # paid content
+    "የተከፈለበት",               # paid content / paid for
+    "የሚከፈልበት ይዘት",          # paid content variation
+    "የንግድ ማስታወቂያ",          # commercial advertisement
+    "ንግድ ማስታወቂያ",            # commercial advertisement
+    "የጋዜጣዊ መግለጫ",           # press release
+    "ጋዜጣዊ መግለጫ",            # press release
+    "የጋዜጣ መግለጫ",             # press release variation
+    "ጋዜጣ መግለጫ",              # press release variation
+    "አጋር ይዘት",                 # partner content
+    "የአጋር ይዘት",               # partner content
+    "ኢትዮ ቴሌኮም",               # Ethio Telecom
+    "ኢትዮቴሌኮም",                 # Ethio Telecom (no space)
+    "የኢትዮ ቴሌኮም",             # Ethio Telecom prefix
+    "የኢትዮቴሌኮም",               # Ethio Telecom prefix
+    "ቴሌብር",                    # telebirr
+    "ቴሌ ብር",                   # telebirr (with space)
+    "የቴሌብር",                  # telebirr prefix
+    "ልዩ ቅናሽ",                 # special discount / promotional offer
+    "ልዩ ቅናሾች",               # special discounts
+    "የማስተዋወቅ",               # promotional
+    "የፕሮሞሽን",                 # promotional
+    "ፕሮሞሽን",                  # promotion
+)
+
+_NORMALIZED_GLOBAL_SPONSOR_SIGNALS: tuple[str, ...] = tuple(
+    dict.fromkeys(normalize_filter_text(s) for s in _GLOBAL_SPONSOR_SIGNALS if normalize_filter_text(s))
+)
+
+
+def _is_sponsored_event(event: Any) -> bool:
+    """Return True if the event looks like sponsored/advertorial content."""
+    title = getattr(event, "title", "") or ""
+    summary = getattr(event, "summary", "") or ""
+    haystack = normalize_filter_text(f"{title} {summary}")
+    for signal in _NORMALIZED_GLOBAL_SPONSOR_SIGNALS:
+        if signal in haystack:
+            logger.info(
+                "sponsored_content_filtered",
+                event_id=str(getattr(event, "id", "")),
+                matched_signal=signal,
+                title=title[:120],
+            )
+            return True
+    return False
+
+
+def _passes_bucket_filters(event: Any, bucket_cfg: dict) -> bool:
+    """Return True if the event passes the per-bucket content_filters rules."""
+    if not bucket_cfg:
+        return True
+
+    category = (getattr(event, "primary_category", "") or "").lower()
+    title = getattr(event, "title", "") or ""
+    summary = getattr(event, "summary", "") or ""
+    haystack = normalize_filter_text(f"{title} {summary}")
+
+    allowed_cats: list[str] = [c.lower() for c in bucket_cfg.get("allowed_categories", [])]
+    blocked_cats: list[str] = [c.lower() for c in bucket_cfg.get("blocked_categories", [])]
+    allowed_kws: list[str] = [normalize_filter_text(k) for k in bucket_cfg.get("allowed_keywords", []) if k]
+    blocked_kws: list[str] = [normalize_filter_text(k) for k in bucket_cfg.get("blocked_keywords", []) if k]
+
+    # Blocked keywords override everything
+    for kw in blocked_kws:
+        if kw and kw in haystack:
+            logger.info("content_filter_blocked_keyword", event_id=str(getattr(event, "id", "")), keyword=kw)
+            return False
+
+    # Blocked categories
+    if blocked_cats and any(bc in category for bc in blocked_cats):
+        logger.info("content_filter_blocked_category", event_id=str(getattr(event, "id", "")), category=category)
+        return False
+
+    # Allowed categories (whitelist; empty = allow all)
+    if allowed_cats and not any(ac in category for ac in allowed_cats):
+        logger.info("content_filter_allowed_cat_miss", event_id=str(getattr(event, "id", "")), category=category)
+        return False
+
+    # Allowed keywords (whitelist; empty = allow all)
+    if allowed_kws and not any(kw in haystack for kw in allowed_kws):
+        logger.info("content_filter_allowed_kw_miss", event_id=str(getattr(event, "id", "")))
+        return False
+
+    return True
+
+
 @celery_app.task(name="app.workers.tasks.plan_telegram_posts")
 def plan_telegram_posts() -> dict:
     """Plan quota-bound Telegram posts; never sends a message itself."""
@@ -593,71 +741,6 @@ def plan_telegram_posts() -> dict:
         TranslationUnavailableError,
         _amharic_enough,
     )
-
-    # ---------------------------------------------------------------------------
-    # Sponsored / advertorial content detection keywords.
-    # These are matched case-insensitively against title + summary.
-    # ---------------------------------------------------------------------------
-    _GLOBAL_SPONSOR_SIGNALS: tuple[str, ...] = (
-        "sponsored", "sponsered",            # typo variant
-        "advertisement", "advertorial",
-        "partner content", "partnered content",
-        "ad feature", "promoted content", "paid content",
-        "press release", "pr news", "brand story",
-        "brought to you by", "in association with",
-        "commercial feature", "native ad",
-        "ethio telecom",                      # known repeat offender
-    )
-
-    def _is_sponsored_event(event: NewsEvent) -> bool:
-        """Return True if the event looks like sponsored/advertorial content."""
-        haystack = " ".join(filter(None, [event.title, event.summary or ""])).lower()
-        for signal in _GLOBAL_SPONSOR_SIGNALS:
-            if signal in haystack:
-                logger.info(
-                    "sponsored_content_filtered",
-                    event_id=str(event.id),
-                    matched_signal=signal,
-                    title=event.title[:120],
-                )
-                return True
-        return False
-
-    def _passes_bucket_filters(event: NewsEvent, bucket_cfg: dict) -> bool:
-        """Return True if the event passes the per-bucket content_filters rules."""
-        if not bucket_cfg:
-            return True
-
-        category = (event.primary_category or "").lower()
-        haystack = " ".join(filter(None, [event.title, event.summary or ""])).lower()
-
-        allowed_cats: list[str] = [c.lower() for c in bucket_cfg.get("allowed_categories", [])]
-        blocked_cats: list[str] = [c.lower() for c in bucket_cfg.get("blocked_categories", [])]
-        allowed_kws: list[str] = [k.lower() for k in bucket_cfg.get("allowed_keywords", [])]
-        blocked_kws: list[str] = [k.lower() for k in bucket_cfg.get("blocked_keywords", [])]
-
-        # Blocked keywords override everything
-        for kw in blocked_kws:
-            if kw and kw in haystack:
-                logger.info("content_filter_blocked_keyword", event_id=str(event.id), keyword=kw)
-                return False
-
-        # Blocked categories
-        if blocked_cats and any(bc in category for bc in blocked_cats):
-            logger.info("content_filter_blocked_category", event_id=str(event.id), category=category)
-            return False
-
-        # Allowed categories (whitelist; empty = allow all)
-        if allowed_cats and not any(ac in category for ac in allowed_cats):
-            logger.info("content_filter_allowed_cat_miss", event_id=str(event.id), category=category)
-            return False
-
-        # Allowed keywords (whitelist; empty = allow all)
-        if allowed_kws and not any(kw in haystack for kw in allowed_kws):
-            logger.info("content_filter_allowed_kw_miss", event_id=str(event.id))
-            return False
-
-        return True
 
     session = SessionLocal()
     candidates_by_bucket: dict[str, list[NewsEvent]] = {}

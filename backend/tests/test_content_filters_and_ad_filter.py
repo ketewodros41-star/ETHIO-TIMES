@@ -33,57 +33,26 @@ def _make_event(title: str, summary: str = "", primary_category: str = "Politics
 
 
 # ---------------------------------------------------------------------------
-# The filter logic replicated verbatim for isolation testing
+# Direct import of filter logic from tasks module
 # ---------------------------------------------------------------------------
 
-_GLOBAL_SPONSOR_SIGNALS: tuple[str, ...] = (
-    "sponsored", "sponsered",
-    "advertisement", "advertorial",
-    "partner content", "partnered content",
-    "ad feature", "promoted content", "paid content",
-    "press release", "pr news", "brand story",
-    "brought to you by", "in association with",
-    "commercial feature", "native ad",
-    "ethio telecom",
+from app.workers.tasks import (
+    _GLOBAL_SPONSOR_SIGNALS,
+    _is_sponsored_event,
+    _passes_bucket_filters,
+    normalize_filter_text,
+    plan_telegram_posts,
 )
 
 
-def _is_sponsored_event(event: SimpleNamespace) -> bool:
-    haystack = " ".join(filter(None, [event.title, event.summary or ""])).lower()
-    for signal in _GLOBAL_SPONSOR_SIGNALS:
-        if signal in haystack:
-            return True
-    return False
-
-
-def _passes_bucket_filters(event: SimpleNamespace, bucket_cfg: dict) -> bool:
-    if not bucket_cfg:
-        return True
-    category = (event.primary_category or "").lower()
-    haystack = " ".join(filter(None, [event.title, event.summary or ""])).lower()
-    allowed_cats = [c.lower() for c in bucket_cfg.get("allowed_categories", [])]
-    blocked_cats = [c.lower() for c in bucket_cfg.get("blocked_categories", [])]
-    allowed_kws = [k.lower() for k in bucket_cfg.get("allowed_keywords", [])]
-    blocked_kws = [k.lower() for k in bucket_cfg.get("blocked_keywords", [])]
-    for kw in blocked_kws:
-        if kw and kw in haystack:
-            return False
-    if blocked_cats and any(bc in category for bc in blocked_cats):
-        return False
-    if allowed_cats and not any(ac in category for ac in allowed_cats):
-        return False
-    if allowed_kws and not any(kw in haystack for kw in allowed_kws):
-        return False
-    return True
-
-
 # ---------------------------------------------------------------------------
-# Problem 2: Sponsored content filter (unit tests, no DB)
+# Problem 2: Sponsored content filter (unit tests, English & Amharic)
 # ---------------------------------------------------------------------------
 
 class TestSponsoredContentFilter:
-    """Verify _is_sponsored_event rejects known ad signals."""
+    """Verify _is_sponsored_event rejects known ad signals across English and Amharic."""
 
+    # --- English ad signals ---
     def test_ethio_telecom_ad_is_rejected(self):
         assert _is_sponsored_event(_make_event("Ethio Telecom Launches New 5G Service")) is True
 
@@ -115,13 +84,91 @@ class TestSponsoredContentFilter:
         assert _is_sponsored_event(_make_event("SPONSORED CONTENT: Top 10 Telecom Deals")) is True
 
     def test_brought_to_you_by_rejected(self):
-        assert _is_sponsored_event(_make_event("News Brought To You By EthioTel")) is True  # "brought to you by" is a sponsor signal
+        assert _is_sponsored_event(_make_event("News Brought To You By EthioTel")) is True
 
     def test_paid_content_rejected(self):
         assert _is_sponsored_event(_make_event("Paid content: Investment opportunities in 2026")) is True
 
     def test_native_ad_rejected(self):
         assert _is_sponsored_event(_make_event("Native ad: The future of banking")) is True
+
+    # --- Amharic advertorials & brand PR signals ---
+    def test_amharic_mastaweqiya_in_title(self):
+        assert _is_sponsored_event(_make_event("ማስታወቂያ፡ አዲስ ስማርት ስልክ ለገበያ ቀረበ")) is True
+
+    def test_amharic_mastaweqiya_in_summary(self):
+        assert _is_sponsored_event(_make_event("አዲስ መኪና ደረሰ", "ይህ ለደንበኞቻችን የቀረበ ልዩ ማስታወቂያ ነው።")) is True
+
+    def test_amharic_mastewawqiya_promotion(self):
+        assert _is_sponsored_event(_make_event("ማስተዋወቂያ፡ ልዩ የበዓል ስጦታ እና ሽልማት")) is True
+
+    def test_amharic_ethio_telecom_special_discount(self):
+        assert _is_sponsored_event(_make_event("ኢትዮ ቴሌኮም ልዩ ቅናሽ ለአዲሱ ዓመት ይፋ አደረገ")) is True
+
+    def test_amharic_ethio_telecom_punctuation_wordspace(self):
+        # Ethiopic word divider ፡ used as separator
+        assert _is_sponsored_event(_make_event("ኢትዮ፡ቴሌኮም አዲስ የኢንተርኔት ፓኬጅ አቀረበ")) is True
+
+    def test_amharic_ethio_telecom_no_space(self):
+        assert _is_sponsored_event(_make_event("የኢትዮቴሌኮም አዲስ አገልግሎት")) is True
+
+    def test_amharic_telebirr_rejected(self):
+        assert _is_sponsored_event(_make_event("ቴሌብር በመጠቀም የክፍያ ቅናሽ ያግኙ")) is True
+
+    def test_amharic_telebirr_with_space(self):
+        assert _is_sponsored_event(_make_event("ቴሌ ብር የሽልማት ፕሮግራም ተጀመረ")) is True
+
+    def test_amharic_sponsor_yetederege(self):
+        assert _is_sponsored_event(_make_event("ስፖንሰር የተደረገ፡ የቢዝነስ ምክሮች")) is True
+
+    def test_amharic_sponsor_yetederege_with_ethiopic_full_stop(self):
+        # Ethiopic full stop ።
+        assert _is_sponsored_event(_make_event("የባንክ አገልግሎቶች። ስፖንሰር የተደረገ።")) is True
+
+    def test_amharic_ye_sponsor(self):
+        assert _is_sponsored_event(_make_event("የስፖንሰር ይዘት፡ ምርጥ የኢንቨስትመንት አማራጮች")) is True
+
+    def test_amharic_paid_content_yetekefelebet(self):
+        assert _is_sponsored_event(_make_event("የተከፈለበት ይዘት፡ የቤት ሽያጭ ማስታወቂያ")) is True
+        assert _is_sponsored_event(_make_event("የተከፈለበት የማስተዋወቅ መርሃግብር")) is True
+
+    def test_amharic_commercial_ad_yengid_mastaweqiya(self):
+        assert _is_sponsored_event(_make_event("የንግድ ማስታወቂያ፡ ታላቅ የዋጋ ቅናሽ")) is True
+
+    def test_amharic_press_release_gazetawi_meglecha(self):
+        assert _is_sponsored_event(_make_event("ጋዜጣዊ መግለጫ፡ የኩባንያው ዓመታዊ ሪፖርት")) is True
+
+    def test_amharic_press_release_with_ethiopic_comma(self):
+        # Ethiopic comma ፣
+        assert _is_sponsored_event(_make_event("የጋዜጣዊ መግለጫ፣ ስለ አዲሱ የፋይናንስ መመሪያ")) is True
+
+    def test_amharic_partner_content_agar_yizet(self):
+        assert _is_sponsored_event(_make_event("አጋር ይዘት፡ ዘመናዊ የግብርና ቴክኖሎጂ")) is True
+        assert _is_sponsored_event(_make_event("የአጋር ይዘት ለኢንዱስትሪ ልማት")) is True
+
+    def test_amharic_special_discount_liyu_qinash(self):
+        assert _is_sponsored_event(_make_event("ልዩ ቅናሽ እስከ 50 በመቶ ቅናሽ ተደረገ")) is True
+
+    def test_amharic_fidel_variations_normalization(self):
+        # ሠ normalized to ሰ
+        assert _is_sponsored_event(_make_event("ሥፖንሰር የተደረገ የንግድ መድረክ")) is True
+        # ዐ normalized to አ
+        assert _is_sponsored_event(_make_event("ዐጋር ይዘት፡ የትምህርት እድል")) is True
+
+    def test_amharic_legitimate_news_not_rejected(self):
+        # Legitimate Amharic news without ad signals must NOT be rejected
+        assert _is_sponsored_event(_make_event(
+            "የኢትዮጵያና የኬንያ የሁለትዮሽ የንግድ ግንኙነት ተጠናከረ",
+            "ሁለቱ አገራት በድንበር ንግድ ላይ ተወያይተዋል።",
+        )) is False
+        assert _is_sponsored_event(_make_event(
+            "የአፍሪካ ህብረት ስብሰባ በአዲስ አበባ ተጀመረ",
+            "የተለያዩ አገራት መሪዎች በመዲናዋ ተገኝተዋል።",
+        )) is False
+        assert _is_sponsored_event(_make_event(
+            "የኢትዮጵያ ብሄራዊ ባንክ አዲስ የገንዘብ ፖሊሲ ይፋ አደረገ",
+            "የዋጋ ግሽበትን ለመቆጣጠር ያለመ መመሪያ ነው።",
+        )) is False
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +228,21 @@ class TestBucketFilterLogic:
         cfg = {"allowed_categories": ["Sports"], "blocked_categories": [], "allowed_keywords": [], "blocked_keywords": []}
         assert _passes_bucket_filters(event, cfg) is True
 
+    def test_amharic_blocked_keywords_rejects(self):
+        event = _make_event("ማስታወቂያ፡ አዲስ ስልክ ተጀመረ", primary_category="Technology")
+        cfg = {"allowed_categories": [], "blocked_categories": [], "allowed_keywords": [], "blocked_keywords": ["ማስታወቂያ"]}
+        assert _passes_bucket_filters(event, cfg) is False
+
+    def test_amharic_blocked_keywords_with_punctuation(self):
+        event = _make_event("ኢትዮ፡ቴሌኮም ልዩ ጥቅል", primary_category="Business")
+        cfg = {"allowed_categories": [], "blocked_categories": [], "allowed_keywords": [], "blocked_keywords": ["ኢትዮ ቴሌኮም"]}
+        assert _passes_bucket_filters(event, cfg) is False
+
+    def test_amharic_allowed_keywords_passes(self):
+        event = _make_event("የምርጫ ዝግጅት በአዲስ አበባ ተጠናቀቀ")
+        cfg = {"allowed_categories": [], "blocked_categories": [], "allowed_keywords": ["ምርጫ"], "blocked_keywords": []}
+        assert _passes_bucket_filters(event, cfg) is True
+
 
 # ---------------------------------------------------------------------------
 # Problem 1: Self-healing dry_run check — tests against tasks module internals
@@ -236,3 +298,118 @@ class TestDryRunSelfHeal:
         assert state["dry_run"] is False, (
             "plan_telegram_posts must reset dry_run=False when enabled=True and dry_run=True"
         )
+
+
+# ---------------------------------------------------------------------------
+# Problem 4: Plan Telegram posts Amharic advertorial exclusion test
+# ---------------------------------------------------------------------------
+
+class TestPlanTelegramPostsAmharicFilter:
+    """Verify that plan_telegram_posts rejects Amharic advertorials and plans only legitimate news."""
+
+    def test_plan_telegram_posts_rejects_amharic_ads(self):
+        """Events with Amharic ad signals are excluded from candidate selection and never planned."""
+        ad_event_1 = SimpleNamespace(
+            id=uuid.uuid4(),
+            title="ማስታወቂያ፡ ታላቅ የቤት ሽያጭ በአዲስ አበባ",
+            summary="ልዩ ማስታወቂያ ለደንበኞች",
+            primary_category="Business",
+            primary_region="Addis Ababa",
+            trend_score=9.5,
+            last_seen_at=datetime.now(UTC),
+            review_required=False,
+            auto_publish_eligible=True,
+        )
+        ad_event_2 = SimpleNamespace(
+            id=uuid.uuid4(),
+            title="ኢትዮ ቴሌኮም ልዩ ቅናሽ ለአዲሱ ዓመት ይፋ አደረገ",
+            summary="ቴሌብር ተጠቃሚዎች የቅናሽ ተጠቃሚ እንዲሆኑ ተጋብዘዋል",
+            primary_category="Business",
+            primary_region="Addis Ababa",
+            trend_score=9.0,
+            last_seen_at=datetime.now(UTC),
+            review_required=False,
+            auto_publish_eligible=True,
+        )
+        ad_event_3 = SimpleNamespace(
+            id=uuid.uuid4(),
+            title="ስፖንሰር የተደረገ፡ የንግድ ድርጅቶች መድረክ",
+            summary="ስፖንሰር የተደረገ ይዘት",
+            primary_category="Economy",
+            primary_region="Addis Ababa",
+            trend_score=8.5,
+            last_seen_at=datetime.now(UTC),
+            review_required=False,
+            auto_publish_eligible=True,
+        )
+        ad_event_4 = SimpleNamespace(
+            id=uuid.uuid4(),
+            title="የጋዜጣዊ መግለጫ ስለ አዲሱ የፋይናንስ አገልግሎት",
+            summary="ጋዜጣዊ መግለጫ",
+            primary_category="Economy",
+            primary_region="Addis Ababa",
+            trend_score=8.0,
+            last_seen_at=datetime.now(UTC),
+            review_required=False,
+            auto_publish_eligible=True,
+        )
+        legit_event = SimpleNamespace(
+            id=uuid.uuid4(),
+            title="የኢትዮጵያና የኬንያ የሁለትዮሽ የንግድ ግንኙነት ተጠናከረ",
+            summary="ሁለቱ አገራት በድንበር ንግድና የጸጥታ ትብብር ላይ ተወያይተዋል።",
+            primary_category="Politics",
+            primary_region="Addis Ababa",
+            trend_score=7.0,
+            last_seen_at=datetime.now(UTC),
+            review_required=False,
+            auto_publish_eligible=True,
+        )
+
+        class FakePolicy:
+            enabled = True
+            dry_run = False
+            timezone = "Africa/Addis_Ababa"
+            posts_per_day = 3
+            ethiopia_posts_per_day = 2
+            international_posts_per_day = 0
+            channel_username = "@Ethiopantimes"
+            posting_hours = [8, 14]
+            highlight_color = "#00F0FF"
+            content_filters = {
+                "ethiopia": {"allowed_categories": [], "blocked_categories": [], "allowed_keywords": [], "blocked_keywords": []}
+            }
+
+        fake_policy = FakePolicy()
+        added_posts = []
+
+        session = MagicMock()
+        session.get.return_value = fake_policy
+
+        mock_scalars = MagicMock()
+        mock_scalars.return_value.all.side_effect = [
+            [],  # today_posts
+            [],  # already_event_ids
+            [ad_event_1, ad_event_2, ad_event_3, ad_event_4, legit_event],  # candidates
+        ]
+        mock_scalars.return_value.first.return_value = None
+        session.scalars.side_effect = mock_scalars
+
+        def mock_add(obj):
+            added_posts.append(obj)
+        session.add.side_effect = mock_add
+
+        with patch("app.workers.tasks.SessionLocal", return_value=session), \
+             patch("app.services.social.image_pipeline.ImagePipeline") as mock_img_pipe:
+            mock_img_pipe.return_value.browse_photos.return_value.items = []
+            session.__enter__ = MagicMock(return_value=session)
+            session.__exit__ = MagicMock(return_value=False)
+
+            result = plan_telegram_posts()
+
+        # The 4 Amharic advertorials MUST have been filtered out.
+        # Only the legitimate event should be planned!
+        assert result["planned"] == 1
+        assert len(added_posts) == 1
+        planned_post = added_posts[0]
+        assert planned_post.event_id == legit_event.id
+        assert planned_post.event_id not in {ad_event_1.id, ad_event_2.id, ad_event_3.id, ad_event_4.id}

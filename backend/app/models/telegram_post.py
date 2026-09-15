@@ -16,19 +16,42 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 
+DEFAULT_BLOCKED_KEYWORDS: list[str] = [
+    "sponsored",
+    "advertisement",
+    "advertorial",
+    "press release",
+    "partner content",
+    "ad feature",
+    "promoted",
+    "ማስታወቂያ",
+    "ማስተዋወቂያ",
+    "ስፖንሰር",
+    "የስፖንሰር",
+    "ስፖንሰር የተደረገ",
+    "የተከፈለበት",
+    "የንግድ ማስታወቂያ",
+    "ጋዜጣዊ መግለጫ",
+    "አጋር ይዘት",
+    "ኢትዮ ቴሌኮም",
+    "ቴሌብር",
+    "ልዩ ቅናሽ",
+]
+
+
 def _default_content_filters() -> dict:
     return {
         "ethiopia": {
             "allowed_categories": [],
             "blocked_categories": [],
             "allowed_keywords": [],
-            "blocked_keywords": ["sponsored", "advertisement", "advertorial", "press release", "partner content", "ad feature", "promoted"],
+            "blocked_keywords": list(DEFAULT_BLOCKED_KEYWORDS),
         },
         "international": {
             "allowed_categories": [],
             "blocked_categories": [],
             "allowed_keywords": [],
-            "blocked_keywords": ["sponsored", "advertisement", "advertorial", "press release", "partner content", "ad feature", "promoted"],
+            "blocked_keywords": list(DEFAULT_BLOCKED_KEYWORDS),
         },
     }
 
@@ -53,8 +76,8 @@ class TelegramPublishingSettings(Base, TimestampMixin):
         nullable=False,
         default=_default_content_filters,
         server_default="""'{
-          "ethiopia": {"allowed_categories": [], "blocked_categories": [], "allowed_keywords": [], "blocked_keywords": ["sponsored", "advertisement", "advertorial", "press release", "partner content", "ad feature", "promoted"]},
-          "international": {"allowed_categories": [], "blocked_categories": [], "allowed_keywords": [], "blocked_keywords": ["sponsored", "advertisement", "advertorial", "press release", "partner content", "ad feature", "promoted"]}
+          "ethiopia": {"allowed_categories": [], "blocked_categories": [], "allowed_keywords": [], "blocked_keywords": ["sponsored", "advertisement", "advertorial", "press release", "partner content", "ad feature", "promoted", "ማስታወቂያ", "ማስተዋወቂያ", "ስፖንሰር", "የስፖንሰር", "ስፖንሰር የተደረገ", "የተከፈለበት", "የንግድ ማስታወቂያ", "ጋዜጣዊ መግለጫ", "አጋር ይዘት", "ኢትዮ ቴሌኮም", "ቴሌብር", "ልዩ ቅናሽ"]},
+          "international": {"allowed_categories": [], "blocked_categories": [], "allowed_keywords": [], "blocked_keywords": ["sponsored", "advertisement", "advertorial", "press release", "partner content", "ad feature", "promoted", "ማስታወቂያ", "ማስተዋወቂያ", "ስፖንሰር", "የስፖንሰር", "ስፖንሰር የተደረገ", "የተከፈለበት", "የንግድ ማስታወቂያ", "ጋዜጣዊ መግለጫ", "አጋር ይዘት", "ኢትዮ ቴሌኮም", "ቴሌብር", "ልዩ ቅናሽ"]}
         }'::jsonb""",
     )
 

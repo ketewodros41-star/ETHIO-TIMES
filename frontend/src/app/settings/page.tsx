@@ -77,7 +77,8 @@ function BucketFilterEditor({
     const raw = list === "allowed" ? kwInput.trim() : blockedKwInput.trim();
     if (!raw) return;
     const field = list === "allowed" ? "allowed_keywords" : "blocked_keywords";
-    if (!filter[field].includes(raw)) {
+    const lower = raw.toLowerCase();
+    if (!filter[field].some((k) => k.toLowerCase() === lower)) {
       onChange(bucket, { ...filter, [field]: [...filter[field], raw] });
     }
     if (list === "allowed") setKwInput("");
@@ -86,7 +87,8 @@ function BucketFilterEditor({
 
   const removeKeyword = (kw: string, list: "allowed" | "blocked") => {
     const field = list === "allowed" ? "allowed_keywords" : "blocked_keywords";
-    onChange(bucket, { ...filter, [field]: filter[field].filter((k) => k !== kw) });
+    const lower = kw.toLowerCase();
+    onChange(bucket, { ...filter, [field]: filter[field].filter((k) => k.toLowerCase() !== lower) });
   };
 
   const isAllowed = (cat: string) =>
@@ -174,11 +176,12 @@ function BucketFilterEditor({
         </p>
         <div className="flex gap-2 mb-2">
           <Input
-            placeholder="e.g. election, reform…"
+            placeholder="e.g. election, ምርጫ…"
             value={kwInput}
             onChange={(e) => setKwInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addKeyword("allowed")}
-            className="h-8 text-sm max-w-xs"
+            className="h-8 text-sm max-w-xs font-sans"
+            dir="auto"
           />
           <Button size="sm" variant="outline" onClick={() => addKeyword("allowed")}>
             Add
@@ -188,13 +191,15 @@ function BucketFilterEditor({
           {filter.allowed_keywords.map((kw) => (
             <span
               key={kw}
-              className="flex items-center gap-1 rounded-full border border-sky-500/40 bg-sky-500/10 px-3 py-0.5 text-xs text-sky-400"
+              className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-xs text-sky-300 font-sans break-keep leading-tight"
+              dir="auto"
             >
-              {kw}
+              <span>{kw}</span>
               <button
                 type="button"
                 onClick={() => removeKeyword(kw, "allowed")}
-                className="ml-1 text-sky-600 hover:text-sky-300"
+                className="ml-0.5 text-sky-400 hover:text-sky-200 transition-colors focus:outline-none"
+                aria-label={`Remove ${kw}`}
               >
                 ×
               </button>
@@ -205,19 +210,38 @@ function BucketFilterEditor({
 
       {/* Blocked keywords */}
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-paper-500">
-          Blocked keywords{" "}
-          <span className="normal-case font-normal text-paper-600">
-            (posts containing these are excluded)
-          </span>
-        </p>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-paper-500">
+            Blocked keywords{" "}
+            <span className="normal-case font-normal text-paper-600">
+              (posts containing these are excluded)
+            </span>
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              const existingLower = new Set(filter.blocked_keywords.map((k) => k.toLowerCase()));
+              const missing = DEFAULT_BLOCKED_KEYWORDS.filter((k) => !existingLower.has(k.toLowerCase()));
+              if (missing.length > 0) {
+                onChange(bucket, {
+                  ...filter,
+                  blocked_keywords: [...filter.blocked_keywords, ...missing],
+                });
+              }
+            }}
+            className="text-[11px] text-paper-400 hover:text-paper-200 underline underline-offset-2 transition-colors cursor-pointer"
+          >
+            + Add standard ad/PR presets
+          </button>
+        </div>
         <div className="flex gap-2 mb-2">
           <Input
-            placeholder="e.g. sponsored, press release…"
+            placeholder="e.g. sponsored, ማስታወቂያ, ቴሌብር…"
             value={blockedKwInput}
             onChange={(e) => setBlockedKwInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addKeyword("blocked")}
-            className="h-8 text-sm max-w-xs"
+            className="h-8 text-sm max-w-xs font-sans"
+            dir="auto"
           />
           <Button size="sm" variant="outline" onClick={() => addKeyword("blocked")}>
             Add
@@ -227,13 +251,15 @@ function BucketFilterEditor({
           {filter.blocked_keywords.map((kw) => (
             <span
               key={kw}
-              className="flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-3 py-0.5 text-xs text-red-400"
+              className="inline-flex items-center gap-1.5 rounded-full border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-xs text-red-300 font-sans break-keep leading-tight"
+              dir="auto"
             >
-              {kw}
+              <span>{kw}</span>
               <button
                 type="button"
                 onClick={() => removeKeyword(kw, "blocked")}
-                className="ml-1 text-red-600 hover:text-red-300"
+                className="ml-0.5 text-red-400 hover:text-red-200 transition-colors focus:outline-none"
+                aria-label={`Remove ${kw}`}
               >
                 ×
               </button>
@@ -246,14 +272,36 @@ function BucketFilterEditor({
 }
 
 // ---------------------------------------------------------------------------
-// Default empty filter for a bucket
+// Default blocked keywords & empty filter for a bucket
 // ---------------------------------------------------------------------------
+const DEFAULT_BLOCKED_KEYWORDS: string[] = [
+  "sponsored",
+  "advertisement",
+  "advertorial",
+  "press release",
+  "partner content",
+  "ad feature",
+  "promoted",
+  "ማስታወቂያ",
+  "ማስተዋወቂያ",
+  "ስፖንሰር",
+  "የስፖንሰር",
+  "ስፖንሰር የተደረገ",
+  "የተከፈለበት",
+  "የንግድ ማስታወቂያ",
+  "ጋዜጣዊ መግለጫ",
+  "አጋር ይዘት",
+  "ኢትዮ ቴሌኮም",
+  "ቴሌብር",
+  "ልዩ ቅናሽ",
+];
+
 function emptyFilter(): BucketContentFilter {
   return {
     allowed_categories: [],
     blocked_categories: [],
     allowed_keywords: [],
-    blocked_keywords: ["sponsored", "advertisement", "advertorial", "press release", "partner content"],
+    blocked_keywords: [...DEFAULT_BLOCKED_KEYWORDS],
   };
 }
 

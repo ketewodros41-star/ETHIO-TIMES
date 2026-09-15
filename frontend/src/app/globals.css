@@ -7,7 +7,7 @@
 :root {
   /* Font stacks */
   --font-display: "Fraunces", "Playfair Display", Georgia, serif;
-  --font-sans: "Inter", "Neue Haas Grotesk", system-ui, -apple-system, sans-serif;
+  --font-sans: "Inter", "Noto Sans Ethiopic", "Nyala", "Abyssinica SIL", "Neue Haas Grotesk", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --font-poster: "Anton", "Bebas Neue", "Barlow Condensed", "Impact", -apple-system, sans-serif;
   --font-ethiopic: "Noto Sans Ethiopic", "Nyala", "Abyssinica SIL", sans-serif;
