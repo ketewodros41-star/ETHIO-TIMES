@@ -713,14 +713,55 @@ def _is_sponsored_event(event: Any) -> bool:
     return False
 
 
+_BEAT_SYNONYMS: dict[str, list[str]] = {
+    "politics": ["politics", "governance", "election", "parliament", "political", "government", "policy", "diplomacy"],
+    "business": ["business", "economy", "finance", "banking", "market", "trade", "investment", "economic", "stocks"],
+    "economy": ["economy", "business", "finance", "banking", "market", "trade", "investment", "economic"],
+    "sports": ["sports", "sport", "football", "athletics", "olympic", "soccer", "marathon", "premier league", "champions league"],
+    "football": ["football", "soccer", "premier league", "champions league", "sports", "sport"],
+    "technology": ["technology", "tech", "telecom", "innovation", "digital", "ai", "software"],
+    "culture": ["culture", "society", "art", "heritage", "entertainment", "music", "diaspora", "community"],
+    "society": ["society", "culture", "community", "social", "public"],
+    "conflict": ["conflict", "security", "military", "defense", "clash", "fano", "tplf", "war", "peace"],
+    "world affairs": ["world", "international", "diplomacy", "global", "foreign", "un", "geopolitics"],
+    "world": ["world", "international", "diplomacy", "global", "foreign", "un"],
+    "crime": ["crime", "police", "investigation", "court", "arrest", "justice"],
+    "science": ["science", "research", "health", "medicine", "climate", "space"],
+    "health": ["health", "medical", "hospital", "disease", "vaccine", "who"],
+    "entertainment": ["entertainment", "celebrity", "film", "movie", "music", "art", "culture"],
+    "education": ["education", "university", "school", "students", "academic"],
+    "environment": ["environment", "climate", "weather", "green", "drought", "flood"],
+    "breaking": ["breaking", "urgent", "accident", "incident", "alert"],
+}
+
+
+def _event_matches_category(event: Any, cat_term: str, haystack: str) -> bool:
+    """Check if an event matches a category term via primary_category, categories list, or synonyms."""
+    clean = cat_term.strip().lower()
+    synonyms = _BEAT_SYNONYMS.get(clean, [clean])
+
+    primary_cat = (getattr(event, "primary_category", "") or "").lower()
+    event_cats = [str(c).lower() for c in (getattr(event, "categories", []) or [])]
+    all_cats = [primary_cat] + event_cats
+
+    for syn in synonyms:
+        # Check in categories
+        if any(syn in c for c in all_cats if c):
+            return True
+        # Check in title/summary
+        if syn in haystack:
+            return True
+    return False
+
+
 def _passes_bucket_filters(event: Any, bucket_cfg: dict) -> bool:
     """Return True if the event passes the per-bucket content_filters rules."""
     if not bucket_cfg:
         return True
 
-    category = (getattr(event, "primary_category", "") or "").lower()
     title = getattr(event, "title", "") or ""
     summary = getattr(event, "summary", "") or ""
+    primary_cat = (getattr(event, "primary_category", "") or "").lower()
     haystack = normalize_filter_text(f"{title} {summary}")
 
     allowed_cats: list[str] = [c.lower() for c in bucket_cfg.get("allowed_categories", [])]
@@ -735,14 +776,17 @@ def _passes_bucket_filters(event: Any, bucket_cfg: dict) -> bool:
             return False
 
     # Blocked categories
-    if blocked_cats and any(bc in category for bc in blocked_cats):
-        logger.info("content_filter_blocked_category", event_id=str(getattr(event, "id", "")), category=category)
-        return False
+    if blocked_cats:
+        for bc in blocked_cats:
+            if _event_matches_category(event, bc, haystack):
+                logger.info("content_filter_blocked_category", event_id=str(getattr(event, "id", "")), category=bc)
+                return False
 
     # Allowed categories (whitelist; empty = allow all)
-    if allowed_cats and not any(ac in category for ac in allowed_cats):
-        logger.info("content_filter_allowed_cat_miss", event_id=str(getattr(event, "id", "")), category=category)
-        return False
+    if allowed_cats:
+        if not any(_event_matches_category(event, ac, haystack) for ac in allowed_cats):
+            logger.info("content_filter_allowed_cat_miss", event_id=str(getattr(event, "id", "")), category=primary_cat)
+            return False
 
     # Allowed keywords (whitelist; empty = allow all)
     if allowed_kws and not any(kw in haystack for kw in allowed_kws):
@@ -755,7 +799,7 @@ def _passes_bucket_filters(event: Any, bucket_cfg: dict) -> bool:
 @celery_app.task(name="app.workers.tasks.plan_telegram_posts")
 def plan_telegram_posts() -> dict:
     """Plan quota-bound Telegram posts; never sends a message itself."""
-    from sqlalchemy import and_, not_, or_, select
+    from sqlalchemy import and_, func, not_, or_, select
     from app.models.news_event import NewsEvent
     from app.models.telegram_post import TelegramPost, TelegramPublishingSettings
     from app.schemas.social_post import EditorialTranslationRequest
@@ -878,7 +922,8 @@ def plan_telegram_posts() -> dict:
 
         # Refined International Expression: Must NOT be Ethiopian, AND must meet positive relevance signals
         intl_category_cond = NewsEvent.primary_category.in_([
-            "World", "World News", "International News", "International Relations", "world", "world news", "Diplomacy", "diplomacy"
+            "World", "World News", "International News", "International Relations", "world", "world news", "Diplomacy", "diplomacy",
+            "Sports", "sports", "football", "Football", "Business", "business", "Technology", "technology", "Politics", "politics", "Science", "science"
         ])
         intl_priority_regions = (
             "africa", "horn of africa", "red sea", "nile", "sudan", "somalia", "somaliland",
@@ -888,10 +933,16 @@ def plan_telegram_posts() -> dict:
         )
         intl_region_cond = or_(*(NewsEvent.primary_region.ilike(f"%{r}%") for r in intl_priority_regions))
         intl_title_cond = or_(*(NewsEvent.title.ilike(f"%{r}%") for r in intl_priority_regions))
+        intl_origin_cond = or_(
+            func.lower(NewsEvent.primary_region) == "international",
+            NewsEvent.primary_region.ilike("%international%"),
+            NewsEvent.primary_region.ilike("%global%"),
+        )
         intl_quality_signal = or_(
             intl_region_cond,
             intl_title_cond,
             intl_category_cond,
+            intl_origin_cond,
             NewsEvent.significance_score >= 0.5,
             NewsEvent.article_count >= 2,
         )
