@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Bell, Layers, Palette, Play, RefreshCw, ShieldAlert, TrendingUp, Users, Zap } from "lucide-react";
+import { AlertCircle, Bell, Clock, Layers, Palette, Play, RefreshCw, ShieldAlert, TrendingUp, Users, Zap } from "lucide-react";
 import { api } from "@/lib/api";
 import { useNewEventsPoller } from "@/lib/useNewEventsPoller";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import {
   TrendStatusBadge,
   VerificationScoreMeter,
 } from "@/components/status";
-import { relativeTime } from "@/lib/utils";
+import { formatDate, relativeTime } from "@/lib/utils";
 import type { EventVerificationStatus, TrendStatus } from "@/lib/types";
 
 const PAGE_SIZE = 25;
@@ -54,8 +54,7 @@ const NEWS_BEATS: { id: string; label: string; icon: string }[] = [
 ];
 
 const SORT_OPTIONS: { value: string; label: string }[] = [
-  { value: "created_at", label: "🆕 Latest News" },
-  { value: "last_seen", label: "⏱️ Recently Updated" },
+  { value: "last_seen", label: "🆕 Latest News" },
   { value: "trend_score", label: "🔥 Hottest Trends" },
   { value: "verification_score", label: "🛡️ Highest Verification" },
   { value: "article_count", label: "📰 Most Covered (Depth)" },
@@ -70,8 +69,8 @@ export function EventsContent() {
   const [trend, setTrend] = useState<TrendStatus | "">("");
   const [breakingOnly, setBreakingOnly] = useState(false);
   const [reviewOnly, setReviewOnly] = useState(false);
-  const [sort, setSort] = useState<string>("created_at");
-  const [scope, setScope] = useState<"ethiopia" | "neighboring" | "all">("ethiopia");
+  const [sort, setSort] = useState<string>("last_seen");
+  const [scope, setScope] = useState<"ethiopia" | "neighboring" | "international" | "all">("ethiopia");
 
   const { hasNew, newCount, dismiss, refresh } = useNewEventsPoller(() => {
     qc.invalidateQueries({ queryKey: ["events"] });
@@ -106,20 +105,35 @@ export function EventsContent() {
 
   const items = data?.items ?? [];
   const total = data?.meta.total ?? 0;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      {/* Top action / notification toast */}
       {hasNew && (
-        <div className="flex items-center justify-between rounded-card border border-amber-700/50 bg-amber-950/30 px-4 py-2.5 text-xs text-amber-300">
+        <div className="flex items-center justify-between p-3 rounded-card bg-accent-green/10 border border-accent-green/30 text-accent-green text-xs animate-in fade-in slide-in-from-top-2">
           <div className="flex items-center gap-2">
-            <Bell className="h-3.5 w-3.5 animate-pulse" />
-            <span><strong>{newCount} new event{newCount !== 1 ? "s" : ""}</strong> available since you last loaded</span>
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-green opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-accent-green"></span>
+            </span>
+            <span>
+              <strong>{newCount} new event{newCount > 1 ? "s" : ""}</strong> detected from live media feeds.
+            </span>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={refresh} className="px-3 py-1 rounded-card bg-amber-700/40 hover:bg-amber-700/60 font-semibold text-amber-200 transition-colors">
-              Refresh
+            <button
+              onClick={() => { refresh(); refetch(); }}
+              className="px-2.5 py-1 rounded bg-accent-green text-ink-950 font-semibold hover:bg-accent-green/90 transition"
+            >
+              Show Latest
             </button>
-            <button onClick={dismiss} className="text-amber-500 hover:text-amber-300 transition-colors">✕</button>
+            <button
+              onClick={dismiss}
+              className="px-1.5 py-1 text-paper-400 hover:text-paper-200"
+            >
+              Dismiss
+            </button>
           </div>
         </div>
       )}
@@ -151,6 +165,17 @@ export function EventsContent() {
           </button>
           <button
             type="button"
+            onClick={() => { setScope("international"); setPage(0); }}
+            className={`px-3 py-1.5 rounded-card text-xs font-medium transition-all ${
+              scope === "international"
+                ? "bg-accent-green text-ink-950 font-semibold shadow-sm"
+                : "text-paper-400 hover:text-paper-100"
+            }`}
+          >
+            🌐 International
+          </button>
+          <button
+            type="button"
             onClick={() => { setScope("all"); setPage(0); }}
             className={`px-3 py-1.5 rounded-card text-xs font-medium transition-all ${
               scope === "all"
@@ -158,7 +183,7 @@ export function EventsContent() {
                 : "text-paper-400 hover:text-paper-100"
             }`}
           >
-            🌐 All Coverage
+            ✨ All Coverage
           </button>
         </div>
         <div className="flex items-center gap-2">
@@ -407,7 +432,13 @@ export function EventsContent() {
                         <ShieldAlert className="h-3 w-3" /> human review
                       </span>
                     )}
-                    <span>updated {relativeTime(e.last_seen_at)}</span>
+                    <span
+                      title={formatDate(e.last_seen_at ?? e.first_seen_at ?? e.created_at)}
+                      className="inline-flex items-center gap-1 font-mono text-[11px]"
+                    >
+                      <Clock className="h-3 w-3 text-paper-400" />
+                      {relativeTime(e.last_seen_at ?? e.first_seen_at ?? e.created_at)}
+                    </span>
                     <span
                       onClick={(ev) => {
                         ev.preventDefault();

@@ -136,3 +136,30 @@ def test_events_endpoint_default_sort():
         assert data["items"] == []
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+
+def test_events_endpoint_scope_filters():
+    """GET /events route should accept all 4 scope filters: ethiopia, neighboring, international, all."""
+    from app.api.deps import get_db
+
+    class MockEventSession:
+        def scalars(self, stmt):
+            res = MagicMock()
+            res.all.return_value = []
+            return res
+        def scalar(self, stmt):
+            return 0
+        def close(self):
+            pass
+
+    app.dependency_overrides[get_db] = lambda: MockEventSession()
+    client = TestClient(app)
+
+    try:
+        for scope in ("ethiopia", "neighboring", "international", "all"):
+            res = client.get(f"/api/v1/events?scope={scope}&sort=last_seen")
+            assert res.status_code == 200
+            data = res.json()
+            assert "items" in data
+    finally:
+        app.dependency_overrides.pop(get_db, None)

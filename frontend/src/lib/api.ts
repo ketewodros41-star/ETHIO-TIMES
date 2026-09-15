@@ -116,7 +116,7 @@ export const api = {
     trend_status?: string;
     breaking?: boolean;
     sort?: string;
-    scope?: "ethiopia" | "neighboring" | "all";
+    scope?: "ethiopia" | "neighboring" | "international" | "all";
   }) => request<Page<NewsEvent>>(`/events${qs(params)}`),
 
   getEvent: (id: string) => request<NewsEventDetail>(`/events/${id}`),
