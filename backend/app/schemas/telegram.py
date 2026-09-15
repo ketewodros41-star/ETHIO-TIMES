@@ -27,6 +27,8 @@ class TelegramPublishingSettingsRead(BaseModel):
     international_posts_per_day: int
     posting_hours: list[int]
     highlight_color: str
+    freshness_hours: int = 36
+    bypass_freshness_for_breaking: bool = True
     bot_configured: bool = False
     updated_at: datetime
     content_filters: dict[str, Any] = Field(default_factory=dict, validate_default=True)
@@ -37,6 +39,20 @@ class TelegramPublishingSettingsRead(BaseModel):
         if v is None:
             return {}
         return v
+
+    @field_validator("freshness_hours", mode="before")
+    @classmethod
+    def _normalize_freshness_hours(cls, v: Any) -> int:
+        if v is None:
+            return 36
+        return int(v)
+
+    @field_validator("bypass_freshness_for_breaking", mode="before")
+    @classmethod
+    def _normalize_bypass_breaking(cls, v: Any) -> bool:
+        if v is None:
+            return True
+        return bool(v)
 
 
 class TelegramPublishingSettingsUpdate(BaseModel):
@@ -49,6 +65,8 @@ class TelegramPublishingSettingsUpdate(BaseModel):
     international_posts_per_day: int | None = Field(default=None, ge=0, le=24)
     posting_hours: list[int] | None = Field(default=None, min_length=1, max_length=24)
     highlight_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    freshness_hours: int | None = Field(default=None, ge=6, le=168)
+    bypass_freshness_for_breaking: bool | None = None
     content_filters: dict[str, Any] | None = None
 
     @model_validator(mode="after")
@@ -76,6 +94,7 @@ class TelegramPostRead(BaseModel):
     status: str
     scheduled_at: datetime | None
     published_at: datetime | None
+    event_seen_at: datetime | None = None
     telegram_message_id: str | None
     dry_run: bool
     error: str | None

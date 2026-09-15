@@ -375,6 +375,8 @@ class TestPlanTelegramPostsAmharicFilter:
             channel_username = "@Ethiopantimes"
             posting_hours = [8, 14]
             highlight_color = "#00F0FF"
+            freshness_hours = 36
+            bypass_freshness_for_breaking = True
             content_filters = {
                 "ethiopia": {"allowed_categories": [], "blocked_categories": [], "allowed_keywords": [], "blocked_keywords": []}
             }
@@ -385,11 +387,14 @@ class TestPlanTelegramPostsAmharicFilter:
         session = MagicMock()
         session.get.return_value = fake_policy
 
+        candidate_batch = [ad_event_1, ad_event_2, ad_event_3, ad_event_4, legit_event]
         mock_scalars = MagicMock()
         mock_scalars.return_value.all.side_effect = [
             [],  # today_posts
             [],  # already_event_ids
-            [ad_event_1, ad_event_2, ad_event_3, ad_event_4, legit_event],  # candidates
+            list(candidate_batch),  # candidates tier 1 (36h)
+            list(candidate_batch),  # candidates tier 2 (72h fallback)
+            list(candidate_batch),  # candidates tier 3 (168h fallback)
         ]
         mock_scalars.return_value.first.return_value = None
         session.scalars.side_effect = mock_scalars

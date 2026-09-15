@@ -315,6 +315,8 @@ export default function SettingsPage() {
   const [telegramTotal, setTelegramTotal] = useState("5");
   const [ethiopiaQuota, setEthiopiaQuota] = useState("3");
   const [internationalQuota, setInternationalQuota] = useState("2");
+  const [freshnessHours, setFreshnessHours] = useState("36");
+  const [bypassBreaking, setBypassBreaking] = useState(true);
   const [telegramSaving, setTelegramSaving] = useState(false);
   const [telegramMessage, setTelegramMessage] = useState("");
   const [testingBroadcast, setTestingBroadcast] = useState(false);
@@ -353,6 +355,12 @@ export default function SettingsPage() {
         setTelegramTotal(String(v.posts_per_day));
         setEthiopiaQuota(String(v.ethiopia_posts_per_day));
         setInternationalQuota(String(v.international_posts_per_day));
+        if (v.freshness_hours !== undefined) {
+          setFreshnessHours(String(v.freshness_hours));
+        }
+        if (v.bypass_freshness_for_breaking !== undefined) {
+          setBypassBreaking(Boolean(v.bypass_freshness_for_breaking));
+        }
         // Initialise filter editors from saved settings
         if (v.content_filters?.ethiopia) {
           setEthiopiaFilter(v.content_filters.ethiopia);
@@ -417,8 +425,13 @@ export default function SettingsPage() {
     const total = Number(telegramTotal);
     const et = Number(ethiopiaQuota);
     const intl = Number(internationalQuota);
+    const fh = Number(freshnessHours);
     if (![total, et, intl].every(Number.isInteger) || total < 0 || total > 24 || et < 0 || intl < 0 || et + intl !== total) {
       setTelegramMessage("Telegram quotas must be whole numbers (0–24) and Ethiopia + International must equal Total.");
+      return;
+    }
+    if (!Number.isInteger(fh) || fh < 6 || fh > 168) {
+      setTelegramMessage("Freshness window must be an integer between 6 and 168 hours.");
       return;
     }
     setTelegramSaving(true);
@@ -428,12 +441,16 @@ export default function SettingsPage() {
         posts_per_day: total,
         ethiopia_posts_per_day: et,
         international_posts_per_day: intl,
+        freshness_hours: fh,
+        bypass_freshness_for_breaking: bypassBreaking,
       });
       setTelegram(v);
       setTelegramTotal(String(v.posts_per_day));
       setEthiopiaQuota(String(v.ethiopia_posts_per_day));
       setInternationalQuota(String(v.international_posts_per_day));
-      setTelegramMessage("Telegram daily mix saved successfully.");
+      if (v.freshness_hours !== undefined) setFreshnessHours(String(v.freshness_hours));
+      if (v.bypass_freshness_for_breaking !== undefined) setBypassBreaking(Boolean(v.bypass_freshness_for_breaking));
+      setTelegramMessage("Telegram publishing settings saved successfully.");
     } catch (e) {
       setTelegramMessage(e instanceof Error ? e.message : "Could not save Telegram settings.");
     } finally {
@@ -619,8 +636,36 @@ export default function SettingsPage() {
                 <Input type="number" min="0" max="24" value={internationalQuota} onChange={(e) => handleInternationalChange(e.target.value)} />
               </label>
             </div>
+            <div className="rounded-lg border border-ink-700/60 bg-ink-900/60 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-semibold text-paper-200">News freshness window</div>
+                  <div className="text-[11px] text-paper-400">Only stories from the last N hours are eligible for Telegram posting.</div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    type="number"
+                    min="6"
+                    max="168"
+                    value={freshnessHours}
+                    onChange={(e) => setFreshnessHours(e.target.value)}
+                    className="w-20 text-right h-8 text-xs font-mono"
+                  />
+                  <span className="text-xs text-paper-400">hrs</span>
+                </div>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={bypassBreaking}
+                  onChange={(e) => setBypassBreaking(e.target.checked)}
+                  className="rounded border-ink-600 bg-ink-800 text-sky-500 focus:ring-sky-500/20"
+                />
+                <span className="text-xs text-paper-300">Allow breaking news to bypass freshness window</span>
+              </label>
+            </div>
             <Button size="sm" onClick={saveTelegramMix} disabled={telegramSaving}>
-              {telegramSaving ? "Saving…" : "Save Telegram mix"}
+              {telegramSaving ? "Saving…" : "Save Telegram settings"}
             </Button>
             {telegramMessage && (
               <p role="status" className="text-sm text-sky-400">
@@ -643,6 +688,10 @@ export default function SettingsPage() {
             <Row
               label="Daily mix"
               value={`${telegram?.ethiopia_posts_per_day ?? 3} Ethiopia / ${telegram?.international_posts_per_day ?? 2} international`}
+            />
+            <Row
+              label="Freshness window"
+              value={`${telegram?.freshness_hours ?? 36} hours${telegram?.bypass_freshness_for_breaking ? " (breaking bypass enabled)" : ""}`}
             />
             <Row
               label="Posting hours"

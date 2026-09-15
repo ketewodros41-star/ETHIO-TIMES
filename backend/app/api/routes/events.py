@@ -29,7 +29,7 @@ def list_events(
     review_required: bool | None = Query(None),
     trend_status: TrendStatus | None = Query(None),
     breaking: bool | None = Query(None),
-    sort: str = Query("last_seen"),
+    sort: str = Query("created_at"),
     scope: Literal["ethiopia", "neighboring", "all"] = Query("ethiopia"),
 ) -> Page[EventRead]:
     repo = EventRepository(session)

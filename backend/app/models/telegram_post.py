@@ -69,6 +69,8 @@ class TelegramPublishingSettings(Base, TimestampMixin):
     international_posts_per_day: Mapped[int] = mapped_column(Integer, nullable=False, default=2, server_default="2")
     posting_hours: Mapped[list] = mapped_column(JSONB, nullable=False, default=lambda: [8, 11, 14, 17, 20], server_default="[8, 11, 14, 17, 20]")
     highlight_color: Mapped[str] = mapped_column(String(16), nullable=False, default="#00F0FF")
+    freshness_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=36, server_default="36")
+    bypass_freshness_for_breaking: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     # Per-bucket topic/category and keyword filter configuration.
     # Empty allowed_categories means "allow all"; non-empty means "allow only these".
     content_filters: Mapped[dict] = mapped_column(
@@ -102,6 +104,7 @@ class TelegramPost(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="scheduled", server_default="scheduled", index=True)
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    event_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     telegram_message_id: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True)
     dry_run: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)

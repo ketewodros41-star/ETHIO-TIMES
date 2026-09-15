@@ -37,13 +37,36 @@ configure_logging()
 logger = get_logger(__name__)
 
 
-def _telegram_slot(policy, ordinal: int, now: datetime) -> datetime:
-    """Return today's next configured Addis-time slot, rolling forward if needed."""
+def _telegram_slot(
+    policy,
+    ordinal: int,
+    now: datetime,
+    used_hours: set[int] | None = None,
+) -> datetime:
+    """Return today's next configured Addis-time slot, avoiding collisions if used_hours is given."""
     zone = ZoneInfo(policy.timezone)
     local_now = now.astimezone(zone)
     hours = sorted(policy.posting_hours or [8, 11, 14, 17, 20])
     if not hours:
         hours = [8, 11, 14, 17, 20]
+
+    if used_hours is not None:
+        occupied = set(used_hours)
+        for h in hours:
+            if h in occupied:
+                continue
+            candidate = local_now.replace(hour=h, minute=0, second=0, microsecond=0)
+            if candidate > local_now + timedelta(minutes=3):
+                return candidate.astimezone(UTC)
+
+        tomorrow = local_now + timedelta(days=1)
+        tomorrow_hour = hours[0]
+        for h in hours:
+            if h not in occupied:
+                tomorrow_hour = h
+                break
+        return tomorrow.replace(hour=tomorrow_hour, minute=0, second=0, microsecond=0).astimezone(UTC)
+
     if ordinal < len(hours):
         hour = hours[ordinal]
         candidate = local_now.replace(hour=hour, minute=0, second=0, microsecond=0)
@@ -51,6 +74,7 @@ def _telegram_slot(policy, ordinal: int, now: datetime) -> datetime:
         last_hour = hours[-1]
         extra_index = ordinal - len(hours) + 1
         candidate = local_now.replace(hour=last_hour, minute=0, second=0, microsecond=0) + timedelta(minutes=30 * extra_index)
+
     if candidate <= local_now:
         return (now + timedelta(minutes=15 * ordinal)).astimezone(UTC)
     return candidate.astimezone(UTC)
@@ -831,6 +855,11 @@ def plan_telegram_posts() -> dict:
             bucket: sum(post.content_bucket == bucket for post in counted_posts)
             for bucket in ("ethiopia", "international")
         }
+        scheduled_hours_today: set[int] = {
+            p.scheduled_at.astimezone(zone).hour
+            for p in counted_posts
+            if p.scheduled_at and p.scheduled_at.astimezone(zone).date() == local_now.date()
+        }
 
         # Per-bucket filter config from the policy (Problem 3)
         raw_content_filters: dict = {}
@@ -846,13 +875,35 @@ def plan_telegram_posts() -> dict:
         eth_region_cond = or_(*(NewsEvent.primary_region.ilike(f"%{t}%") for t in ethiopia_region_terms))
         eth_title_cond = or_(*(NewsEvent.title.ilike(f"%{t}%") for t in ("%ethiop%", "%addis%", "%amhara%", "%tigray%", "%oromia%")))
         is_ethiopia_expr = or_(eth_region_cond, eth_title_cond)
-        is_intl_expr = or_(
-            NewsEvent.primary_category.in_([
-                "World", "World News", "International News", "International Relations", "world", "world news"
-            ]),
-            and_(NewsEvent.primary_region.is_(None), not_(eth_title_cond)),
-            and_(not_(eth_region_cond), not_(eth_title_cond)),
+
+        # Refined International Expression: Must NOT be Ethiopian, AND must meet positive relevance signals
+        intl_category_cond = NewsEvent.primary_category.in_([
+            "World", "World News", "International News", "International Relations", "world", "world news", "Diplomacy", "diplomacy"
+        ])
+        intl_priority_regions = (
+            "africa", "horn of africa", "red sea", "nile", "sudan", "somalia", "somaliland",
+            "kenya", "eritrea", "djibouti", "egypt", "middle east", "united nations",
+            "united states", "china", "russia", "europe", "g7", "g20", "african union",
+            "world bank", "imf", "saudi", "uae", "yemen"
         )
+        intl_region_cond = or_(*(NewsEvent.primary_region.ilike(f"%{r}%") for r in intl_priority_regions))
+        intl_title_cond = or_(*(NewsEvent.title.ilike(f"%{r}%") for r in intl_priority_regions))
+        intl_quality_signal = or_(
+            intl_region_cond,
+            intl_title_cond,
+            intl_category_cond,
+            NewsEvent.significance_score >= 0.5,
+            NewsEvent.article_count >= 2,
+        )
+        is_intl_expr = and_(
+            not_(eth_region_cond),
+            not_(eth_title_cond),
+            intl_quality_signal,
+        )
+
+        freshness_h = getattr(policy, "freshness_hours", 36) or 36
+        bypass_breaking = getattr(policy, "bypass_freshness_for_breaking", True)
+        freshness_tiers = [freshness_h, 72, 168]
 
         for bucket, quota in (
             ("ethiopia", policy.ethiopia_posts_per_day),
@@ -864,38 +915,69 @@ def plan_telegram_posts() -> dict:
                 continue
             cond = is_ethiopia_expr if bucket == "ethiopia" else is_intl_expr
             limit_n = 100 if bucket == "ethiopia" else 30
-            stmt = (
-                select(NewsEvent)
-                .where(
-                    ~NewsEvent.id.in_(already_event_ids),
-                    NewsEvent.review_required.is_(False),
-                    cond,
-                )
-                .order_by(NewsEvent.trend_score.desc().nullslast(), NewsEvent.last_seen_at.desc())
-                .limit(limit_n)
-            )
-            raw_candidates = list(session.scalars(stmt).all())
-
-            # -----------------------------------------------------------------------
-            # Problem 2 — Sponsored/advertorial content filter.
-            # Problem 3 — Per-bucket content_filters (categories + keywords).
-            # -----------------------------------------------------------------------
             bucket_cfg = raw_content_filters.get(bucket, {})
-            filtered_candidates = []
-            for event in raw_candidates:
-                if _is_sponsored_event(event):
-                    continue
-                if not _passes_bucket_filters(event, bucket_cfg):
-                    continue
-                filtered_candidates.append(event)
+
+            chosen_candidates = []
+            for tier_hours in freshness_tiers:
+                recency_cutoff = now - timedelta(hours=tier_hours)
+                freshness_cond = or_(
+                    NewsEvent.last_seen_at >= recency_cutoff,
+                    NewsEvent.created_at >= recency_cutoff,
+                    NewsEvent.first_article_published_at >= recency_cutoff,
+                )
+                if bypass_breaking:
+                    event_eligibility_cond = or_(freshness_cond, NewsEvent.breaking_candidate.is_(True))
+                else:
+                    event_eligibility_cond = freshness_cond
+
+                stmt = (
+                    select(NewsEvent)
+                    .where(
+                        ~NewsEvent.id.in_(already_event_ids),
+                        NewsEvent.review_required.is_(False),
+                        cond,
+                        event_eligibility_cond,
+                    )
+                    .order_by(
+                        NewsEvent.created_at.desc(),
+                        NewsEvent.last_seen_at.desc().nullslast(),
+                        NewsEvent.trend_score.desc().nullslast(),
+                    )
+                    .limit(limit_n)
+                )
+                raw_candidates = list(session.scalars(stmt).all())
+
+                tier_candidates = []
+                for event in raw_candidates:
+                    if _is_sponsored_event(event):
+                        continue
+                    if not _passes_bucket_filters(event, bucket_cfg):
+                        continue
+                    tier_candidates.append(event)
+
+                chosen_candidates = tier_candidates
+                if len(chosen_candidates) >= remaining:
+                    break
+                if tier_hours > freshness_h:
+                    logger.warning(
+                        "telegram_candidate_freshness_fallback",
+                        bucket=bucket,
+                        tier_hours=tier_hours,
+                        found=len(chosen_candidates),
+                        needed=remaining,
+                    )
 
             if bucket == "ethiopia":
-                filtered_candidates = sorted(
-                    filtered_candidates,
-                    key=lambda e: (_amharic_enough(e.title), e.trend_score or 0.0),
+                chosen_candidates = sorted(
+                    chosen_candidates,
+                    key=lambda e: (
+                        _amharic_enough(e.title),
+                        getattr(e, "created_at", None) or getattr(e, "last_seen_at", None) or datetime.min.replace(tzinfo=UTC),
+                        getattr(e, "trend_score", 0.0) or 0.0,
+                    ),
                     reverse=True,
                 )
-            candidates_by_bucket[bucket] = filtered_candidates
+            candidates_by_bucket[bucket] = chosen_candidates
     except Exception:
         session.rollback()
         logger.exception("plan_telegram_posts_task_error")
@@ -986,6 +1068,9 @@ def plan_telegram_posts() -> dict:
                         already_event_ids.add(event.id)
                         continue
 
+                slot_time = _telegram_slot(policy, len(counted_posts) + len(planned), now, scheduled_hours_today)
+                scheduled_hours_today.add(slot_time.astimezone(zone).hour)
+
                 post = TelegramPost(
                     event_id=event.id,
                     content_bucket=bucket,
@@ -998,7 +1083,8 @@ def plan_telegram_posts() -> dict:
                     photo_credit=photo.photographer if photo else None,
                     highlight_words=highlights,
                     highlight_color=policy.highlight_color,
-                    scheduled_at=_telegram_slot(policy, len(counted_posts) + len(planned), now),
+                    event_seen_at=getattr(event, "first_article_published_at", None) or event.last_seen_at or event.created_at,
+                    scheduled_at=slot_time,
                     dry_run=policy.dry_run,
                     policy_snapshot={"timezone": policy.timezone, "channel": policy.channel_username},
                 )

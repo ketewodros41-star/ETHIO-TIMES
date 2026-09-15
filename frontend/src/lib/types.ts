@@ -487,6 +487,8 @@ export interface TelegramPublishingSettings {
   international_posts_per_day: number;
   posting_hours: number[];
   highlight_color: string;
+  freshness_hours?: number;
+  bypass_freshness_for_breaking?: boolean;
   bot_configured: boolean;
   updated_at: string;
   content_filters: Record<string, BucketContentFilter>;

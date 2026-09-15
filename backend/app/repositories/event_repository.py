@@ -184,6 +184,7 @@ class EventRepository:
             )
         elif sort in ("created_at", "newest"):
             order = (
+                NewsEvent.first_article_published_at.desc().nullslast(),
                 NewsEvent.created_at.desc(),
                 NewsEvent.last_seen_at.desc().nullslast(),
             )

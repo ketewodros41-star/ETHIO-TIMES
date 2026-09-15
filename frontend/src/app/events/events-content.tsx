@@ -54,9 +54,9 @@ const NEWS_BEATS: { id: string; label: string; icon: string }[] = [
 ];
 
 const SORT_OPTIONS: { value: string; label: string }[] = [
-  { value: "trend_score", label: "🔥 Hottest Trends" },
+  { value: "created_at", label: "🆕 Latest News" },
   { value: "last_seen", label: "⏱️ Recently Updated" },
-  { value: "created_at", label: "🆕 Newest Detected" },
+  { value: "trend_score", label: "🔥 Hottest Trends" },
   { value: "verification_score", label: "🛡️ Highest Verification" },
   { value: "article_count", label: "📰 Most Covered (Depth)" },
 ];
@@ -70,7 +70,7 @@ export function EventsContent() {
   const [trend, setTrend] = useState<TrendStatus | "">("");
   const [breakingOnly, setBreakingOnly] = useState(false);
   const [reviewOnly, setReviewOnly] = useState(false);
-  const [sort, setSort] = useState<string>("trend_score");
+  const [sort, setSort] = useState<string>("created_at");
   const [scope, setScope] = useState<"ethiopia" | "neighboring" | "all">("ethiopia");
 
   const { hasNew, newCount, dismiss, refresh } = useNewEventsPoller(() => {
