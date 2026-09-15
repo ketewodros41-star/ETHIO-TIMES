@@ -448,7 +448,13 @@ export default function SettingsPage() {
                 setTestingBroadcast(true);
                 setTestResult(null);
                 try {
-                  const res = await api.testTelegramPost();
+                  const primaryBeat = currentFilter.allowed_categories.length > 0
+                    ? currentFilter.allowed_categories[0]
+                    : undefined;
+                  const res = await api.testTelegramPost({
+                    stream: activeStream,
+                    category: primaryBeat,
+                  });
                   setTestResult(res);
                   setToastMessage({
                     text: res.message || "Test dispatch broadcast successfully.",
@@ -470,7 +476,10 @@ export default function SettingsPage() {
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5">
-                  <Send className="h-3.5 w-3.5 text-sky-400" /> Test Dispatch
+                  <Send className="h-3.5 w-3.5 text-sky-400" />
+                  {currentFilter.allowed_categories.length > 0
+                    ? `Test Dispatch (${currentFilter.allowed_categories.join(", ")})`
+                    : "Test Dispatch"}
                 </span>
               )}
             </Button>
@@ -918,8 +927,8 @@ export default function SettingsPage() {
                 })}
               </div>
 
-              {/* Status summary of current filter */}
-              <div className="flex items-center justify-between text-xs text-paper-400 pt-2 border-t border-white/[0.06]">
+              {/* Status summary of current filter and immediate category test */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-paper-400 pt-3 border-t border-white/[0.06]">
                 <div>
                   <strong>Active Filter:</strong>{" "}
                   {currentFilter.allowed_categories.length > 0
@@ -931,13 +940,61 @@ export default function SettingsPage() {
                     </span>
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={resetAllBeats}
-                  className="text-xs text-paper-500 hover:text-paper-200 underline"
-                >
-                  Reset beats to default
-                </button>
+
+                <div className="flex items-center gap-3">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs font-semibold border-sky-500/40 text-sky-400 hover:bg-sky-500/10 flex items-center gap-1.5"
+                    disabled={testingBroadcast}
+                    onClick={async () => {
+                      setTestingBroadcast(true);
+                      setTestResult(null);
+                      try {
+                        await saveAllSettings();
+                        const primaryBeat = currentFilter.allowed_categories.length > 0
+                          ? currentFilter.allowed_categories[0]
+                          : undefined;
+                        const res = await api.testTelegramPost({
+                          stream: activeStream,
+                          category: primaryBeat,
+                        });
+                        setTestResult(res);
+                        setToastMessage({
+                          text: res.message || `Test broadcast for ${primaryBeat || "all categories"} dispatched!`,
+                          success: res.success,
+                        });
+                      } catch (e) {
+                        setToastMessage({
+                          text: e instanceof Error ? e.message : "Test broadcast failed.",
+                          success: false,
+                        });
+                      } finally {
+                        setTestingBroadcast(false);
+                      }
+                    }}
+                  >
+                    {testingBroadcast ? (
+                      <>
+                        <RefreshCw className="h-3 w-3 animate-spin" /> Testing…
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-3 w-3" />
+                        {currentFilter.allowed_categories.length > 0
+                          ? `Test Broadcast (${currentFilter.allowed_categories.join(", ")})`
+                          : `Test Broadcast (${activeStream === "ethiopia" ? "Ethiopia" : "International"})`}
+                      </>
+                    )}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={resetAllBeats}
+                    className="text-xs text-paper-500 hover:text-paper-200 underline"
+                  >
+                    Reset to default
+                  </button>
+                </div>
               </div>
             </CardContent>
           </Card>

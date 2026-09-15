@@ -105,6 +105,8 @@ class TelegramTestPostRequest(BaseModel):
     event_id: uuid.UUID | None = None
     force_live: bool = True
     channel_username: str | None = None
+    stream: str | None = None
+    category: str | None = None
 
 
 class TelegramTestPostResponse(BaseModel):

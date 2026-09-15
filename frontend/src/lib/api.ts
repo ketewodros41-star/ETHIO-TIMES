@@ -186,7 +186,7 @@ export const api = {
     request<import("./types").TelegramPublishingSettings>("/settings/telegram-publishing", { method: "PATCH", body: JSON.stringify(body) }),
   updateContentFilters: (body: Record<string, import("./types").BucketContentFilter>) =>
     request<import("./types").TelegramPublishingSettings>("/settings/telegram-publishing/content-filters", { method: "PUT", body: JSON.stringify(body) }),
-  testTelegramPost: (body?: { event_id?: string; force_live?: boolean; channel_username?: string }) =>
+  testTelegramPost: (body?: { event_id?: string; force_live?: boolean; channel_username?: string; stream?: string; category?: string }) =>
     request<import("./types").TelegramTestPostResponse>("/settings/telegram-publishing/test-post", {
       method: "POST",
       body: JSON.stringify(body ?? {}),

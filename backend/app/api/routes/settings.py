@@ -183,8 +183,19 @@ def trigger_telegram_test_post(
         if not target_event:
             raise HTTPException(status_code=404, detail=f"NewsEvent {body.event_id} not found")
     else:
+        from app.workers.tasks import _is_sponsored_event, _passes_bucket_filters
+
+        stream_key = (body.stream if body and body.stream else "ethiopia").lower()
+        active_cfg: dict = {}
+        if hasattr(policy, "content_filters") and isinstance(policy.content_filters, dict):
+            active_cfg = dict(policy.content_filters.get(stream_key, {}))
+
+        # If a specific category was requested in test post body, override allowed_categories
+        if body and body.category:
+            active_cfg["allowed_categories"] = [body.category]
+
         posted_event_ids = select(TelegramPost.event_id).distinct()
-        img_stmt = (
+        img_candidates = list(session.scalars(
             select(NewsEvent)
             .join(EventArticle, EventArticle.event_id == NewsEvent.id)
             .join(Article, Article.id == EventArticle.article_id)
@@ -192,20 +203,47 @@ def trigger_telegram_test_post(
                 Article.image_url.isnot(None),
                 ~Article.image_url.ilike("%telesco.pe%"),
                 ~NewsEvent.id.in_(posted_event_ids),
+                NewsEvent.review_required.is_(False),
             )
             .order_by(NewsEvent.last_seen_at.desc().nullslast(), NewsEvent.created_at.desc())
-            .limit(1)
-        )
-        target_event = session.scalars(img_stmt).first()
+            .limit(200)
+        ).all())
+
+        for ev in img_candidates:
+            if _is_sponsored_event(ev):
+                continue
+            if active_cfg and not _passes_bucket_filters(ev, active_cfg):
+                continue
+            target_event = ev
+            break
 
         if not target_event:
-            unposted_stmt = (
+            unposted_candidates = list(session.scalars(
                 select(NewsEvent)
-                .where(~NewsEvent.id.in_(posted_event_ids))
+                .where(~NewsEvent.id.in_(posted_event_ids), NewsEvent.review_required.is_(False))
                 .order_by(NewsEvent.last_seen_at.desc().nullslast(), NewsEvent.created_at.desc())
-                .limit(1)
-            )
-            target_event = session.scalars(unposted_stmt).first()
+                .limit(200)
+            ).all())
+            for ev in unposted_candidates:
+                if _is_sponsored_event(ev):
+                    continue
+                if active_cfg and not _passes_bucket_filters(ev, active_cfg):
+                    continue
+                target_event = ev
+                break
+
+        if not target_event and active_cfg:
+            all_cat_candidates = list(session.scalars(
+                select(NewsEvent)
+                .order_by(NewsEvent.last_seen_at.desc().nullslast(), NewsEvent.created_at.desc())
+                .limit(200)
+            ).all())
+            for ev in all_cat_candidates:
+                if _is_sponsored_event(ev):
+                    continue
+                if _passes_bucket_filters(ev, active_cfg):
+                    target_event = ev
+                    break
 
         if not target_event:
             target_event = session.scalars(
