@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Play, Plus, Check, ExternalLink } from "lucide-react";
+import { RefreshCw, Play, Plus, Check, ExternalLink, Square } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -75,6 +75,19 @@ export function SourcesContent() {
       scheduleSync();
     },
     onError: (e: Error) => flash(e.message),
+  });
+
+  const stopIngest = useMutation({
+    mutationFn: (id?: string) => api.stopIngest(id),
+    onSuccess: (res, id) => {
+      flash(res.message || "Ingestion stopped.");
+      setIngestingId((current) => {
+        if (!id || id === "all" || current === id) return null;
+        return current;
+      });
+      scheduleSync();
+    },
+    onError: (e: Error) => flash(`Failed to stop ingestion: ${e.message}`),
   });
 
   const createSource = useMutation({
@@ -157,14 +170,28 @@ export function SourcesContent() {
           >
             <Plus className="h-4 w-4" /> Add Source
           </Button>
-          <Button
-            size="sm"
-            onClick={() => ingestAll.mutate()}
-            disabled={ingestAll.isPending}
-          >
-            <Play className="h-4 w-4" />
-            {ingestAll.isPending ? "Enqueuing…" : "Ingest all active"}
-          </Button>
+          {ingestingId === "all" || ingestAll.isPending ? (
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => stopIngest.mutate()}
+              disabled={stopIngest.isPending}
+              className="border border-red-500/50 bg-red-950/40 text-red-300 hover:bg-red-900/60 hover:text-red-100 hover:border-red-400 font-semibold"
+              title="Click to stop active ingestion"
+            >
+              <Square className="h-3.5 w-3.5 fill-current text-red-400" />
+              {stopIngest.isPending ? "Stopping…" : "Stop Ingestion"}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              onClick={() => ingestAll.mutate()}
+              disabled={ingestAll.isPending}
+            >
+              <Play className="h-4 w-4" />
+              Ingest all active
+            </Button>
+          )}
         </div>
       </div>
 
@@ -422,24 +449,45 @@ export function SourcesContent() {
                     </Link>
                     {(() => {
                       const isIngested = s.total_articles_ingested > 0 || Boolean(ingestedMap[s.id]);
-                      const isIngesting = ingestingId === s.id || ingestingId === "all";
+                      const isThisIngesting = ingestingId === s.id;
+                      const isGlobalIngesting = ingestingId === "all";
+                      const isIngesting = isThisIngesting || isGlobalIngesting;
 
                       return (
                         <Button
                           variant={isIngested ? "outline" : "subtle"}
                           size="sm"
-                          disabled={!s.is_active || isIngesting}
-                          onClick={() => ingestOne.mutate(s.id)}
-                          className={`group relative min-w-[92px] h-8 text-xs font-medium transition-all ${
-                            isIngested
+                          disabled={!s.is_active}
+                          onClick={() => {
+                            if (isIngesting) {
+                              stopIngest.mutate(s.id);
+                            } else {
+                              ingestOne.mutate(s.id);
+                            }
+                          }}
+                          className={`group relative min-w-[96px] h-8 text-xs font-medium transition-all ${
+                            isIngesting
+                              ? "border-amber-500/40 text-accent-green bg-ink-800 hover:border-red-500/70 hover:bg-red-950/40 hover:text-red-300"
+                              : isIngested
                               ? "border-emerald-600/40 text-emerald-400 bg-emerald-950/20 hover:bg-emerald-900/30 hover:border-emerald-500 hover:text-emerald-300"
                               : "border-ink-700 text-paper-200 hover:text-paper-50"
                           }`}
-                          title={isIngested ? "Ingested. Click to fetch new articles now." : "Ingest source"}
+                          title={
+                            isIngesting
+                              ? "Currently ingesting. Click again to stop ingestion."
+                              : isIngested
+                              ? "Ingested. Click to fetch new articles now."
+                              : "Ingest source"
+                          }
                         >
                           {isIngesting ? (
-                            <span className="flex items-center gap-1.5 text-accent-green font-semibold">
-                              <RefreshCw className="h-3 w-3 animate-spin" /> Ingesting…
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="inline-flex items-center gap-1.5 group-hover:hidden text-accent-green font-semibold">
+                                <RefreshCw className="h-3 w-3 animate-spin" /> Ingesting…
+                              </span>
+                              <span className="hidden group-hover:inline-flex items-center gap-1.5 text-red-300 font-semibold">
+                                <Square className="h-3 w-3 fill-current text-red-400" /> Stop Ingest
+                              </span>
                             </span>
                           ) : isIngested ? (
                             <span className="inline-flex items-center gap-1.5">

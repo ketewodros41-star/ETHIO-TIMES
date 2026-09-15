@@ -21,6 +21,16 @@ class IngestTriggerResponse(BaseModel):
     message: str
 
 
+class IngestStopRequest(BaseModel):
+    source_id: uuid.UUID | None = None  # None => stop all active ingestions
+
+
+class IngestStopResponse(BaseModel):
+    stopped: bool
+    source_id: uuid.UUID | None = None
+    message: str
+
+
 class PipelineJobRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

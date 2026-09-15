@@ -17,6 +17,7 @@ import {
   Send,
   ShieldCheck,
   Check,
+  Square,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -90,6 +91,16 @@ export function SourceDetailContent({ id }: { id: string }) {
       }, 6000);
     },
     onError: (e: Error) => flash(`Ingest failed: ${e.message}`),
+  });
+
+  const stopIngest = useMutation({
+    mutationFn: () => api.stopIngest(id),
+    onSuccess: (res) => {
+      flash(res.message || "Ingestion stopped.");
+      void refetchSource();
+      void refetchArticles();
+    },
+    onError: (e: Error) => flash(`Failed to stop: ${e.message}`),
   });
 
   // Toggle active / paused
@@ -225,14 +236,28 @@ export function SourceDetailContent({ id }: { id: string }) {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
-              onClick={() => ingestOne.mutate()}
-              disabled={ingestOne.isPending || !source.is_active}
-              className="flex items-center gap-1.5"
+              onClick={() => {
+                if (ingestOne.isPending) {
+                  stopIngest.mutate();
+                } else {
+                  ingestOne.mutate();
+                }
+              }}
+              disabled={!source.is_active}
+              variant={ingestOne.isPending ? "destructive" : "default"}
+              className={`group flex items-center gap-1.5 transition-all ${
+                ingestOne.isPending
+                  ? "border border-red-500/50 bg-red-950/40 text-red-300 hover:bg-red-900/60 hover:text-red-100 hover:border-red-400"
+                  : ""
+              }`}
+              title={ingestOne.isPending ? "Currently ingesting. Click to stop ingestion." : "Ingest source"}
             >
               {ingestOne.isPending ? (
                 <>
-                  <RefreshCw className="h-4 w-4 animate-spin text-ink-950" />
-                  <span>Ingesting…</span>
+                  <RefreshCw className="h-4 w-4 animate-spin group-hover:hidden text-accent-green" />
+                  <Square className="h-4 w-4 fill-current hidden group-hover:inline-flex text-red-400" />
+                  <span className="group-hover:hidden text-accent-green">Ingesting…</span>
+                  <span className="hidden group-hover:inline-flex text-red-200">Stop Ingest</span>
                 </>
               ) : (
                 <>

@@ -9,6 +9,7 @@ caller's session; the Celery task is responsible for commit/rollback.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
@@ -64,8 +65,17 @@ class IngestionService:
         self.articles = ArticleRepository(session)
 
     def ingest_source(
-        self, source_id: uuid.UUID, celery_task_id: str | None = None
+        self,
+        source_id: uuid.UUID,
+        celery_task_id: str | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> IngestionResult:
+        if cancel_check and cancel_check():
+            logger.info("ingest_cancelled_before_start", source_id=str(source_id))
+            return IngestionResult(
+                source_id, status=JobStatus.skipped, error="Ingestion stopped by user"
+            )
+
         source = self.sources.get(source_id)
         if source is None:
             return IngestionResult(
@@ -76,6 +86,9 @@ class IngestionService:
         job = self._start_job(source, celery_task_id)
 
         try:
+            if cancel_check and cancel_check():
+                return self._finish_skipped(job, source, "Ingestion stopped by user")
+
             adapter = get_adapter_for_source(source)
             if not adapter.can_handle():
                 return self._finish_skipped(
@@ -83,7 +96,17 @@ class IngestionService:
                 )
 
             items = adapter.fetch()
-            processed, created, created_ids = self._persist_items(source, items)
+
+            if cancel_check and cancel_check():
+                return self._finish_skipped(job, source, "Ingestion stopped by user")
+
+            processed, created, created_ids = self._persist_items(
+                source, items, cancel_check=cancel_check
+            )
+
+            if cancel_check and cancel_check():
+                self.session.rollback()
+                return self._finish_skipped(job, source, "Ingestion stopped by user")
 
             self.sources.mark_success(source, created, processed)
             self._finish_job(job, JobStatus.success, processed, created)
@@ -103,7 +126,10 @@ class IngestionService:
             return self._finish_failed(job, source, f"unexpected: {exc}")
 
     def _persist_items(
-        self, source: NewsSource, items: list[FetchedItem]
+        self,
+        source: NewsSource,
+        items: list[FetchedItem],
+        cancel_check: Callable[[], bool] | None = None,
     ) -> tuple[int, int, list[uuid.UUID]]:
         processed = 0
         created = 0
@@ -111,6 +137,9 @@ class IngestionService:
         seen_batch_urls: set[str] = set()
 
         for item in items:
+            if cancel_check and cancel_check():
+                logger.info("ingest_persist_interrupted_by_cancellation", source=source.slug)
+                break
             processed += 1
             if not item.canonical_url or item.canonical_url in seen_batch_urls:
                 continue

@@ -1,5 +1,6 @@
 import type {
   Article,
+  IngestStopResponse,
   IngestTriggerResponse,
   NewsEvent,
   NewsEventDetail,
@@ -101,6 +102,12 @@ export const api = {
 
   triggerIngest: (source_id?: string) =>
     request<IngestTriggerResponse>("/ingest/trigger", {
+      method: "POST",
+      body: JSON.stringify({ source_id: source_id ?? null }),
+    }),
+
+  stopIngest: (source_id?: string) =>
+    request<IngestStopResponse>("/ingest/stop", {
       method: "POST",
       body: JSON.stringify({ source_id: source_id ?? null }),
     }),

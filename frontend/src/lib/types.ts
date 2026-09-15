@@ -323,6 +323,12 @@ export interface IngestTriggerResponse {
   message: string;
 }
 
+export interface IngestStopResponse {
+  stopped: boolean;
+  source_id: string | null;
+  message: string;
+}
+
 export interface VisualAsset {
   id: string;
   event_id: string;

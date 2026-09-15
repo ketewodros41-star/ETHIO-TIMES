@@ -13,6 +13,8 @@ const buttonVariants = cva(
           "border border-ink-600 bg-transparent text-paper-50 hover:bg-ink-700",
         ghost: "text-paper-300 hover:bg-ink-700 hover:text-paper-50",
         subtle: "bg-ink-700 text-paper-50 hover:bg-ink-600",
+        destructive:
+          "border border-red-500/50 bg-red-950/40 text-red-300 hover:bg-red-900/60 hover:text-red-100 hover:border-red-400 font-semibold",
       },
       size: {
         default: "h-9 px-4 py-2",
