@@ -139,15 +139,15 @@ export function EventsContent() {
       )}
 
       {/* Regional Scope Toggle */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-1 border-b border-ink-800">
-        <div className="flex items-center gap-1.5 p-1 rounded-card bg-ink-850 border border-ink-700 w-fit">
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-white/[0.08]">
+        <div className="flex items-center gap-1 p-1 rounded-card bg-ink-900/80 border border-white/[0.08] backdrop-blur-xs shadow-xs w-fit">
           <button
             type="button"
             onClick={() => { setScope("ethiopia"); setPage(0); }}
-            className={`px-3 py-1.5 rounded-card text-xs font-medium transition-all ${
+            className={`px-3.5 py-1.5 rounded-card text-xs font-medium transition-all duration-150 ${
               scope === "ethiopia"
-                ? "bg-accent-green text-ink-950 font-semibold shadow-sm"
-                : "text-paper-400 hover:text-paper-100"
+                ? "bg-accent-green text-ink-950 font-bold shadow-sm"
+                : "text-paper-400 hover:text-paper-100 hover:bg-white/[0.04]"
             }`}
           >
             🇪🇹 Ethiopia & Diaspora
@@ -155,10 +155,10 @@ export function EventsContent() {
           <button
             type="button"
             onClick={() => { setScope("neighboring"); setPage(0); }}
-            className={`px-3 py-1.5 rounded-card text-xs font-medium transition-all ${
+            className={`px-3.5 py-1.5 rounded-card text-xs font-medium transition-all duration-150 ${
               scope === "neighboring"
-                ? "bg-accent-green text-ink-950 font-semibold shadow-sm"
-                : "text-paper-400 hover:text-paper-100"
+                ? "bg-accent-green text-ink-950 font-bold shadow-sm"
+                : "text-paper-400 hover:text-paper-100 hover:bg-white/[0.04]"
             }`}
           >
             🌍 Horn of Africa & Neighbors
@@ -166,10 +166,10 @@ export function EventsContent() {
           <button
             type="button"
             onClick={() => { setScope("international"); setPage(0); }}
-            className={`px-3 py-1.5 rounded-card text-xs font-medium transition-all ${
+            className={`px-3.5 py-1.5 rounded-card text-xs font-medium transition-all duration-150 ${
               scope === "international"
-                ? "bg-accent-green text-ink-950 font-semibold shadow-sm"
-                : "text-paper-400 hover:text-paper-100"
+                ? "bg-accent-green text-ink-950 font-bold shadow-sm"
+                : "text-paper-400 hover:text-paper-100 hover:bg-white/[0.04]"
             }`}
           >
             🌐 International
@@ -177,26 +177,26 @@ export function EventsContent() {
           <button
             type="button"
             onClick={() => { setScope("all"); setPage(0); }}
-            className={`px-3 py-1.5 rounded-card text-xs font-medium transition-all ${
+            className={`px-3.5 py-1.5 rounded-card text-xs font-medium transition-all duration-150 ${
               scope === "all"
-                ? "bg-accent-green text-ink-950 font-semibold shadow-sm"
-                : "text-paper-400 hover:text-paper-100"
+                ? "bg-accent-green text-ink-950 font-bold shadow-sm"
+                : "text-paper-400 hover:text-paper-100 hover:bg-white/[0.04]"
             }`}
           >
             ✨ All Coverage
           </button>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {category && (
             <button
               onClick={() => { setCategory(""); setPage(0); }}
-              className="text-xs text-accent-green hover:underline flex items-center gap-1 font-mono"
+              className="text-xs text-accent-green hover:underline flex items-center gap-1 font-mono font-medium"
             >
               Reset Beat (×)
             </button>
           )}
-          <span className="text-xs text-paper-500 font-mono">
-            {total} events in view
+          <span className="text-xs text-paper-400 font-mono bg-ink-900/60 border border-white/[0.06] px-2.5 py-1 rounded-full">
+            <strong className="text-paper-100">{total}</strong> events in view
           </span>
         </div>
       </div>
@@ -378,97 +378,112 @@ export function EventsContent() {
         </Card>
       )}
 
-      <div className="space-y-3">
-        {items.map((e) => (
-          <Link key={e.id} href={`/events/${e.id}`}>
-            <Card className="p-4 transition-colors hover:border-ink-600">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <TrendStatusBadge status={e.trend_status} />
-                    {e.breaking_candidate && (
-                      <Badge variant="red">breaking candidate</Badge>
+      <div className="space-y-3.5">
+        {items.map((e) => {
+          const accentBorder = e.breaking_candidate
+            ? "border-l-4 border-l-signal-red hover:border-l-signal-red"
+            : e.trend_status === "high_priority" || e.trend_status === "trending"
+              ? "border-l-4 border-l-accent-gold hover:border-l-accent-gold"
+              : e.event_verification_status === "confirmed"
+                ? "border-l-4 border-l-accent-green hover:border-l-accent-green"
+                : "border-l-4 border-l-white/[0.12] hover:border-l-white/[0.3]";
+
+          return (
+            <Link key={e.id} href={`/events/${e.id}`} className="group block">
+              <div
+                className={`card-editorial relative overflow-hidden rounded-card p-5 sm:p-5.5 ${accentBorder}`}
+              >
+                <div className="flex flex-col md:flex-row items-start justify-between gap-5">
+                  <div className="min-w-0 flex-1">
+                    {/* Badge Row */}
+                    <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
+                      <TrendStatusBadge status={e.trend_status} />
+                      {e.breaking_candidate && (
+                        <Badge variant="red">⚡ breaking candidate</Badge>
+                      )}
+                      <EventVerificationBadge status={e.event_verification_status} />
+                      <EventStatusBadge status={e.status} />
+                      {e.review_required && (
+                        <Badge variant="gold">human review</Badge>
+                      )}
+                      {e.primary_category && (
+                        <Badge variant="default">{e.primary_category}</Badge>
+                      )}
+                      {e.primary_region && (
+                        <Badge variant="muted">📍 {e.primary_region}</Badge>
+                      )}
+                    </div>
+
+                    {/* Headline */}
+                    <h3 className="font-display text-[18px] sm:text-[20px] font-bold leading-snug tracking-tight text-paper-50 group-hover:text-accent-green transition-colors">
+                      {e.title}
+                    </h3>
+
+                    {/* Summary */}
+                    {e.summary && (
+                      <p className="mt-2 line-clamp-2 text-[13.5px] leading-relaxed text-paper-300/85">
+                        {e.summary}
+                      </p>
                     )}
-                    <EventVerificationBadge status={e.event_verification_status} />
-                    <EventStatusBadge status={e.status} />
-                    {e.review_required && (
-                      <Badge variant="gold">review required</Badge>
-                    )}
-                    {e.primary_source_available && (
-                      <Badge variant="green">primary source</Badge>
-                    )}
-                    {e.primary_category && (
-                      <Badge variant="default">{e.primary_category}</Badge>
-                    )}
-                    {e.primary_region && (
-                      <Badge variant="muted">{e.primary_region}</Badge>
-                    )}
-                  </div>
-                  <h3 className="font-display text-lg font-medium leading-snug text-paper-50">
-                    {e.title}
-                  </h3>
-                  {e.summary && (
-                    <p className="mt-1 line-clamp-2 text-sm text-paper-300">
-                      {e.summary}
-                    </p>
-                  )}
-                  <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-paper-500">
-                    <span className="inline-flex items-center gap-1">
-                      <Layers className="h-3 w-3" /> {e.article_count} articles
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <Users className="h-3 w-3" /> {e.source_count} sources
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <TrendingUp className="h-3 w-3" /> trend {Math.round(e.trend_score)}
-                    </span>
-                    {e.breaking_candidate && (
-                      <span className="inline-flex items-center gap-1 text-signal-red">
-                        <Zap className="h-3 w-3" /> velocity burst
+
+                    {/* Metadata Strip */}
+                    <div className="mt-3.5 flex flex-wrap items-center gap-4 text-xs text-paper-400">
+                      <span className="inline-flex items-center gap-1 font-mono text-[11px]">
+                        <Layers className="h-3 w-3 text-paper-500" /> {e.article_count} articles
                       </span>
-                    )}
-                    {e.review_required && (
-                      <span className="inline-flex items-center gap-1 text-accent-gold">
-                        <ShieldAlert className="h-3 w-3" /> human review
+                      <span className="inline-flex items-center gap-1 font-mono text-[11px]">
+                        <Users className="h-3 w-3 text-paper-500" /> {e.source_count} sources
                       </span>
-                    )}
-                    <span
-                      title={formatDate(e.last_seen_at ?? e.first_seen_at ?? e.created_at)}
-                      className="inline-flex items-center gap-1 font-mono text-[11px]"
-                    >
-                      <Clock className="h-3 w-3 text-paper-400" />
-                      {relativeTime(e.last_seen_at ?? e.first_seen_at ?? e.created_at)}
-                    </span>
-                    <span
-                      onClick={(ev) => {
-                        ev.preventDefault();
-                        window.location.href = `/studio/templates?event_id=${e.id}`;
-                      }}
-                      className="inline-flex items-center gap-1 rounded bg-ink-800 px-2 py-0.5 text-accent-green hover:bg-ink-700 transition-colors cursor-pointer text-xs font-medium"
-                    >
-                      <Palette className="h-3 w-3" /> Photo Studio →
-                    </span>
+                      <span className="inline-flex items-center gap-1 font-mono text-[11px]">
+                        <TrendingUp className="h-3 w-3 text-accent-gold" /> trend {Math.round(e.trend_score)}
+                      </span>
+                      {e.breaking_candidate && (
+                        <span className="inline-flex items-center gap-1 text-signal-red font-mono text-[11px]">
+                          <Zap className="h-3 w-3" /> velocity burst
+                        </span>
+                      )}
+                      <span
+                        title={formatDate(e.last_seen_at ?? e.first_seen_at ?? e.created_at)}
+                        className="inline-flex items-center gap-1 font-mono text-[11px] text-paper-400"
+                      >
+                        <Clock className="h-3 w-3 text-paper-500" />
+                        {relativeTime(e.last_seen_at ?? e.first_seen_at ?? e.created_at)}
+                      </span>
+                      <span
+                        onClick={(ev) => {
+                          ev.preventDefault();
+                          window.location.href = `/studio/templates?event_id=${e.id}`;
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-accent-green/10 border border-accent-green/30 px-2.5 py-0.5 text-accent-green hover:bg-accent-green/20 transition-colors cursor-pointer text-xs font-semibold font-mono"
+                      >
+                        <Palette className="h-3 w-3" /> Studio Card →
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <div className="font-mono text-xs text-paper-500">trend</div>
-                  <div className="font-display text-2xl tabular-nums text-paper-50">
-                    {Math.round(e.trend_score)}
-                  </div>
-                  <div className="mt-1 flex justify-end">
-                    <TrendScoreMeter score={e.trend_score} />
-                  </div>
-                  <div className="mt-2 font-mono text-[10px] uppercase tracking-label text-paper-500">
-                    verification {e.verification_score}
-                  </div>
-                  <div className="mt-1 flex justify-end">
-                    <VerificationScoreMeter score={e.verification_score} />
+
+                  {/* Right Intelligence Metrics Column */}
+                  <div className="shrink-0 flex md:flex-col items-center md:items-end justify-between w-full md:w-auto pt-2 md:pt-0 border-t md:border-t-0 border-white/[0.06]">
+                    <div className="flex items-center md:flex-col md:items-end gap-2 md:gap-0">
+                      <div className="font-mono text-[10px] uppercase tracking-wider text-paper-500">trend</div>
+                      <div className="font-display text-2xl font-bold tabular-nums text-paper-50">
+                        {Math.round(e.trend_score)}
+                      </div>
+                    </div>
+                    <div className="mt-1 flex justify-end">
+                      <TrendScoreMeter score={e.trend_score} />
+                    </div>
+                    <div className="mt-3 font-mono text-[10px] uppercase tracking-wider text-paper-500">
+                      verification
+                    </div>
+                    <div className="mt-1 flex justify-end">
+                      <VerificationScoreMeter score={e.verification_score} />
+                    </div>
                   </div>
                 </div>
               </div>
-            </Card>
-          </Link>
-        ))}
+            </Link>
+          );
+        })}
       </div>
 
       {total > PAGE_SIZE && (

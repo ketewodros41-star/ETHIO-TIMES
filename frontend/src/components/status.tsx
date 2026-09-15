@@ -14,9 +14,9 @@ import type {
 import { cn } from "@/lib/utils";
 
 const HEALTH_COLOR: Record<SourceHealthStatus, string> = {
-  healthy: "bg-accent-green",
-  degraded: "bg-accent-gold",
-  failing: "bg-signal-red",
+  healthy: "bg-accent-green shadow-[0_0_8px_rgba(31,163,90,0.6)]",
+  degraded: "bg-accent-gold shadow-[0_0_8px_rgba(212,162,78,0.6)]",
+  failing: "bg-signal-red shadow-[0_0_8px_rgba(226,68,54,0.6)] animate-pulse",
   disabled: "bg-paper-500",
   unknown: "bg-ink-600",
 };
@@ -24,8 +24,13 @@ const HEALTH_COLOR: Record<SourceHealthStatus, string> = {
 export function HealthDot({ status }: { status: SourceHealthStatus }) {
   return (
     <span className="inline-flex items-center gap-2">
-      <span className={cn("h-2 w-2 rounded-full", HEALTH_COLOR[status])} />
-      <span className="text-xs capitalize text-paper-300">{status}</span>
+      <span className="relative flex h-2 w-2">
+        {status === "healthy" && (
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-green opacity-40"></span>
+        )}
+        <span className={cn("relative inline-flex rounded-full h-2 w-2", HEALTH_COLOR[status])} />
+      </span>
+      <span className="text-xs capitalize text-paper-300 font-mono text-[11px]">{status}</span>
     </span>
   );
 }
@@ -143,23 +148,23 @@ export function TrendStatusBadge({ status }: { status: TrendStatus }) {
 }
 
 export function TrendScoreMeter({ score }: { score: number }) {
-  const color =
+  const gradient =
     score >= 80
-      ? "bg-signal-red"
+      ? "bg-gradient-to-r from-orange-500 to-signal-red shadow-[0_0_8px_rgba(226,68,54,0.4)]"
       : score >= 60
-        ? "bg-accent-green"
+        ? "bg-gradient-to-r from-emerald-500 to-accent-green shadow-[0_0_8px_rgba(31,163,90,0.4)]"
         : score >= 40
-          ? "bg-accent-gold"
+          ? "bg-gradient-to-r from-yellow-500 to-accent-gold"
           : "bg-ink-600";
   return (
     <div className="flex items-center gap-2">
-      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-ink-700">
+      <div className="h-1.5 w-18 overflow-hidden rounded-full bg-ink-950 border border-white/[0.08] p-[0.5px]">
         <div
-          className={cn("h-full", color)}
+          className={cn("h-full rounded-full transition-all duration-300", gradient)}
           style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
         />
       </div>
-      <span className="font-mono text-xs tabular-nums text-paper-500">
+      <span className="font-mono text-xs tabular-nums text-paper-400 font-semibold">
         {Math.round(score)}
       </span>
     </div>
@@ -182,14 +187,23 @@ export function ContradictionSeverityBadge({
 }
 
 export function VerificationScoreMeter({ score }: { score: number }) {
-  const color =
-    score >= 75 ? "bg-accent-green" : score >= 50 ? "bg-accent-gold" : score >= 30 ? "bg-ink-600" : "bg-signal-red";
+  const gradient =
+    score >= 75
+      ? "bg-gradient-to-r from-emerald-500 to-accent-green shadow-[0_0_8px_rgba(31,163,90,0.4)]"
+      : score >= 50
+        ? "bg-gradient-to-r from-yellow-500 to-accent-gold"
+        : score >= 30
+          ? "bg-ink-600"
+          : "bg-gradient-to-r from-orange-500 to-signal-red";
   return (
     <div className="flex items-center gap-2">
-      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-ink-700">
-        <div className={cn("h-full", color)} style={{ width: `${Math.max(0, Math.min(100, score))}%` }} />
+      <div className="h-1.5 w-18 overflow-hidden rounded-full bg-ink-950 border border-white/[0.08] p-[0.5px]">
+        <div
+          className={cn("h-full rounded-full transition-all duration-300", gradient)}
+          style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
+        />
       </div>
-      <span className="font-mono text-xs tabular-nums text-paper-500">{score}</span>
+      <span className="font-mono text-xs tabular-nums text-paper-400 font-semibold">{score}</span>
     </div>
   );
 }
