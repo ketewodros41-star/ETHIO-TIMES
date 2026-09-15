@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -18,6 +19,7 @@ import {
   ShieldCheck,
   Check,
   Square,
+  Trash2,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -37,9 +39,11 @@ const PAGE_SIZE = 25;
 
 export function SourceDetailContent({ id }: { id: string }) {
   const qc = useQueryClient();
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   // Fetch Source Details
   const {
@@ -112,6 +116,17 @@ export function SourceDetailContent({ id }: { id: string }) {
       void qc.invalidateQueries({ queryKey: ["sources"] });
     },
     onError: (e: Error) => flash(`Failed to update status: ${e.message}`),
+  });
+
+  const deleteSource = useMutation({
+    mutationFn: () => api.deleteSource(id),
+    onSuccess: () => {
+      flash(`Source "${source?.name || ""}" removed from news sources.`);
+      setTimeout(() => {
+        router.push("/sources");
+      }, 500);
+    },
+    onError: (e: Error) => flash(`Failed to remove source: ${e.message}`),
   });
 
   if (isSourceLoading) {
@@ -337,6 +352,16 @@ export function SourceDetailContent({ id }: { id: string }) {
                 <ExternalLink className="h-3 w-3" />
               </a>
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowDeleteModal(true)}
+              className="border-red-900/50 bg-red-950/20 text-red-400 hover:bg-red-950/40 hover:border-red-500/70 hover:text-red-300"
+              title="Remove this source from news sources"
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1" />
+              <span>Remove Source</span>
+            </Button>
           </div>
         </div>
 
@@ -510,6 +535,61 @@ export function SourceDetailContent({ id }: { id: string }) {
           </div>
         )}
       </div>
+
+      {/* Remove Source Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 animate-in fade-in">
+          <Card className="w-full max-w-md border-red-900/40 bg-ink-900 p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full bg-red-950/60 border border-red-800/60 flex items-center justify-center shrink-0">
+                <Trash2 className="h-5 w-5 text-red-400" />
+              </div>
+              <div>
+                <h3 className="font-display text-base font-semibold text-paper-50">
+                  Remove News Source
+                </h3>
+                <p className="text-xs text-paper-400">
+                  Delete publisher from monitored news sources.
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-paper-300 leading-relaxed bg-ink-950/60 p-3 rounded-card border border-ink-800">
+              Are you sure you want to remove <strong className="text-paper-50">{source?.name}</strong> from your news sources? Ingestion for this source will be halted and its feed removed from your registry.
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deleteSource.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => deleteSource.mutate()}
+                disabled={deleteSource.isPending}
+                className="flex items-center gap-1.5"
+              >
+                {deleteSource.isPending ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    <span>Removing…</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Remove Source</span>
+                  </>
+                )}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

@@ -165,6 +165,11 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  deleteSource: (id: string) =>
+    request<void>(`/sources/${id}`, {
+      method: "DELETE",
+    }),
+
   pruneStaleData: (jobs_max_age_days: number = 7, articles_max_age_days: number = 60) =>
     request<{ deleted_jobs: number; deleted_articles: number; message: string }>(
       `/pipeline/prune-stale${qs({ jobs_max_age_days, articles_max_age_days })}`,

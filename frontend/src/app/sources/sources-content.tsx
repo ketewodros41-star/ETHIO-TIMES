@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Play, Plus, Check, ExternalLink, Square } from "lucide-react";
+import { RefreshCw, Play, Plus, Check, ExternalLink, Square, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,7 @@ export function SourcesContent() {
   const [toast, setToast] = useState<string | null>(null);
   const [ingestingId, setIngestingId] = useState<string | null>(null);
   const [ingestedMap, setIngestedMap] = useState<Record<string, number>>({});
+  const [deletingSource, setDeletingSource] = useState<{ id: string; name: string } | null>(null);
 
   // Add Source Modal State
   const [showAddModal, setShowAddModal] = useState(false);
@@ -120,6 +121,16 @@ export function SourcesContent() {
       scheduleSync();
     },
     onError: (e: Error) => flash(e.message),
+  });
+
+  const deleteSource = useMutation({
+    mutationFn: (id: string) => api.deleteSource(id),
+    onSuccess: () => {
+      flash(`Source "${deletingSource?.name || ""}" removed from news sources.`);
+      setDeletingSource(null);
+      void qc.invalidateQueries({ queryKey: ["sources"] });
+    },
+    onError: (e: Error) => flash(`Failed to remove source: ${e.message}`),
   });
 
   const createSource = useMutation({
@@ -557,6 +568,17 @@ export function SourcesContent() {
                         </div>
                       );
                     })()}
+
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setDeletingSource({ id: s.id, name: s.name })}
+                      disabled={deleteSource.isPending && deletingSource?.id === s.id}
+                      className="h-8 w-8 p-0 text-paper-500 hover:text-red-400 hover:bg-red-950/40 transition-colors"
+                      title={`Remove "${s.name}" from news sources`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 </TD>
               </TR>
@@ -571,6 +593,61 @@ export function SourcesContent() {
           </TBody>
         </Table>
       </Card>
+
+      {/* Remove Source Confirmation Modal */}
+      {deletingSource && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 animate-in fade-in">
+          <Card className="w-full max-w-md border-red-900/40 bg-ink-900 p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full bg-red-950/60 border border-red-800/60 flex items-center justify-center shrink-0">
+                <Trash2 className="h-5 w-5 text-red-400" />
+              </div>
+              <div>
+                <h3 className="font-display text-base font-semibold text-paper-50">
+                  Remove News Source
+                </h3>
+                <p className="text-xs text-paper-400">
+                  Delete publisher from monitored news sources.
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-paper-300 leading-relaxed bg-ink-950/60 p-3 rounded-card border border-ink-800">
+              Are you sure you want to remove <strong className="text-paper-50">{deletingSource.name}</strong> from your news sources? Ingestion for this source will be halted and its feed removed from your registry.
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDeletingSource(null)}
+                disabled={deleteSource.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => deleteSource.mutate(deletingSource.id)}
+                disabled={deleteSource.isPending}
+                className="flex items-center gap-1.5"
+              >
+                {deleteSource.isPending ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    <span>Removing…</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Remove Source</span>
+                  </>
+                )}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
