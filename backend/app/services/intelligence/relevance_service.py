@@ -45,6 +45,27 @@ def decide(score: int) -> RelevanceDecision:
     return RelevanceDecision.irrelevant
 
 
+def is_monitored_intl_or_sports_source(source: object | None) -> bool:
+    """Check if the source is an international or sports feed explicitly monitored by ETHIO-TIMES."""
+    if source is None:
+        return False
+    country = (getattr(source, "country", "") or "").upper()
+    source_type = getattr(source, "source_type", None)
+    type_str = str(source_type.value if hasattr(source_type, "value") else source_type or "").lower()
+    if type_str in ("international_wire", "international_media") or (country and country != "ET"):
+        return True
+    slug = (getattr(source, "slug", "") or "").lower()
+    name = (getattr(source, "name", "") or "").lower()
+    categories = [str(c).lower() for c in (getattr(source, "coverage_categories", None) or [])]
+    if any(c in ("international", "world", "global", "sports", "football", "soccer") for c in categories):
+        return True
+    intl_sport_cues = [
+        "cnn", "al-jazeera", "al jazeera", "reuters", "dw-africa", "bbc-africa",
+        "ap-news", "ap news", "sports", "sport", "football", "premier league",
+    ]
+    return any(cue in slug or cue in name for cue in intl_sport_cues)
+
+
 class RelevanceService:
     def __init__(self, provider: AIProvider) -> None:
         self.provider = provider
@@ -57,11 +78,11 @@ class RelevanceService:
         content: str | None,
         source: object | None = None,
     ) -> RelevanceOutcome:
-        # Fast-path: Check deterministic keyword score first to avoid burning LLM tokens
+        # Fast-path 1: Check deterministic Ethiopian keyword score first
         fast_score, fast_keywords = score_relevance(title, summary, content)
         country = (getattr(source, "country", "") or "").upper() if source else ""
         
-        # High confidence match (score >= 75 or verified ET source with keywords)
+        # High confidence Ethiopian match (score >= 75 or verified ET source with keywords)
         if fast_score >= 75 or (country == "ET" and fast_keywords):
             res = RelevanceResult(
                 score=max(fast_score, 85),
@@ -71,15 +92,20 @@ class RelevanceService:
             )
             return RelevanceOutcome(res, RelevanceDecision.relevant, used_fallback=True)
 
-        # High confidence non-match (score < 10, no keywords, international source)
-        if fast_score < 10 and not fast_keywords and country not in ("", "ET"):
+        # Fast-path 2: Monitored international or sports source
+        # If the platform intentionally ingests this source, it is relevant for international / sports coverage
+        if is_monitored_intl_or_sports_source(source):
+            src_name = getattr(source, "name", "International source")
+            categories = [str(c).lower() for c in (getattr(source, "coverage_categories", None) or [])]
+            primary_cat = "sports" if any("sport" in c or "football" in c for c in categories) or "sport" in (getattr(source, "slug", "") or "").lower() else "international"
             res = RelevanceResult(
-                score=fast_score,
-                is_ethiopia_related=False,
-                reason="Zero Ethiopian entity or regional keyword matches",
-                primary_region=None,
+                score=85,
+                is_ethiopia_related=bool(fast_keywords),
+                reason=f"Monitored {primary_cat} source ({src_name})",
+                primary_region="Ethiopia" if fast_keywords else "International",
+                categories=[primary_cat],
             )
-            return RelevanceOutcome(res, RelevanceDecision.irrelevant, used_fallback=True)
+            return RelevanceOutcome(res, RelevanceDecision.relevant, used_fallback=True)
 
         if self.provider.is_available():
             try:
@@ -122,6 +148,19 @@ class RelevanceService:
 
         # Check source-level heuristics for Ethiopian sources
         if source is not None:
+            if is_monitored_intl_or_sports_source(source):
+                src_name = getattr(source, "name", "International source")
+                categories = [str(c).lower() for c in (getattr(source, "coverage_categories", None) or [])]
+                primary_cat = "sports" if any("sport" in c or "football" in c for c in categories) or "sport" in (getattr(source, "slug", "") or "").lower() else "international"
+                result = RelevanceResult(
+                    is_ethiopia_related=bool(keywords),
+                    score=85,
+                    primary_region="Ethiopia" if keywords else "International",
+                    reason=f"Monitored {primary_cat} source ({src_name})",
+                    categories=[primary_cat],
+                )
+                return RelevanceOutcome(result, RelevanceDecision.relevant, used_fallback=True)
+
             country = (getattr(source, "country", "") or "").upper()
             rel_score = float(getattr(source, "ethiopia_relevance_score", 0.0) or 0.0)
             if (country == "ET" or rel_score >= 0.8) and score < settings.relevance_threshold:

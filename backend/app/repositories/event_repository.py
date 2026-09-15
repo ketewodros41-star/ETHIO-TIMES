@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.models.article import Article
-from app.models.enums import EventStatus, EventVerificationStatus, EventVerifyStatus, TrendStatus
+from app.models.enums import EventStatus, EventVerificationStatus, EventVerifyStatus, SourceType, TrendStatus
 from app.models.news_event import EventArticle, EventTimeline, NewsEvent
 from app.models.news_source import NewsSource
 from app.models.verification import EventClaim
@@ -37,7 +37,8 @@ _INTERNATIONAL_TERMS = [
 ]
 _INTERNATIONAL_CATEGORIES = [
     "World", "World News", "International News", "International Relations",
-    "world", "world news", "Diplomacy", "diplomacy", "Global", "global"
+    "world", "world news", "Diplomacy", "diplomacy", "Global", "global",
+    "Sports", "sports", "football", "Football", "sport", "Sport",
 ]
 _BEAT_SYNONYMS: dict[str, list[str]] = {
     "politics": ["politics", "governance", "election", "parliament", "political", "government"],
@@ -162,7 +163,16 @@ class EventRepository:
                     EventArticle.event_id == NewsEvent.id,
                     or_(
                         NewsSource.country != "ET",
-                        NewsSource.slug.in_(["cnn", "al-jazeera", "dw-africa", "bbc-africa", "reuters", "ap-news"]),
+                        NewsSource.source_type.in_([
+                            SourceType.international_wire,
+                            SourceType.international_media,
+                        ]),
+                        NewsSource.slug.in_([
+                            "cnn", "al-jazeera", "dw-africa", "bbc-africa",
+                            "reuters", "ap-news", "sports",
+                        ]),
+                        func.lower(NewsSource.name).like("%sport%"),
+                        func.lower(NewsSource.slug).like("%sport%"),
                     ),
                 )
             )
@@ -178,7 +188,11 @@ class EventRepository:
                 ),
             ] + [
                 func.lower(NewsEvent.title).like(f"%{t}%")
-                for t in ["ukraine", "russia", "putin", "biden", "trump", "gaza", "israel", "world bank", "imf", "nato", "white house", "kremlin"]
+                for t in [
+                    "ukraine", "russia", "putin", "biden", "trump", "gaza", "israel",
+                    "world bank", "imf", "nato", "white house", "kremlin",
+                    "premier league", "champions league", "manchester", "chelsea", "arsenal"
+                ]
             ]
             intl_filter = and_(or_(*intl_conds), not_(is_domestic_ethiopia))
             stmt = stmt.where(intl_filter)

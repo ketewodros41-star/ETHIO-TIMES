@@ -146,7 +146,7 @@ class ArticleRepository:
         stmt = (
             select(Article.id)
             .where(Article.processing_status.in_(active))
-            .order_by(Article.created_at.asc())
+            .order_by(Article.created_at.desc())
             .limit(limit)
         )
         return list(self.session.scalars(stmt).all())

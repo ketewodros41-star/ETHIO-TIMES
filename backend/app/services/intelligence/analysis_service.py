@@ -89,13 +89,37 @@ class AnalysisService:
     ) -> AnalysisResult:
         text = " ".join(p for p in (title, summary, content) if p)
         lang = detect_language(text)
+        lower = text.lower()
+        cat = "general"
+        if any(w in lower for w in [
+            "goal", "match", "premier league", "champions league", "manchester",
+            "chelsea", "arsenal", "liverpool", "haaland", "foden", "football",
+            "soccer", "tournament", "athletics", "olympic", "barcelona", "real madrid"
+        ]):
+            cat = "sports"
+        elif any(w in lower for w in [
+            "election", "parliament", "president", "prime minister", "minister",
+            "government", "policy", "sanctions", "diplomacy", "treaty"
+        ]):
+            cat = "politics"
+        elif any(w in lower for w in [
+            "bank", "inflation", "economy", "market", "stocks", "trade",
+            "investor", "revenue", "dollar", "birr", "gdp"
+        ]):
+            cat = "business"
+        elif any(w in lower for w in [
+            "war", "military", "troops", "conflict", "clash", "missile",
+            "strike", "ceasefire", "fighting", "fano", "tplf"
+        ]):
+            cat = "conflict"
+
         return AnalysisResult(
             language=lang,
             language_name=_LANG_NAMES.get(lang),
-            category="general",
+            category=cat,
             subcategory=None,
             entities=Entities(),
-            topics=[],
+            topics=[cat] if cat != "general" else [],
             importance=50,
             summary=summary,
         )

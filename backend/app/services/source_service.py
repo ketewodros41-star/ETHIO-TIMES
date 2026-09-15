@@ -66,6 +66,25 @@ class SourceService:
                 break
         data["slug"] = slug
 
+        # Auto-detect international and sports metadata if not set
+        name_lower = payload.name.lower()
+        slug_lower = slug.lower()
+        cats = list(data.get("coverage_categories") or [])
+        intl_names = ["cnn", "al jazeera", "al-jazeera", "reuters", "bbc", "dw", "ap news", "associated press", "bloomberg"]
+        if any(w in name_lower or w in slug_lower for w in intl_names) or str(data.get("source_type", "")).lower() in ("international_media", "international_wire"):
+            if "international" not in cats:
+                cats.append("international")
+            if data.get("country") == "ET":
+                data["country"] = "US" if ("cnn" in slug_lower or "ap" in slug_lower or "bloomberg" in slug_lower) else ("QA" if "jazeera" in slug_lower else "GB")
+
+        if any(w in name_lower or w in slug_lower for w in ["sport", "football", "soccer", "premier"]):
+            if "sports" not in cats:
+                cats.append("sports")
+            if "football" not in cats:
+                cats.append("football")
+
+        data["coverage_categories"] = cats
+
         source = NewsSource(**data)
         try:
             self.repo.create(source)

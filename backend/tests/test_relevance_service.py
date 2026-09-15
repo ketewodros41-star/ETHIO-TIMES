@@ -81,3 +81,75 @@ def test_fallback_when_provider_raises():
         title="Ethiopia economy", summary=None, content=None
     )
     assert out.used_fallback is True
+
+
+def test_monitored_international_source_is_relevant():
+    from unittest.mock import MagicMock
+    from app.models.enums import SourceType
+
+    source = MagicMock()
+    source.name = "Al Jazeera"
+    source.slug = "al-jazeera"
+    source.country = "QA"
+    source.source_type = SourceType.international_media
+    source.coverage_categories = ["international", "world"]
+
+    provider = FakeAIProvider(available=False)
+    out = RelevanceService(provider).assess(
+        title="More than 100,000 displaced in Yemen conflict",
+        summary="A humanitarian crisis unfolds in Yemen.",
+        content=None,
+        source=source,
+    )
+    assert out.decision == RelevanceDecision.relevant
+    assert out.result.is_ethiopia_related is False
+    assert out.result.primary_region == "International"
+    assert out.result.score >= settings.relevance_threshold
+
+
+def test_monitored_sports_source_is_relevant():
+    from unittest.mock import MagicMock
+    from app.models.enums import SourceType
+
+    source = MagicMock()
+    source.name = "Sports Desk"
+    source.slug = "sports"
+    source.country = "ET"
+    source.source_type = SourceType.telegram_channel
+    source.coverage_categories = ["sports", "football"]
+
+    provider = FakeAIProvider(available=False)
+    out = RelevanceService(provider).assess(
+        title="Haaland scores twice as Man City beats Man Utd 2-1",
+        summary="Premier League matchweek 4 highlights and table updates.",
+        content=None,
+        source=source,
+    )
+    assert out.decision == RelevanceDecision.relevant
+    assert out.result.is_ethiopia_related is False
+    assert "sports" in out.result.categories
+    assert out.result.score >= settings.relevance_threshold
+
+
+def test_monitored_international_with_ethiopia_keywords():
+    from unittest.mock import MagicMock
+    from app.models.enums import SourceType
+
+    source = MagicMock()
+    source.name = "CNN"
+    source.slug = "cnn"
+    source.country = "US"
+    source.source_type = SourceType.international_media
+    source.coverage_categories = ["international"]
+
+    provider = FakeAIProvider(available=False)
+    out = RelevanceService(provider).assess(
+        title="African Union summit convenes in Addis Ababa to discuss regional peace",
+        summary="Leaders gather in Ethiopia for the 37th ordinary session.",
+        content=None,
+        source=source,
+    )
+    assert out.decision == RelevanceDecision.relevant
+    assert out.result.is_ethiopia_related is True
+    assert out.result.primary_region in ("Addis Ababa", "Ethiopia", "addis ababa")
+
